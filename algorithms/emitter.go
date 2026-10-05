@@ -9,9 +9,3 @@ package algorithms
 type Emitter[E any] interface {
 	Emit(event E)
 }
-
-// EmitterFunc — адаптер «функция → эмиттер», для простых подписчиков.
-type EmitterFunc[E any] func(event E)
-
-// Emit удовлетворяет Emitter[E].
-func (f EmitterFunc[E]) Emit(event E) { f(event) }

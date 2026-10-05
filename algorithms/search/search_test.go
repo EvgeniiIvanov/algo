@@ -7,7 +7,7 @@ import (
 )
 
 // Бинарный поиск находит индекс элемента в отсортированном массиве.
-func TestSearchНаходитЭлемент(t *testing.T) {
+func TestSearchFindsElement(t *testing.T) {
 	data := []int{1, 3, 5, 7, 9, 11}
 
 	if got := search.Search(data, 7); got != 3 {
@@ -16,14 +16,14 @@ func TestSearchНаходитЭлемент(t *testing.T) {
 }
 
 // Граничные случаи: отсутствие, пустой вход, один элемент, края массива.
-func TestSearchГраничныеСлучаи(t *testing.T) {
+func TestSearchEdgeCases(t *testing.T) {
 	data := []int{1, 3, 5, 7, 9, 11}
 
-	тесты := []struct {
-		название string
-		data     []int
-		target   int
-		хотим    int
+	cases := []struct {
+		name   string
+		data   []int
+		target int
+		want   int
 	}{
 		{"отсутствующий элемент", data, 4, -1},
 		{"отсутствующий за границами слева", data, 0, -1},
@@ -36,10 +36,10 @@ func TestSearchГраничныеСлучаи(t *testing.T) {
 		{"последний элемент", data, 11, 5},
 	}
 
-	for _, tc := range тесты {
-		t.Run(tc.название, func(t *testing.T) {
-			if got := search.Search(tc.data, tc.target); got != tc.хотим {
-				t.Fatalf("Search(%v, %d) = %d, ожидался %d", tc.data, tc.target, got, tc.хотим)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := search.Search(tc.data, tc.target); got != tc.want {
+				t.Fatalf("Search(%v, %d) = %d, ожидался %d", tc.data, tc.target, got, tc.want)
 			}
 		})
 	}

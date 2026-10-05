@@ -13,6 +13,7 @@ type Compare struct {
 }
 
 // Bounds — сдвиг границ поиска после сравнения.
+// На финальном промахе границы схлопываются (Low может стать больше High).
 type Bounds struct {
 	Low  int
 	High int
