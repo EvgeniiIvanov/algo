@@ -12,39 +12,58 @@ import (
 // выбор блока → вопросы блока по порядку → пояснение после каждого
 // ответа → в конце сводка по каждому затронутому блоку. «q» в любой
 // момент — выход (текущий блок считается пройденным до места выхода).
-// Ввод и вывод подменяемы, поэтому движок тестируется со скриптованным
-// вводом; история попыток не хранится.
+// Повторный проход блока пересчитывает его счёт заново, а не копит
+// поверх прошлого. Ввод и вывод подменяемы, поэтому движок тестируется
+// со скриптованным вводом; история попыток не хранится.
 func Run(in io.Reader, out io.Writer, bank *Bank) error {
 	if err := bank.Validate(); err != nil {
 		return fmt.Errorf("quiz: банк вопросов не прошёл валидацию: %w", err)
 	}
 
-	s := &session{out: out, blocks: map[string]*blockResult{}}
-	fmt.Fprintln(s.out, "Квиз по алгоритмам. «q» — выйти.")
+	c := &console{in: bufio.NewScanner(in), out: out}
+	c.println("Квиз по алгоритмам. «q» — выйти.")
 
-	sc := bufio.NewScanner(in)
+	s := &session{c: c, blocks: map[string]*blockResult{}}
 	for {
-		blk, ok := chooseBlock(sc, s.out, bank)
+		blk, ok := chooseBlock(c, bank)
 		if !ok {
 			break // выход или конец ввода
 		}
-		s.runBlock(sc, blk)
+		s.runBlock(blk)
 	}
 	s.printSummary()
 	return nil
 }
 
+// console — ввод/вывод движка в одном месте: сканер ввода + writer вывода.
+type console struct {
+	in  *bufio.Scanner
+	out io.Writer
+}
+
+func (c *console) printf(format string, args ...any) { fmt.Fprintf(c.out, format, args...) }
+func (c *console) println(args ...any)               { fmt.Fprintln(c.out, args...) }
+
+// line читает одну строку ввода без завершающих пробелов;
+// ok=false — ввод закончился (EOF).
+func (c *console) line() (string, bool) {
+	if !c.in.Scan() {
+		return "", false
+	}
+	return strings.TrimSpace(c.in.Text()), true
+}
+
 // chooseBlock показывает список блоков и читает выбор (номер или «q»).
-func chooseBlock(sc *bufio.Scanner, out io.Writer, bank *Bank) (*Block, bool) {
+func chooseBlock(c *console, bank *Bank) (*Block, bool) {
 	for {
-		fmt.Fprintln(out, "\nБлоки программы:")
+		c.printf("\nБлоки программы:\n")
 		for i := range bank.Blocks {
 			b := &bank.Blocks[i]
-			fmt.Fprintf(out, "  %d) %s — вопросов: %d\n", i+1, b.Title, b.questionCount())
+			c.printf("  %d) %s — вопросов: %d\n", i+1, b.Title, b.questionCount())
 		}
-		fmt.Fprint(out, "Выберите блок (номер, q — выход): ")
+		c.printf("Выберите блок (номер, q — выход): ")
 
-		line, ok := readLine(sc)
+		line, ok := c.line()
 		if !ok {
 			return nil, false
 		}
@@ -53,7 +72,7 @@ func chooseBlock(sc *bufio.Scanner, out io.Writer, bank *Bank) (*Block, bool) {
 		}
 		n, err := strconv.Atoi(line)
 		if err != nil || n < 1 || n > len(bank.Blocks) {
-			fmt.Fprintln(out, "Нет такого блока, попробуйте ещё раз.")
+			c.println("Нет такого блока, попробуйте ещё раз.")
 			continue
 		}
 		return &bank.Blocks[n-1], true
@@ -61,9 +80,9 @@ func chooseBlock(sc *bufio.Scanner, out io.Writer, bank *Bank) (*Block, bool) {
 }
 
 // askAnswer читает номер варианта (1–4); ok=false — выход или конец ввода.
-func askAnswer(sc *bufio.Scanner, out io.Writer) (int, bool) {
+func askAnswer(c *console) (int, bool) {
 	for {
-		line, ok := readLine(sc)
+		line, ok := c.line()
 		if !ok {
 			return 0, false
 		}
@@ -72,16 +91,29 @@ func askAnswer(sc *bufio.Scanner, out io.Writer) (int, bool) {
 		}
 		n, err := strconv.Atoi(line)
 		if err != nil || n < 1 || n > optionsCount {
-			fmt.Fprint(out, "Введите число от 1 до 4: ")
+			c.printf("Введите число от 1 до 4: ")
 			continue
 		}
 		return n - 1, true
 	}
 }
 
+// score — счёт по модулю или блоку: отвечено вопросов и сколько из них
+// правильно.
+type score struct {
+	correct  int
+	answered int
+}
+
+func (s score) add(o score) score {
+	s.correct += o.correct
+	s.answered += o.answered
+	return s
+}
+
 // session накапливает результаты текущей сессии по затронутым блокам.
 type session struct {
-	out    io.Writer
+	c      *console
 	order  []*blockResult          // в порядке выбора
 	blocks map[string]*blockResult // по id блока
 }
@@ -93,24 +125,42 @@ type blockResult struct {
 	modules map[string]*moduleResult // по id модуля
 }
 
+// total суммирует счёт всех модулей блока.
+func (b *blockResult) total() score {
+	var t score
+	for _, mr := range b.order {
+		t = t.add(mr.score)
+	}
+	return t
+}
+
+// reset обнуляет счёт блока перед повторным проходом.
+func (b *blockResult) reset() {
+	for _, mr := range b.order {
+		mr.score = score{}
+	}
+}
+
 // moduleResult — результат по одному модулю.
 type moduleResult struct {
-	title    string
-	correct  int
-	answered int
+	title string
+	score
 }
 
 // runBlock проводит опрос по блоку: модули по порядку, вопросы по порядку,
 // после каждого ответа — пояснение (почему правильно/неправильно).
-func (s *session) runBlock(sc *bufio.Scanner, b *Block) {
+func (s *session) runBlock(b *Block) {
 	res, seen := s.blocks[b.ID]
 	if !seen {
 		res = &blockResult{title: b.Title, modules: map[string]*moduleResult{}}
 		s.blocks[b.ID] = res
 		s.order = append(s.order, res)
+	} else {
+		res.reset() // повторный проход считается заново
 	}
 
-	fmt.Fprintf(s.out, "\n=== %s ===\n", b.Title)
+	c := s.c
+	c.printf("\n=== %s ===\n", b.Title)
 	for mi := range b.Modules {
 		m := &b.Modules[mi]
 		mr, seen := res.modules[m.ID]
@@ -120,70 +170,47 @@ func (s *session) runBlock(sc *bufio.Scanner, b *Block) {
 			res.order = append(res.order, mr)
 		}
 
-		fmt.Fprintf(s.out, "\nМодуль: %s\n", m.Title)
+		c.printf("\nМодуль: %s\n", m.Title)
 		for qi := range m.Questions {
 			q := &m.Questions[qi]
-			fmt.Fprintf(s.out, "\nВопрос %d из %d: %s\n", qi+1, len(m.Questions), q.Text)
+			c.printf("\nВопрос %d из %d: %s\n", qi+1, len(m.Questions), q.Text)
 			for j, opt := range q.Options {
-				fmt.Fprintf(s.out, "  %d) %s\n", j+1, opt)
+				c.printf("  %d) %s\n", j+1, opt)
 			}
-			fmt.Fprint(s.out, "Ваш ответ (1–4, q — выйти): ")
+			c.printf("Ваш ответ (1–4, q — выйти): ")
 
-			ans, ok := askAnswer(sc, s.out)
+			ans, ok := askAnswer(c)
 			if !ok {
-				fmt.Fprintln(s.out) // опрос прерван — учитываем только отвеченное
+				c.println() // опрос прерван — учитываем только отвеченное
 				return
 			}
 			mr.answered++
 			if ans == q.Correct {
 				mr.correct++
-				fmt.Fprintln(s.out, "✔ Правильно.")
+				c.println("✔ Правильно.")
 			} else {
-				fmt.Fprintf(s.out, "✘ Неправильно. Правильный ответ: %d) %s\n", q.Correct+1, q.Options[q.Correct])
+				c.printf("✘ Неправильно. Правильный ответ: %d) %s\n", q.Correct+1, q.Options[q.Correct])
 			}
-			fmt.Fprintf(s.out, "Пояснение: %s\n", q.Explanation)
+			c.printf("Пояснение: %s\n", q.Explanation)
 		}
 	}
 }
 
 // printSummary печатает сводку: правильные/всего по каждому затронутому блоку.
 func (s *session) printSummary() {
-	fmt.Fprintln(s.out, "\n=== Сводка ===")
+	c := s.c
+	c.println("\n=== Сводка ===")
 	if len(s.order) == 0 {
-		fmt.Fprintln(s.out, "Ни один блок не пройден.")
+		c.println("Ни один блок не пройден.")
 		return
 	}
 	for _, res := range s.order {
-		fmt.Fprintf(s.out, "%s: %d/%d\n", res.title, res.correct(), res.answered())
+		t := res.total()
+		c.printf("%s: %d/%d\n", res.title, t.correct, t.answered)
 		for _, mr := range res.order {
-			fmt.Fprintf(s.out, "  %s: %d/%d\n", mr.title, mr.correct, mr.answered)
+			c.printf("  %s: %d/%d\n", mr.title, mr.correct, mr.answered)
 		}
 	}
-}
-
-func (b *blockResult) correct() int {
-	n := 0
-	for _, mr := range b.order {
-		n += mr.correct
-	}
-	return n
-}
-
-func (b *blockResult) answered() int {
-	n := 0
-	for _, mr := range b.order {
-		n += mr.answered
-	}
-	return n
-}
-
-// readLine читает одну строку ввода без завершающих пробелов;
-// ok=false — ввод закончился (EOF).
-func readLine(sc *bufio.Scanner) (string, bool) {
-	if !sc.Scan() {
-		return "", false
-	}
-	return strings.TrimSpace(sc.Text()), true
 }
 
 // isQuit распознаёт команду выхода.

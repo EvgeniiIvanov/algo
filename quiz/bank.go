@@ -2,6 +2,7 @@ package quiz
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 )
 
@@ -27,7 +28,7 @@ func EmbeddedBank() (*Bank, error) {
 // ParseBank разбирает JSON в Bank.
 func ParseBank(data []byte) (*Bank, error) {
 	var bank Bank
-	if err := jsonUnmarshal(data, &bank); err != nil {
+	if err := json.Unmarshal(data, &bank); err != nil {
 		return nil, fmt.Errorf("quiz: не удалось разобрать банк: %w", err)
 	}
 	return &bank, nil

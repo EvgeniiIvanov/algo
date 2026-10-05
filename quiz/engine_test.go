@@ -113,6 +113,18 @@ func TestEngineWrongAnswerShowsExplanation(t *testing.T) {
 	}
 }
 
+func TestEngineReplayResetsCounters(t *testing.T) {
+	// Блок проходится дважды: сначала оба ответа верные (2/2),
+	// потом оба неверные. Сводка должна показывать только второй
+	// проход, а не сумму двух: 0/2, а не 2/4.
+	out := runEngine(t, testBank(t), "1\n1\n1\n1\n2\n2\nq\n")
+
+	want := "Блок 1. Фундамент: 0/2"
+	if !bytes.Contains([]byte(out), []byte(want)) {
+		t.Errorf("нет сводки %q в выводе:\n%s", want, out)
+	}
+}
+
 func TestEngineQuitWhileAsking(t *testing.T) {
 	// Выход на вопросе бинарного поиска (q вместо ответа): учтён неотвеченный.
 	out := runEngine(t, testBank(t), "1\n1\nq\nq\n")

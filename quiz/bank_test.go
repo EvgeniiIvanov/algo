@@ -23,14 +23,23 @@ func TestEmbeddedBankModuleQuestionCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
-	// Первый модуль Big O — 6 вопросов, второй Бинарный поиск — 7.
-	want := map[string]int{"big-o": 6, "binary-search": 7}
-	for _, m := range bank.Blocks[0].Modules {
-		if len(m.Questions) != want[m.ID] {
-			t.Errorf("модуль %q: вопросов %d, ожидали %d", m.ID, len(m.Questions), want[m.ID])
+	// На модуль — от 5 до 8 вопросов (тикет 04); жёсткие числа не
+	// фиксируем, чтобы набор вопросов мог расти без правки теста.
+	for _, b := range bank.Blocks {
+		for _, m := range b.Modules {
+			if n := len(m.Questions); n < minQuestionsPerModule || n > maxQuestionsPerModule {
+				t.Errorf("блок %q, модуль %q: вопросов %d, ожидали %d–%d",
+					b.ID, m.ID, n, minQuestionsPerModule, maxQuestionsPerModule)
+			}
 		}
 	}
 }
+
+// Границы размера набора на модуль из тикета 04.
+const (
+	minQuestionsPerModule = 5
+	maxQuestionsPerModule = 8
+)
 
 func TestValidateRejectsTwoCorrect(t *testing.T) {
 	// Формат «ровно один правильный» выражается индексом Correct, поэтому
