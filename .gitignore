@@ -1,0 +1,19 @@
+# Binaries / build artifacts
+/algo
+*.exe
+*.test
+*.prof
+*.out
+
+# Frontend (visual/)
+node_modules/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env / secrets
+.env
+.env.*
