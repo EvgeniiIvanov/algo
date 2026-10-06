@@ -6,6 +6,7 @@
 import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
+import { buildRunURL } from "./sse";
 import type { Frame } from "./types";
 
 const ALGORITHMS = ["binary-search"] as const;
@@ -89,13 +90,10 @@ function init(): void {
         explanationEl.textContent = `алгоритм «${algorithm}» пока не подключён`;
         return;
       }
-      const params = new URLSearchParams({
-        values: values.join(","),
-        target: String(target),
-      });
-      const url = `/api/run/${algorithm}?${params.toString()}`;
+      const url = buildRunURL(algorithm, values, target);
 
       stream.stop();
+      player.load([]); // новый Run — сбрасываем кадры, чтобы не смешивать с предыдущим
       playerEl.hidden = true;
       explanationEl.textContent = "Запрашиваю кадры у сервера…";
       arrayEl.replaceChildren();

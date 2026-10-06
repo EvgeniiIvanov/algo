@@ -4,7 +4,12 @@
 //
 // Контракт:
 //   createPlayer(frames) → объект с методами play/pause/stepForward/stepBackward/
-//   seek/setSpeed/getSpeed/currentFrame/currentIndex/isPlaying/subscribe/load.
+//   seek/setSpeed/getSpeed/currentFrame/currentIndex/isPlaying/subscribe/
+//   load/append/framesCount.
+//
+// Два способа получить кадры:
+//   load(frames)  — заменить весь список и сбросить позицию к нулю (новый запуск Run).
+//   append(frames) — добавить в хвост, не трогая позицию и play (кадры пришли по SSE).
 //
 // Шов не опускается ниже: notify делается на каждую смену кадра, не «внутри».
 
@@ -29,7 +34,10 @@ export interface Player {
   currentFrame(): Frame | null;
   /** Сколько кадров сейчас в плеере. */
   framesCount(): number;
+  /** Заменить все кадры и сбросить позицию/таймер. Использовать при новом Run. */
   load(frames: Frame[]): void;
+  /** Добавить кадры в хвост, не трогая позицию и play. Использовать при поступлении кадров из SSE. */
+  append(frames: Frame[]): void;
   subscribe(listener: (frame: Frame) => void): () => void;
 }
 
@@ -58,18 +66,32 @@ export function createPlayer(initial: Frame[]): Player {
     }
   };
 
+  /** Остановить воспроизведение: и таймер, и флаг playing. */
+  const pause = (): void => {
+    playing = false;
+    stopTimer();
+  };
+
   const scheduleNext = (): void => {
     stopTimer();
     if (!playing || index >= frames.length - 1) return;
     timer = setTimeout(() => {
       timer = null;
       if (!playing) return;
-      if (index < frames.length - 1) {
-        index++;
+      // Дошли до последнего кадра — пауза, и только потом notify,
+      // чтобы подписчик (UI) увидел playing=false в том же notify.
+      if (index >= frames.length - 1) {
+        playing = false;
         notify();
+        return;
       }
+      index++;
+      notify();
       if (playing && index < frames.length - 1) scheduleNext();
-      else playing = false; // дошли до конца — пауза
+      else {
+        playing = false;
+        notify(); // финальный кадр уже отправлен выше; здесь сигнал UI о паузе
+      }
     }, stepIntervalMs());
   };
 
@@ -79,17 +101,13 @@ export function createPlayer(initial: Frame[]): Player {
       playing = true;
       scheduleNext();
     },
-    pause(): void {
-      playing = false;
-      stopTimer();
-    },
+    pause,
     isPlaying(): boolean {
       return playing;
     },
     stepForward(): void {
       if (frames.length === 0) return;
-      playing = false;
-      stopTimer();
+      pause();
       if (index < frames.length - 1) {
         index++;
         notify();
@@ -97,8 +115,7 @@ export function createPlayer(initial: Frame[]): Player {
     },
     stepBackward(): void {
       if (frames.length === 0) return;
-      playing = false;
-      stopTimer();
+      pause();
       if (index > 0) {
         index--;
         notify();
@@ -106,8 +123,7 @@ export function createPlayer(initial: Frame[]): Player {
     },
     seek(target: number): void {
       if (frames.length === 0) return;
-      playing = false;
-      stopTimer();
+      pause();
       const clamped = Math.max(0, Math.min(frames.length - 1, Math.trunc(target)));
       if (clamped !== index) {
         index = clamped;
@@ -133,11 +149,20 @@ export function createPlayer(initial: Frame[]): Player {
     },
     currentFrame,
     load(next: Frame[]): void {
-      playing = false;
-      stopTimer();
+      pause();
       frames = [...next];
       index = 0;
       notify();
+    },
+    append(next: Frame[]): void {
+      // Хвост без сброса позиции и без прерывания play — кадры пришли из SSE.
+      if (next.length === 0) return;
+      frames = [...frames, ...next];
+      // Если плеер стоит в конце списка и не играет — пользователь ещё не нажал play;
+      // не дёргаем notify: кадров за пределами курсора он не увидит, а лишний апдейт
+      // может сбить UI (например, seek«сбрасывается»). Если играет — scheduleNext
+      // сам подхватит новые кадры на следующей итерации.
+      if (playing) scheduleNext();
     },
     subscribe(listener: (frame: Frame) => void): () => void {
       listeners.add(listener);

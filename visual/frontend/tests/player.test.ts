@@ -135,4 +135,49 @@ describe("createPlayer", () => {
     p.stepForward();
     expect(p.currentIndex()).toBe(0);
   });
+
+  // Регрессия на P2 #2: при авто-паузе на последнем кадре UI должен узнать о смене состояния.
+  it("play до конца — на последнем кадре останавливается, notify идёт уже с playing=false", () => {
+    const p = createPlayer(frames);
+    const states: boolean[] = [];
+    p.subscribe(() => {
+      states.push(p.isPlaying());
+    });
+    p.setSpeed(2);
+    p.play();
+
+    // Прокрутим достаточно времени, чтобы пройти 4 кадра при 2x (по 500мс на шаг).
+    vi.advanceTimersByTime(10_000);
+
+    expect(p.currentIndex()).toBe(frames.length - 1);
+    expect(p.isPlaying()).toBe(false);
+    // Все нотификации на шагах 1..4 были во время play; финальная — на паузе.
+    expect(states[states.length - 1]).toBe(false);
+  });
+
+  // Регрессия на P2 #1: новые кадры через append не сбрасывают позицию и не останавливают play.
+  it("append добавляет кадры в хвост, не сбрасывает позицию и не прерывает play", () => {
+    const p = createPlayer(frames.slice(0, 2)); // кадры 1..2, индекс 0
+    p.seek(1);
+    expect(p.currentIndex()).toBe(1);
+
+    p.append([frames[2], frames[3]]);
+    expect(p.framesCount()).toBe(4);
+    expect(p.currentIndex()).toBe(1); // позиция сохранилась
+    expect(p.isPlaying()).toBe(false); // append сам по себе не запускает play
+
+    p.play();
+    expect(p.isPlaying()).toBe(true);
+
+    // Пришли ещё кадры во время проигрывания — play не должен прерываться,
+    // позиция не должна сбрасываться.
+    const more = {
+      ...frames[0],
+      step: 5,
+      explanation: "ещё один",
+    } as const;
+    p.append([more]);
+    expect(p.framesCount()).toBe(5);
+    expect(p.isPlaying()).toBe(true);
+  });
 });

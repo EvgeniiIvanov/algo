@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPlayer } from "../src/player";
 import { createStream } from "../src/stream";
+import type { Frame } from "../src/types";
 
 /** Собрать ответ с заранее известными байтами SSE-потока. */
 function sseResponse(events: string[]): Response {
@@ -80,5 +81,50 @@ describe("createStream", () => {
 
     expect(onError).toHaveBeenCalledWith(expect.stringContaining("connection refused"));
     expect(player.currentFrame()).toBeNull();
+  });
+
+  // Регрессия на P2 #1: кадры из стрима добавляются в хвост, не сбрасывают позицию.
+  it("новые кадры из стрима не сбрасывают позицию пользователя", async () => {
+    const firstFrame: Frame = {
+      step: 1,
+      kind: "array",
+      explanation: "стартовый",
+      data: { values: [1, 3, 5], low: 0, high: 2, mid: -1, foundIndex: -1 },
+    };
+    const player = createPlayer([firstFrame]);
+    player.seek(0); // позиция 0
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1,3,5&target=3",
+      player,
+      fetchImpl: (() => Promise.resolve(sseResponse([sampleFrame(2), sampleFrame(3)]))) as typeof fetch,
+    });
+    await stream.start();
+
+    expect(player.framesCount()).toBe(3);
+    // Позиция пользователя сохранилась.
+    expect(player.currentIndex()).toBe(0);
+  });
+
+  // Регрессия на P2 #3: stop() не должен показывать сетевую ошибку.
+  it("stop() не приводит к ложному onError про сеть", async () => {
+    const player = createPlayer([]);
+    const onError = vi.fn();
+    let rejectFetch: ((reason: unknown) => void) | undefined;
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1&target=1",
+      player,
+      sink: { onError },
+      fetchImpl: (() =>
+        new Promise((_resolve, reject) => {
+          rejectFetch = reject;
+        })) as typeof fetch,
+    });
+    const startPromise = stream.start();
+    // Симулируем, что AbortError пришёл от контроллера прерывания.
+    const abortErr = Object.assign(new Error("Aborted"), { name: "AbortError" });
+    rejectFetch?.(abortErr);
+    await startPromise;
+
+    expect(onError).not.toHaveBeenCalled();
   });
 });

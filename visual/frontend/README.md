@@ -32,11 +32,11 @@ pnpm build    # → dist/
 pnpm test
 ```
 
-Шов фронта — `tests/`. Покрыто:
+Шов фронта — `tests/` (см. [docs/SPEC.md](../../docs/SPEC.md), «Четвёртый шов»). Покрыто:
 - парсер SSE-кадров (`sse.test.ts`);
-- плеер (`player.test.ts`): play/pause, seek, stepForward/Backward, setSpeed, subscribe, load;
+- плеер (`player.test.ts`): play/pause, seek, stepForward/Backward, setSpeed, subscribe, load, **append** (без сброса позиции), регрессия на авто-паузу в конце;
 - классификация кадра как массива (`render.test.ts`);
-- сетевой клиент + плеер (`stream.test.ts`): успешный поток, HTTP 400 с понятным сообщением, сетевая ошибка.
+- сетевой клиент + плеер (`stream.test.ts`): успешный поток, HTTP 400 с понятным сообщением, сетевая ошибка, **AbortError при stop() не показывается как ошибка**, кадры из стрима не сбрасывают позицию пользователя.
 
 ## Структура
 

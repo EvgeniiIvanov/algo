@@ -4,13 +4,17 @@
 //   createStream(url, player, sink) → start/stop.
 //
 // Поток читается как ReadableStream<Uint8Array> из fetch с Accept: text/event-stream.
-// На каждое событие `data: {...}\n\n` парсим кадр и кладём в плеер через player.load.
-// На любую ошибку — уведомляем sink.error().
+// Кадры накапливаются и:
+//   • первый кадр — через player.load (стартовая позиция);
+//   • последующие — через player.append (позиция пользователя сохраняется).
+// На ошибку 4xx/5xx — уведомляем sink.onError с сообщением из JSON-тела.
+// На AbortError (наш stop()) — тихо завершаемся, без ошибки.
 //
 // Шов между сетью и UI — этот модуль и плеер. Тесты — в tests/stream.test.ts.
 
 import { parseError, parseFrame } from "./sse";
 import type { Player } from "./player";
+import type { Frame } from "./types";
 
 export interface StreamSink {
   onFrame?: (count: number) => void;
@@ -18,12 +22,10 @@ export interface StreamSink {
   onEnd?: () => void;
 }
 
-/** Опции для создания SSE-клиента; выделены, чтобы тестам было легко подсунуть fetch. */
 export interface StreamOptions {
   url: string;
   player: Player;
   sink?: StreamSink;
-  /** Внедряется для тестов. В проде — глобальный fetch. */
   fetchImpl?: typeof fetch;
 }
 
@@ -39,7 +41,9 @@ export function createStream(options: StreamOptions): Stream {
   return {
     async start(): Promise<void> {
       controller = new AbortController();
-      options.player.load([]);
+      // Не вызываем player.load([]) здесь — мы хотим добавлять кадры в хвост.
+      // Если в плеере что-то лежало от предыдущего Run, ответственность на main.ts
+      // (он создаёт новый плеер на новый Run). Здесь только стрим.
 
       let resp: Response;
       try {
@@ -48,6 +52,8 @@ export function createStream(options: StreamOptions): Stream {
           signal: controller.signal,
         });
       } catch (err) {
+        // Наш собственный AbortController: тихий выход, без onError.
+        if ((err as { name?: string }).name === "AbortError") return;
         options.sink?.onError?.(`не удалось подключиться: ${(err as Error).message}`);
         return;
       }
@@ -71,14 +77,14 @@ export function createStream(options: StreamOptions): Stream {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
-      const collected: import("./types").Frame[] = [];
+      const collected: Frame[] = [];
 
       try {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          // Сервер присылает кадры разделённые \n\n — режем по ним,
+          // Сервер присылает кадры, разделённые \n\n — режем по ним,
           // остаток в buffer до следующего read.
           let boundary = buffer.indexOf("\n\n");
           while (boundary !== -1) {
@@ -86,24 +92,21 @@ export function createStream(options: StreamOptions): Stream {
             buffer = buffer.slice(boundary + 2);
             if (event.length > 0) {
               try {
-                const frame = parseFrame(event);
-                collected.push(frame);
+                collected.push(parseFrame(event));
               } catch (err) {
                 options.sink?.onError?.(`кадр отброшен: ${(err as Error).message}`);
               }
             }
             boundary = buffer.indexOf("\n\n");
           }
-          // Накопленные кадры — в плеер. На каждом пакете reader,
-          // а не на последнем: так пользователь видит прогресс стрима.
+          // Накопленные кадры — в плеер через append: позиция пользователя не сбрасывается.
           if (collected.length > 0) {
-            options.player.load([...collected]);
-            options.sink?.onFrame?.(collected.length);
+            options.player.append([...collected]);
+            options.sink?.onFrame?.(options.player.framesCount());
           }
         }
       } catch (err) {
         if ((err as { name?: string }).name === "AbortError") {
-          // Это остановка через stop() — не ошибка.
           options.sink?.onEnd?.();
           return;
         }
@@ -115,8 +118,8 @@ export function createStream(options: StreamOptions): Stream {
       const tail = buffer.trim();
       if (tail.length > 0) {
         try {
-          collected.push(parseFrame(tail));
-          options.player.load([...collected]);
+          const last = parseFrame(tail);
+          options.player.append([last]);
         } catch (err) {
           options.sink?.onError?.(`хвост отброшен: ${(err as Error).message}`);
         }
