@@ -8,6 +8,7 @@
 # Frontend (visual/)
 node_modules/
 dist/
+*.tsbuildinfo
 
 # Editors / OS
 .vscode/
