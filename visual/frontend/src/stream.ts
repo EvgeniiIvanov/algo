@@ -77,7 +77,12 @@ export function createStream(options: StreamOptions): Stream {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
-      const collected: Frame[] = [];
+      // Кадры, разобранные в текущей жизни потока. В плеер уходит только «хвост»,
+      // которого там нет — это страховка от дублирования, если бэкенд пришлёт
+      // кадры порциями. Хранить весь список приходится потому, что SSE
+      // не гарантирует доставку пакетов по границам кадров — один кадр может
+      // прийти в соседних чанках.
+      const allFrames: Frame[] = [];
 
       try {
         for (;;) {
@@ -92,16 +97,18 @@ export function createStream(options: StreamOptions): Stream {
             buffer = buffer.slice(boundary + 2);
             if (event.length > 0) {
               try {
-                collected.push(parseFrame(event));
+                allFrames.push(parseFrame(event));
               } catch (err) {
                 options.sink?.onError?.(`кадр отброшен: ${(err as Error).message}`);
               }
             }
             boundary = buffer.indexOf("\n\n");
           }
-          // Накопленные кадры — в плеер через append: позиция пользователя не сбрасывается.
-          if (collected.length > 0) {
-            options.player.append([...collected]);
+          // Отдаём плееру только новые кадры — пользователь видит прогресс
+          // по мере прихода, но каждый кадр попадает в плеер ровно один раз.
+          if (allFrames.length > options.player.framesCount()) {
+            const delta = allFrames.slice(options.player.framesCount());
+            options.player.append(delta);
             options.sink?.onFrame?.(options.player.framesCount());
           }
         }
@@ -118,11 +125,17 @@ export function createStream(options: StreamOptions): Stream {
       const tail = buffer.trim();
       if (tail.length > 0) {
         try {
-          const last = parseFrame(tail);
-          options.player.append([last]);
+          allFrames.push(parseFrame(tail));
         } catch (err) {
           options.sink?.onError?.(`хвост отброшен: ${(err as Error).message}`);
         }
+      }
+
+      // Финальный прогон: если в последнем чанке пришли кадры, которых ещё нет в плеере.
+      if (allFrames.length > options.player.framesCount()) {
+        const delta = allFrames.slice(options.player.framesCount());
+        options.player.append(delta);
+        options.sink?.onFrame?.(options.player.framesCount());
       }
       options.sink?.onEnd?.();
     },

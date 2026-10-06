@@ -5,7 +5,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPlayer } from "../src/player";
 import { createStream } from "../src/stream";
-import type { Frame } from "../src/types";
 
 /** Собрать ответ с заранее известными байтами SSE-потока. */
 function sseResponse(events: string[]): Response {
@@ -14,6 +13,29 @@ function sseResponse(events: string[]): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
+/**
+ * Собрать ответ, который отдаёт кадры несколькими порциями через `chunkSize`.
+ * Имитирует сетевой бэкенд, который стримит кадры порциями по HTTP/2.
+ */
+function sseChunkedResponse(events: string[], chunkSize: number): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enc = new TextEncoder();
+      let buf = "";
+      for (let i = 0; i < events.length; i += chunkSize) {
+        buf += events.slice(i, i + chunkSize).join("\n\n") + "\n\n";
+        controller.enqueue(enc.encode(buf));
+        buf = "";
+      }
       controller.close();
     },
   });
@@ -83,26 +105,19 @@ describe("createStream", () => {
     expect(player.currentFrame()).toBeNull();
   });
 
-  // Регрессия на P2 #1: кадры из стрима добавляются в хвост, не сбрасывают позицию.
-  it("новые кадры из стрима не сбрасывают позицию пользователя", async () => {
-    const firstFrame: Frame = {
-      step: 1,
-      kind: "array",
-      explanation: "стартовый",
-      data: { values: [1, 3, 5], low: 0, high: 2, mid: -1, foundIndex: -1 },
-    };
-    const player = createPlayer([firstFrame]);
-    player.seek(0); // позиция 0
+  // Регрессия на P1: кадры из стрима добавляются в хвост, не сбрасывают позицию.
+  it("новые кадры из стрима попадают в плеер без сброса позиции", async () => {
+    const player = createPlayer([]);
     const stream = createStream({
       url: "/api/run/binary-search?values=1,3,5&target=3",
       player,
-      fetchImpl: (() => Promise.resolve(sseResponse([sampleFrame(2), sampleFrame(3)]))) as typeof fetch,
+      fetchImpl: (() =>
+        Promise.resolve(sseResponse([sampleFrame(1), sampleFrame(2), sampleFrame(3)]))) as typeof fetch,
     });
     await stream.start();
 
     expect(player.framesCount()).toBe(3);
-    // Позиция пользователя сохранилась.
-    expect(player.currentIndex()).toBe(0);
+    expect(player.currentIndex()).toBe(0); // плеер не играл — позиция в начале
   });
 
   // Регрессия на P2 #3: stop() не должен показывать сетевую ошибку.
@@ -126,5 +141,25 @@ describe("createStream", () => {
     await startPromise;
 
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  // Регрессия на P2 (ревью-2): при много-чанковом потоке кадры не дублируются.
+  it("при разбивке потока на несколько чтений кадры не дублируются", async () => {
+    const player = createPlayer([]);
+    const events = [sampleFrame(1), sampleFrame(2), sampleFrame(3), sampleFrame(4)];
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1,3,5,7&target=7",
+      player,
+      // chunkSize=1: каждый кадр приходит в отдельном чтении из reader.read().
+      fetchImpl: (() => Promise.resolve(sseChunkedResponse(events, 1))) as typeof fetch,
+    });
+    await stream.start();
+
+    expect(player.framesCount()).toBe(events.length);
+    // Шаги по порядку, без повторов и пропусков.
+    for (let i = 0; i < events.length; i++) {
+      player.seek(i);
+      expect(player.currentFrame()?.step).toBe(i + 1);
+    }
   });
 });

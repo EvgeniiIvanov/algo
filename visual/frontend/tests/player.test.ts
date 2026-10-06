@@ -180,4 +180,34 @@ describe("createPlayer", () => {
     expect(p.framesCount()).toBe(5);
     expect(p.isPlaying()).toBe(true);
   });
+
+  // Регрессия на P1 (ревью-2): append обязан уведомить подписчика, даже если плеер не играет.
+  // Иначе после нового Run кадры приходят, но UI их не видит и панель не показывается.
+  it("append уведомляет подписчика, даже если плеер не играет", () => {
+    const p = createPlayer([]);
+    const listener = vi.fn();
+    p.subscribe(listener);
+
+    p.append([frames[0]]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenLastCalledWith(frames[0]);
+
+    p.append([frames[1], frames[2]]);
+    // Один notify на каждый append, не на каждый кадр. Что рендерить — решает
+    // рендерер: текущий кадр не сменился, рендерер отдаст currentFrame().
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  // Регрессия на P1 (ревью-2): append на непустом плеере сохраняет позицию.
+  it("append на непустом плеере сохраняет позицию", () => {
+    const p = createPlayer(frames.slice(0, 2)); // кадры 1..2
+    expect(p.currentIndex()).toBe(0);
+    p.seek(1);
+    expect(p.currentIndex()).toBe(1);
+
+    p.append([frames[2], frames[3]]);
+    expect(p.framesCount()).toBe(4);
+    expect(p.currentIndex()).toBe(1);
+    expect(p.currentFrame()).toEqual(frames[1]);
+  });
 });
