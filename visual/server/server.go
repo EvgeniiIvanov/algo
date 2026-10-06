@@ -1,11 +1,12 @@
 // Пакет server — HTTP-слой визуализатора: приём Run и стрим кадров по SSE
 // (ADR-0003). Транспорт знает только про frame.Frame: новый алгоритм — это
-// новый маршрут поверх тех же хелперов, правок транспорта не нужно.
+// новый маршрут поверх того же стриминга, правок streamFrames не нужно.
 package server
 
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -65,7 +66,10 @@ func streamFrames(w http.ResponseWriter, r *http.Request, frames <-chan frame.Fr
 	for f := range frames {
 		data, err := json.Marshal(f)
 		if err != nil {
-			writeError(w, err) // заголовки уже отправлены — ошибка уйдёт в поток
+			// Кадр, который не маршалится, отдать нельзя: заголовки уже
+			// отправлены, WriteHeader не сработает. Логируем и рвём поток —
+			// известных входов, ведущих сюда, нет.
+			log.Printf("кадр не маршалится: %v", err)
 			return
 		}
 		fmt.Fprintf(w, "data: %s\n\n", data)

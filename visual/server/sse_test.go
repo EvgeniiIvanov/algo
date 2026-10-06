@@ -24,13 +24,18 @@ func readSSEFrames(t *testing.T, resp *httptest.ResponseRecorder) []frame.Frame 
 	scanner := bufio.NewScanner(bytes.NewReader(resp.Body.Bytes()))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if data, ok := strings.CutPrefix(line, "data: "); ok {
-			var f frame.Frame
-			if err := json.Unmarshal([]byte(data), &f); err != nil {
-				t.Fatalf("кадр не разбирается как JSON: %v\n%s", err, data)
-			}
-			frames = append(frames, f)
+		if line == "" {
+			continue // пустые строки — разделители SSE-событий
 		}
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			t.Fatalf("в SSE-потоке мусор вне события data: %q", line)
+		}
+		var f frame.Frame
+		if err := json.Unmarshal([]byte(data), &f); err != nil {
+			t.Fatalf("кадр не разбирается как JSON: %v\n%s", err, data)
+		}
+		frames = append(frames, f)
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("чтение SSE-потока: %v", err)
@@ -38,8 +43,8 @@ func readSSEFrames(t *testing.T, resp *httptest.ResponseRecorder) []frame.Frame 
 	return frames
 }
 
-// doRun — запрос Run и базовые проверки SSE-ответа.
-func doRun(t *testing.T, values, target string) (*httptest.ResponseRecorder, []frame.Frame) {
+// doRun — запрос Run.
+func doRun(t *testing.T, values, target string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/run/binary-search", nil)
@@ -55,7 +60,16 @@ func doRun(t *testing.T, values, target string) (*httptest.ResponseRecorder, []f
 	resp := httptest.NewRecorder()
 	NewMux().ServeHTTP(resp, req)
 
-	return resp, readSSEFrames(t, resp)
+	return resp
+}
+
+// doRunSSE — успешный Run: базовые проверки SSE-ответа + кадры из потока.
+func doRunSSE(t *testing.T, values, target string) ([]frame.Frame, *httptest.ResponseRecorder) {
+	t.Helper()
+
+	resp := doRun(t, values, target)
+	assertSSE(t, resp)
+	return readSSEFrames(t, resp), resp
 }
 
 // assertSSE проверяет базовые свойства успешного SSE-ответа.
@@ -93,8 +107,7 @@ func assertSnapshot(t *testing.T, f frame.Frame, values []int, low, high, mid, f
 }
 
 func TestRunBinarySearchFound(t *testing.T) {
-	resp, frames := doRun(t, "1,3,5,7,9", "7")
-	assertSSE(t, resp)
+	frames, _ := doRunSSE(t, "1,3,5,7,9", "7")
 	if len(frames) != 5 {
 		t.Fatalf("кадров = %d, ожидается 5:\n%v", len(frames), frames)
 	}
@@ -121,8 +134,7 @@ func TestRunBinarySearchFound(t *testing.T) {
 }
 
 func TestRunBinarySearchNotFound(t *testing.T) {
-	resp, frames := doRun(t, "1,3,5", "4")
-	assertSSE(t, resp)
+	frames, _ := doRunSSE(t, "1,3,5", "4")
 
 	if len(frames) != 6 {
 		t.Fatalf("кадров = %d, ожидается 6:\n%v", len(frames), frames)
@@ -152,7 +164,7 @@ func TestRunValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, _ := doRun(t, tt.values, tt.target)
+			resp := doRun(t, tt.values, tt.target)
 			if resp.Code != http.StatusBadRequest {
 				t.Fatalf("статус = %d, ожидается 400", resp.Code)
 			}
@@ -170,7 +182,7 @@ func TestRunValidation(t *testing.T) {
 // Рендерер и транспорт не должны расходиться: кадры из эндпоинта
 // совпадают с кадрами, собранными напрямую у рендерера.
 func TestRunMatchesDirectRenderer(t *testing.T) {
-	_, frames := doRun(t, "2,4,6,8", "8")
+	frames, _ := doRunSSE(t, "2,4,6,8", "8")
 	want := render.BinarySearchFrames([]int{2, 4, 6, 8}, 8)
 
 	if len(frames) != len(want) {
