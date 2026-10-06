@@ -64,12 +64,12 @@ func doRun(t *testing.T, values, target string) *httptest.ResponseRecorder {
 }
 
 // doRunSSE — успешный Run: базовые проверки SSE-ответа + кадры из потока.
-func doRunSSE(t *testing.T, values, target string) ([]frame.Frame, *httptest.ResponseRecorder) {
+func doRunSSE(t *testing.T, values, target string) []frame.Frame {
 	t.Helper()
 
 	resp := doRun(t, values, target)
 	assertSSE(t, resp)
-	return readSSEFrames(t, resp), resp
+	return readSSEFrames(t, resp)
 }
 
 // assertSSE проверяет базовые свойства успешного SSE-ответа.
@@ -107,7 +107,7 @@ func assertSnapshot(t *testing.T, f frame.Frame, values []int, low, high, mid, f
 }
 
 func TestRunBinarySearchFound(t *testing.T) {
-	frames, _ := doRunSSE(t, "1,3,5,7,9", "7")
+	frames := doRunSSE(t, "1,3,5,7,9", "7")
 	if len(frames) != 5 {
 		t.Fatalf("кадров = %d, ожидается 5:\n%v", len(frames), frames)
 	}
@@ -134,7 +134,7 @@ func TestRunBinarySearchFound(t *testing.T) {
 }
 
 func TestRunBinarySearchNotFound(t *testing.T) {
-	frames, _ := doRunSSE(t, "1,3,5", "4")
+	frames := doRunSSE(t, "1,3,5", "4")
 
 	if len(frames) != 6 {
 		t.Fatalf("кадров = %d, ожидается 6:\n%v", len(frames), frames)
@@ -182,7 +182,7 @@ func TestRunValidation(t *testing.T) {
 // Рендерер и транспорт не должны расходиться: кадры из эндпоинта
 // совпадают с кадрами, собранными напрямую у рендерера.
 func TestRunMatchesDirectRenderer(t *testing.T) {
-	frames, _ := doRunSSE(t, "2,4,6,8", "8")
+	frames := doRunSSE(t, "2,4,6,8", "8")
 	want := render.BinarySearchFrames([]int{2, 4, 6, 8}, 8)
 
 	if len(frames) != len(want) {
