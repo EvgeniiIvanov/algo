@@ -1,0 +1,165 @@
+// Тест шва фронта (см. docs/SPEC.md, шов фронтенда):
+// SSE-клиент + плеер — взаимодействие сети и UI.
+// Проверяем, что клиент правильно парсит поток и кладёт кадры в плеер,
+// и что на HTTP-ошибку приходит понятное сообщение, а не кадры с мусором.
+import { describe, expect, it, vi } from "vitest";
+import { createPlayer } from "../src/player";
+import { createStream } from "../src/stream";
+
+/** Собрать ответ с заранее известными байтами SSE-потока. */
+function sseResponse(events: string[]): Response {
+  const body = events.join("\n\n") + "\n\n";
+  const bytes = new TextEncoder().encode(body);
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
+/**
+ * Собрать ответ, который отдаёт кадры несколькими порциями через `chunkSize`.
+ * Имитирует сетевой бэкенд, который стримит кадры порциями по HTTP/2.
+ */
+function sseChunkedResponse(events: string[], chunkSize: number): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enc = new TextEncoder();
+      let buf = "";
+      for (let i = 0; i < events.length; i += chunkSize) {
+        buf += events.slice(i, i + chunkSize).join("\n\n") + "\n\n";
+        controller.enqueue(enc.encode(buf));
+        buf = "";
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
+const sampleFrame = (step: number): string =>
+  `data: {"step":${step},"kind":"array","explanation":"шаг ${step}","data":{"values":[1,3,5],"low":0,"high":2,"mid":-1,"foundIndex":-1}}`;
+
+describe("createStream", () => {
+  it("читает поток и кладёт все кадры в плеер", async () => {
+    const player = createPlayer([]);
+    const onFrame = vi.fn();
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1,3,5&target=3",
+      player,
+      sink: { onFrame },
+      fetchImpl: (() =>
+        Promise.resolve(sseResponse([sampleFrame(1), sampleFrame(2), sampleFrame(3)]))) as typeof fetch,
+    });
+    await stream.start();
+
+    expect(player.currentIndex()).toBe(0);
+    expect(player.currentFrame()?.step).toBe(1);
+    expect(onFrame).toHaveBeenCalled();
+    expect(onFrame).toHaveBeenLastCalledWith(3);
+  });
+
+  it("на HTTP 400 показывает ошибку из JSON-тела, не роняет плеер", async () => {
+    const player = createPlayer([]);
+    const onError = vi.fn();
+    const stream = createStream({
+      url: "/api/run/binary-search?values=5,1,3&target=3",
+      player,
+      sink: { onError },
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "массив должен быть отсортирован" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )) as typeof fetch,
+    });
+
+    await stream.start();
+
+    expect(onError).toHaveBeenCalledWith("массив должен быть отсортирован");
+    expect(player.currentFrame()).toBeNull();
+  });
+
+  it("на сетевую ошибку вызывает onError и не валит плеер", async () => {
+    const player = createPlayer([]);
+    const onError = vi.fn();
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1&target=1",
+      player,
+      sink: { onError },
+      fetchImpl: (() => Promise.reject(new Error("connection refused"))) as typeof fetch,
+    });
+
+    await stream.start();
+
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("connection refused"));
+    expect(player.currentFrame()).toBeNull();
+  });
+
+  // Регрессия на P1: кадры из стрима добавляются в хвост, не сбрасывают позицию.
+  it("новые кадры из стрима попадают в плеер без сброса позиции", async () => {
+    const player = createPlayer([]);
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1,3,5&target=3",
+      player,
+      fetchImpl: (() =>
+        Promise.resolve(sseResponse([sampleFrame(1), sampleFrame(2), sampleFrame(3)]))) as typeof fetch,
+    });
+    await stream.start();
+
+    expect(player.framesCount()).toBe(3);
+    expect(player.currentIndex()).toBe(0); // плеер не играл — позиция в начале
+  });
+
+  // Регрессия на P2 #3: stop() не должен показывать сетевую ошибку.
+  it("stop() не приводит к ложному onError про сеть", async () => {
+    const player = createPlayer([]);
+    const onError = vi.fn();
+    let rejectFetch: ((reason: unknown) => void) | undefined;
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1&target=1",
+      player,
+      sink: { onError },
+      fetchImpl: (() =>
+        new Promise((_resolve, reject) => {
+          rejectFetch = reject;
+        })) as typeof fetch,
+    });
+    const startPromise = stream.start();
+    // Симулируем, что AbortError пришёл от контроллера прерывания.
+    const abortErr = Object.assign(new Error("Aborted"), { name: "AbortError" });
+    rejectFetch?.(abortErr);
+    await startPromise;
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  // Регрессия на P2 (ревью-2): при много-чанковом потоке кадры не дублируются.
+  it("при разбивке потока на несколько чтений кадры не дублируются", async () => {
+    const player = createPlayer([]);
+    const events = [sampleFrame(1), sampleFrame(2), sampleFrame(3), sampleFrame(4)];
+    const stream = createStream({
+      url: "/api/run/binary-search?values=1,3,5,7&target=7",
+      player,
+      // chunkSize=1: каждый кадр приходит в отдельном чтении из reader.read().
+      fetchImpl: (() => Promise.resolve(sseChunkedResponse(events, 1))) as typeof fetch,
+    });
+    await stream.start();
+
+    expect(player.framesCount()).toBe(events.length);
+    // Шаги по порядку, без повторов и пропусков.
+    for (let i = 0; i < events.length; i++) {
+      player.seek(i);
+      expect(player.currentFrame()?.step).toBe(i + 1);
+    }
+  });
+});

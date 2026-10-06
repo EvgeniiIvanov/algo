@@ -1,0 +1,26 @@
+{
+  "name": "algo-visualizer-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.9.1",
+  "type": "module",
+  "description": "Тупой рендерер кадров визуализатора алгоритмов (ADR-0002). Vite + ванильный TS, без фреймворка.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.9.0",
+    "eslint": "^10.12.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Визуализатор алгоритмов</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <h1>Визуализатор алгоритмов</h1>
+      <p class="lead">
+        Откройте эту страницу и бэкенд на <code>:8080</code>, введите данные и наблюдайте выполнение в плеере.
+      </p>
+      <section id="controls">
+        <label>
+          Алгоритм
+          <select id="algorithm">
+            <option value="binary-search">Бинарный поиск</option>
+          </select>
+        </label>
+        <label>
+          Массив (через запятую)
+          <input id="values" type="text" value="1,3,5,7,9,11,13" />
+        </label>
+        <label>
+          Искомое значение
+          <input id="target" type="text" value="7" />
+        </label>
+        <button id="run" type="button">Запустить</button>
+      </section>
+      <section id="player" hidden>
+        <div class="player-buttons">
+          <button id="step-back" type="button">⟸ Шаг назад</button>
+          <button id="play-pause" type="button">▶ Старт</button>
+          <button id="step-forward" type="button">Шаг вперёд ⟹</button>
+        </div>
+        <label class="speed">
+          Скорость
+          <input id="speed" type="range" min="1" max="8" step="1" value="2" />
+          <span id="speed-label">2×</span>
+        </label>
+        <label class="seek">
+          Кадр
+          <input id="seek" type="range" min="1" step="1" value="1" />
+          <span id="frame-label">— / —</span>
+        </label>
+      </section>
+      <section id="frame-view">
+        <div id="explanation" class="explanation">Нажмите «Запустить», чтобы получить кадры.</div>
+        <div id="array" class="array" aria-label="Снимок массива"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
