@@ -2,6 +2,7 @@
   "name": "algo-visualizer-frontend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@12.9.1",
   "type": "module",
   "description": "Тупой рендерер кадров визуализатора алгоритмов (ADR-0002). Vite + ванильный TS, без фреймворка.",
   "scripts": {
