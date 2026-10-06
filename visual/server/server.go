@@ -24,6 +24,7 @@ func NewMux() *http.ServeMux {
 
 // handleBinarySearch — Run бинарного поиска: вход (массив + искомое значение),
 // на выходе SSE-поток кадров до конца выполнения.
+// Здесь только вход алгоритма: вся стриминговая обвязка — в runStreaming.
 func handleBinarySearch(w http.ResponseWriter, r *http.Request) {
 	values, target, err := parseRunInput(r)
 	if err != nil {
@@ -35,12 +36,20 @@ func handleBinarySearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Кадры стримятся по мере выполнения: рендерер работает в горутине,
-	// каждый кадр сразу уходит клиенту.
+	runStreaming(w, r, func(emit func(frame.Frame)) {
+		render.BinarySearch(values, target, emit)
+	})
+}
+
+// runStreaming — мост «алгоритм → SSE» (ADR-0003): запускает run в горутине
+// и стримит его кадры клиенту. Transport-обвязка живёт здесь; новый алгоритм —
+// это новый маршрут и тонкий обработчик «парсинг → валидация → runStreaming»,
+// стриминг не правится и не копируется.
+func runStreaming(w http.ResponseWriter, r *http.Request, run func(emit func(frame.Frame))) {
 	frames := make(chan frame.Frame)
 	go func() {
 		defer close(frames)
-		render.BinarySearch(values, target, func(f frame.Frame) {
+		run(func(f frame.Frame) {
 			select {
 			case frames <- f:
 			case <-r.Context().Done(): // клиент отключился — не зависаем
@@ -48,12 +57,12 @@ func handleBinarySearch(w http.ResponseWriter, r *http.Request) {
 		})
 	}()
 
-	streamFrames(w, r, frames)
+	streamFrames(w, frames)
 }
 
 // streamFrames — SSE-транспорт (ADR-0003): каждый кадр — событие data,
 // после последнего кадра поток завершается.
-func streamFrames(w http.ResponseWriter, r *http.Request, frames <-chan frame.Frame) {
+func streamFrames(w http.ResponseWriter, frames <-chan frame.Frame) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 
