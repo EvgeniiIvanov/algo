@@ -41,8 +41,9 @@ type console struct {
 	out io.Writer
 }
 
-func (c *console) printf(format string, args ...any) { fmt.Fprintf(c.out, format, args...) }
-func (c *console) println(args ...any)               { fmt.Fprintln(c.out, args...) }
+// Печатаем в stdout CLI: ошибки записи в терминал намеренно игнорируем.
+func (c *console) printf(format string, args ...any) { _, _ = fmt.Fprintf(c.out, format, args...) }
+func (c *console) println(args ...any)               { _, _ = fmt.Fprintln(c.out, args...) }
 
 // line читает одну строку ввода без завершающих пробелов;
 // ok=false — ввод закончился (EOF).
