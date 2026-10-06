@@ -28,7 +28,7 @@ export function parseFrame(chunk: string): Frame {
   try {
     raw = JSON.parse(payload);
   } catch (err) {
-    throw new Error(`кадр не разбирается как JSON: ${(err as Error).message}`);
+    throw new Error(`кадр не разбирается как JSON: ${(err as Error).message}`, { cause: err });
   }
   return validateFrame(raw);
 }

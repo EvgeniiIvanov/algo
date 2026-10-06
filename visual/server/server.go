@@ -81,7 +81,11 @@ func streamFrames(w http.ResponseWriter, frames <-chan frame.Frame) {
 			log.Printf("кадр не маршалится: %v", err)
 			return
 		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		// Ошибка записи клиенту означает разорванное соединение: писать
+		// дальше некуда — выходим (по context это уже сделал select выше).
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			return
+		}
 		flusher.Flush()
 	}
 }
@@ -126,9 +130,10 @@ func checkSorted(values []int) error {
 	return nil
 }
 
-// writeError — понятная ошибка вместо кадров с мусором (400).
+// writeError — понятная ошибка вместо кадров с мусором (400). Ошибку
+// кодирования игнорируем осознанно: ответ уже уходит, тут нечего логировать.
 func writeError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
-	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }

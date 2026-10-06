@@ -49,3 +49,32 @@ jobs:
 
       - name: go test
         run: go test -race ./...
+
+  frontend:
+    name: frontend lint / test / build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: visual/frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: visual/frontend/pnpm-lock.yaml
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: eslint
+        run: pnpm lint
+
+      - name: vitest
+        run: pnpm test
+
+      - name: build (tsc + vite)
+        run: pnpm build
