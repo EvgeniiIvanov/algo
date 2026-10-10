@@ -3,8 +3,8 @@ package structures
 import "errors"
 
 var (
-	ErrStackOverflow   = errors.New("stack overflow")
-	ErrStackUnderfolow = errors.New("stack underflow")
+	ErrStackOverflow  = errors.New("stack overflow")
+	ErrStackUnderflow = errors.New("stack underflow")
 )
 
 type Stack struct {
@@ -30,7 +30,7 @@ func (s *Stack) Push(v int) error {
 
 func (s *Stack) Pop() (int, error) {
 	if s.sp == 0 {
-		return 0, ErrStackUnderfolow
+		return 0, ErrStackUnderflow
 	}
 	s.sp--
 	v := s.data[s.sp]
@@ -39,7 +39,7 @@ func (s *Stack) Pop() (int, error) {
 
 func (s *Stack) Peek() (int, error) {
 	if s.sp == 0 {
-		return 0, ErrStackUnderfolow
+		return 0, ErrStackUnderflow
 	}
 	return s.data[s.sp-1], nil
 }
