@@ -6,10 +6,11 @@
 import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
-import { buildRunURL } from "./sse";
+import { buildRunURL, buildStackRunURL } from "./sse";
+import { parseStackCapacity, parseStackScenario } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search"] as const;
+const ALGORITHMS = ["binary-search", "stack"] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -45,6 +46,10 @@ function init(): void {
   const algorithmEl = getElement<HTMLSelectElement>("algorithm");
   const valuesEl = getElement<HTMLInputElement>("values");
   const targetEl = getElement<HTMLInputElement>("target");
+  const capacityEl = getElement<HTMLInputElement>("capacity");
+  const scriptEl = getElement<HTMLTextAreaElement>("script");
+  const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
+  const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -55,7 +60,14 @@ function init(): void {
   const seekEl = getElement<HTMLInputElement>("seek");
   const frameLabelEl = getElement<HTMLElement>("frame-label");
 
-  // В select одна option из index.html — оставляем как есть.
+  // Показываем поля ввода под выбранный алгоритм: у каждого свой блок.
+  const syncInputs = (): void => {
+    const isStack = algorithmEl.value === "stack";
+    binarySearchInputsEl.hidden = isStack;
+    stackInputsEl.hidden = !isStack;
+  };
+  algorithmEl.addEventListener("change", syncInputs);
+  syncInputs();
 
   const player = createPlayer([]);
   let stream = createStream({ url: "/api/run", player });
@@ -83,14 +95,22 @@ function init(): void {
 
   runEl.addEventListener("click", () => {
     try {
-      const values = parseValues(valuesEl.value);
-      const target = parseTarget(targetEl.value);
       const algorithm = algorithmEl.value as Algorithm;
       if (!ALGORITHMS.includes(algorithm)) {
         explanationEl.textContent = `алгоритм «${algorithm}» пока не подключён`;
         return;
       }
-      const url = buildRunURL(algorithm, values, target);
+      // Вход проверяем до Run; URL собираем под алгоритм.
+      let url: string;
+      if (algorithm === "stack") {
+        const capacity = parseStackCapacity(capacityEl.value);
+        parseStackScenario(scriptEl.value, capacity); // валидация; на сервер уедет сырой текст
+        url = buildStackRunURL(capacity, scriptEl.value);
+      } else {
+        const values = parseValues(valuesEl.value);
+        const target = parseTarget(targetEl.value);
+        url = buildRunURL(algorithm, values, target);
+      }
 
       stream.stop();
       player.load([]); // новый Run — сбрасываем кадры, чтобы не смешивать с предыдущим
