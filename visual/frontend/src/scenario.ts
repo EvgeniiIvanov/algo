@@ -1,6 +1,7 @@
 // Парсинг сценария операций стека на клиенте (зеркало visual/server/stack.go):
 // ловим ошибки ввода до Run; сервер перепроверяет — он авторитетен.
-// Сообщения об ошибках совпадают с серверными.
+// ёмкость и значения push — грамматика Go strconv.Atoi (parseDecimalInt):
+// клиент не пропустит формы, которые отвергнет сервер.
 
 /** Одна операция сценария стека: push со значением или pop. */
 export interface StackOp {
@@ -12,12 +13,23 @@ export interface StackOp {
 export const MAX_STACK_CAPACITY = 100;
 export const MAX_STACK_OPS = 500;
 
+/** Разобрать строку по грамматике Go strconv.Atoi: необязательный знак, только десятичные цифры.
+ * Возвращает целое число или null, если грамматика не та (дробные, экспонента,
+ * 0x-нотация, пустая строка, пробелы, сверх безопасного целого). */
+export function parseDecimalInt(raw: string): number | null {
+  if (!/^[+-]?\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  // Go int64 переполняется и даёт ошибку парсера; на клиенте граница — Number.MAX_SAFE_INTEGER.
+  if (!Number.isSafeInteger(n)) return null;
+  return n;
+}
+
 /** Разобрать ёмкость стека: целое от 1 до MAX_STACK_CAPACITY. */
 export function parseStackCapacity(raw: string): number {
   const trimmed = raw.trim();
-  const n = Number(trimmed);
-  if (trimmed === "" || !Number.isInteger(n)) {
-    throw new Error("ёмкость стека — целое число, например 5");
+  const n = parseDecimalInt(trimmed);
+  if (n === null) {
+    throw new Error(`не удалось разобрать «${trimmed}» как целое число: ёмкость стека — одно целое, например 5`);
   }
   if (n < 1 || n > MAX_STACK_CAPACITY) {
     throw new Error(`ёмкость стека должна быть от 1 до ${MAX_STACK_CAPACITY}, получено ${n}`);
@@ -48,9 +60,11 @@ export function parseStackScenario(raw: string, capacity: number): StackOp[] {
           `строка ${lineNo}: push требует ровно один аргумент — целое число, например «push 5»`,
         );
       }
-      const v = Number(fields[1]);
-      if (!Number.isInteger(v)) {
-        throw new Error(`строка ${lineNo}: «${fields[1]}» — не целое число`);
+      const v = parseDecimalInt(fields[1]);
+      if (v === null) {
+        throw new Error(
+          `строка ${lineNo}: не удалось разобрать «${fields[1]}» как целое число: push N — значение одним целым`,
+        );
       }
       ops.push({ isPush: true, value: v });
     } else if (fields[0] === "pop") {

@@ -10,16 +10,32 @@ describe("parseStackCapacity", () => {
     expect(parseStackCapacity(" 12 ")).toBe(12);
   });
 
+  it("принимает формы со знаком и ведущими нулями, как Go strconv.Atoi", () => {
+    expect(parseStackCapacity("+2")).toBe(2);
+    expect(parseStackCapacity("+50")).toBe(50);
+    expect(parseStackCapacity("007")).toBe(7);
+  });
+
   it("отклоняет мусор и дробные", () => {
     expect(() => parseStackCapacity("три")).toThrow(/целое/);
     expect(() => parseStackCapacity("2.5")).toThrow(/целое/);
+    expect(() => parseStackCapacity("2.0")).toThrow(/целое/);
     expect(() => parseStackCapacity("")).toThrow(/целое/);
+  });
+
+  it("отклоняет формы, которые отвергнет Go strconv.Atoi на сервере", () => {
+    expect(() => parseStackCapacity("1e2")).toThrow(/целое/);
+    expect(() => parseStackCapacity("0x10")).toThrow(/целое/);
+    expect(() => parseStackCapacity("1 2")).toThrow(/целое/);
+    expect(() => parseStackCapacity(" ")).toThrow(/целое/);
   });
 
   it("отклоняет ёмкость вне диапазона", () => {
     expect(() => parseStackCapacity("0")).toThrow(/от 1 до/);
     expect(() => parseStackCapacity("-2")).toThrow(/от 1 до/);
     expect(() => parseStackCapacity("101")).toThrow(/от 1 до/);
+    // Парсер знака принимает, диапазон отбраковывает: как на сервере.
+    expect(() => parseStackCapacity("-7")).toThrow(/от 1 до/);
   });
 });
 
@@ -40,7 +56,17 @@ describe("parseStackScenario", () => {
   it("отклоняет push без значения, с лишним аргументом и с мусором", () => {
     expect(() => parseStackScenario("push", 3)).toThrow(/push требует/);
     expect(() => parseStackScenario("push 5 7", 3)).toThrow(/push требует/);
-    expect(() => parseStackScenario("push пять", 3)).toThrow(/не целое число/);
+    expect(() => parseStackScenario("push пять", 3)).toThrow(/не удалось разобрать «пять» как целое число/);
+  });
+
+  it("значения push следуют грамматике strconv.Atoi: со знаком и ведущими нулями можно, 0x/экспоненту/дроби — нет", () => {
+    expect(parseStackScenario("push +2", 3)).toEqual([{ isPush: true, value: 2 }]);
+    expect(parseStackScenario("push -1", 3)).toEqual([{ isPush: true, value: -1 }]);
+    expect(parseStackScenario("push 007", 3)).toEqual([{ isPush: true, value: 7 }]);
+
+    expect(() => parseStackScenario("push 1e2", 3)).toThrow(/не удалось разобрать «1e2» как целое число/);
+    expect(() => parseStackScenario("push 0x10", 3)).toThrow(/не удалось разобрать «0x10» как целое число/);
+    expect(() => parseStackScenario("push 2.0", 3)).toThrow(/не удалось разобрать «2.0» как целое число/);
   });
 
   it("отклоняет pop с аргументом", () => {
