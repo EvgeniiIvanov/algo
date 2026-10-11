@@ -62,12 +62,28 @@ code {
 }
 
 #controls input,
-#controls select {
+#controls select,
+#controls textarea {
   font: inherit;
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: white;
+}
+
+#controls textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+/* Обёртки-переключатели полей ввода под выбранный алгоритм:
+   display: contents оставляет label'ы ячейками grid, как раньше. */
+.inputs {
+  display: contents;
+}
+
+.inputs[hidden] {
+  display: none;
 }
 
 #run {
@@ -181,4 +197,65 @@ code {
   border-color: #15803d;
   color: white;
   transform: scale(1.05);
+}
+
+/* Кадр kind="structure" (стек): подпись операции + ряд ячеек на всю ёмкость. */
+.structure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.operation {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.structure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 18px; /* место под метку top */
+}
+
+.cell.empty {
+  background: white;
+  border-style: dashed;
+}
+
+.cell.filled {
+  background: var(--in-range);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.cell.added {
+  background: var(--found);
+  border-color: #15803d;
+  color: white;
+  transform: scale(1.05);
+}
+
+.cell.removed {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+}
+
+/* Указатель top: метка под вершиной стека. */
+.cell.top {
+  position: relative;
+}
+
+.cell.top::after {
+  content: "top";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
 }

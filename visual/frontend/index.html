@@ -17,16 +17,34 @@
           Алгоритм
           <select id="algorithm">
             <option value="binary-search">Бинарный поиск</option>
+            <option value="stack">Стек</option>
           </select>
         </label>
-        <label>
-          Массив (через запятую)
-          <input id="values" type="text" value="1,3,5,7,9,11,13" />
-        </label>
-        <label>
-          Искомое значение
-          <input id="target" type="text" value="7" />
-        </label>
+        <div id="binary-search-inputs" class="inputs">
+          <label>
+            Массив (через запятую)
+            <input id="values" type="text" value="1,3,5,7,9,11,13" />
+          </label>
+          <label>
+            Искомое значение
+            <input id="target" type="text" value="7" />
+          </label>
+        </div>
+        <div id="stack-inputs" class="inputs" hidden>
+          <label>
+            Ёмкость стека
+            <input id="capacity" type="text" value="3" />
+          </label>
+          <label>
+            Сценарий операций (по одной на строку)
+            <textarea id="script" rows="6">push 5
+push 7
+pop
+push 9
+push 11
+push 13</textarea>
+          </label>
+        </div>
         <button id="run" type="button">Запустить</button>
       </section>
       <section id="player" hidden>
