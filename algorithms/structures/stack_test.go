@@ -7,9 +7,19 @@ import (
 	"github.com/EvgeniiIvanov/algo/algorithms/structures"
 )
 
+// mustStack — обёртка для тестов: New успешен, ошибки не ждём.
+func mustStack(t *testing.T, size int) *structures.Stack {
+	t.Helper()
+	s, err := structures.New(size)
+	if err != nil {
+		t.Fatalf("New(%d): %v", size, err)
+	}
+	return s
+}
+
 // Инвариант LIFO: элементы снимаются в порядке, обратном добавлению.
 func TestStackLIFO(t *testing.T) {
-	s := structures.New(3)
+	s := mustStack(t, 3)
 	for _, v := range []int{1, 2, 3} {
 		if err := s.Push(v); err != nil {
 			t.Fatalf("Push(%d) вернул ошибку %v, ожидалась запись", v, err)
@@ -31,7 +41,7 @@ func TestStackLIFO(t *testing.T) {
 
 // Pop и Peek из пустого стека — ошибка, а не паника; состояние не меняется.
 func TestStackEmptyErrors(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 
 	if _, err := s.Pop(); !errors.Is(err, structures.ErrStackUnderflow) {
 		t.Fatalf("Pop из пустого стека: ошибка = %v, ожидалась ErrStackUnderflow", err)
@@ -46,7 +56,7 @@ func TestStackEmptyErrors(t *testing.T) {
 
 // Push в полный стек — ошибка переполнения; содержимое не меняется.
 func TestStackOverflow(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 	if err := s.Push(1); err != nil {
 		t.Fatalf("Push(1): %v", err)
 	}
@@ -67,7 +77,7 @@ func TestStackOverflow(t *testing.T) {
 
 // Peek возвращает вершину, не снимая её.
 func TestStackPeekKeepsValue(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 	_ = s.Push(5)
 	_ = s.Push(7)
 
@@ -84,7 +94,7 @@ func TestStackPeekKeepsValue(t *testing.T) {
 
 // Флаги и размеры отражают заполненность стека.
 func TestStackLenCapFlags(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 	if s.Cap() != 2 || s.Len() != 0 || !s.IsEmpty() || s.IsFull() {
 		t.Fatalf("новый стек: Cap=%d Len=%d IsEmpty=%v IsFull=%v, ожидалось 2/0/true/false",
 			s.Cap(), s.Len(), s.IsEmpty(), s.IsFull())
@@ -104,7 +114,7 @@ func TestStackLenCapFlags(t *testing.T) {
 
 // Clear опустошает стек: ячейки переиспользуются с нулевого индекса.
 func TestStackClear(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 	_ = s.Push(1)
 	_ = s.Push(2)
 
@@ -126,7 +136,7 @@ func TestStackClear(t *testing.T) {
 
 // Чередование push/pop: длина и вершина отслеживаются корректно.
 func TestStackInterleavedPushPop(t *testing.T) {
-	s := structures.New(3)
+	s := mustStack(t, 3)
 
 	steps := []struct {
 		op      string
@@ -164,7 +174,7 @@ func TestStackInterleavedPushPop(t *testing.T) {
 
 // Стек нулевой ёмкости: пуст и полон одновременно, любой push — переполнение.
 func TestStackZeroCapacity(t *testing.T) {
-	s := structures.New(0)
+	s := mustStack(t, 0)
 	if !s.IsEmpty() || !s.IsFull() || s.Len() != 0 || s.Cap() != 0 {
 		t.Fatalf("стек нулевой ёмкости: Len=%d Cap=%d IsEmpty=%v IsFull=%v, ожидалось 0/0/true/true",
 			s.Len(), s.Cap(), s.IsEmpty(), s.IsFull())
@@ -174,5 +184,19 @@ func TestStackZeroCapacity(t *testing.T) {
 	}
 	if _, err := s.Pop(); !errors.Is(err, structures.ErrStackUnderflow) {
 		t.Fatalf("Pop из стека нулевой ёмкости: ошибка = %v, ожидалась ErrStackUnderflow", err)
+	}
+}
+
+// Отрицательная ёмкость — явная ошибка, а не паника и не тихое исправление в 0.
+func TestStackNegativeCapacity(t *testing.T) {
+	s, err := structures.New(-5)
+	if err == nil {
+		t.Fatal("New(-5) вернул стек без ошибки, ожидалась ошибка")
+	}
+	if !errors.Is(err, structures.ErrStackNegativeCapacity) {
+		t.Fatalf("New(-5): ошибка = %v, ожидалась ErrStackNegativeCapacity", err)
+	}
+	if s != nil {
+		t.Fatal("New(-5) вернул ненулевой стек вместе с ошибкой")
 	}
 }

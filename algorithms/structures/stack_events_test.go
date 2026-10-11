@@ -25,7 +25,7 @@ func TestStackEventsOrder(t *testing.T) {
 		structures.StackPop{Index: 1, Value: 7},
 	}
 
-	s := structures.New(3)
+	s := mustStack(t, 3)
 	var spy spyEmitter
 
 	if err := s.PushWithEmitter(5, &spy); err != nil {
@@ -46,7 +46,7 @@ func TestStackEventsOrder(t *testing.T) {
 
 // Push в полный стек — событие StackOverflow и та же ошибка, что у тихого Push.
 func TestStackOverflowEvent(t *testing.T) {
-	s := structures.New(1)
+	s := mustStack(t, 1)
 	var spy spyEmitter
 
 	if err := s.PushWithEmitter(5, &spy); err != nil {
@@ -71,7 +71,7 @@ func TestStackOverflowEvent(t *testing.T) {
 
 // Pop из пустого стека — только ошибка, без события.
 func TestStackPopEmptyNoEvent(t *testing.T) {
-	s := structures.New(1)
+	s := mustStack(t, 1)
 	var spy spyEmitter
 
 	if _, err := s.PopWithEmitter(&spy); !errors.Is(err, structures.ErrStackUnderflow) {
@@ -84,7 +84,7 @@ func TestStackPopEmptyNoEvent(t *testing.T) {
 
 // Без эмиттера (quiet mode) операции работают как обычно, событий не требуют.
 func TestStackWithEmitterQuietMode(t *testing.T) {
-	s := structures.New(2)
+	s := mustStack(t, 2)
 	if err := s.PushWithEmitter(5, nil); err != nil {
 		t.Fatalf("PushWithEmitter(5, nil): %v", err)
 	}

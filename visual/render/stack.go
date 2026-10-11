@@ -44,10 +44,16 @@ type StackOp struct {
 // StackRun — Frame Renderer стека: прогоняет сценарий операций над стеком
 // фиксированной ёмкости и на каждый шаг отдаёт кадр в emit.
 // Сценарий должен быть валидным (pop только из непустого стека) — валидация
-// входа живёт на уровне маршрута; переполнение — легальное событие сценария.
-func StackRun(capacity int, ops []StackOp, emit func(frame.Frame)) {
+// входа живёт в маршруте; переполнение — легальное событие сценария.
+// Отрицательная ёмкость — ошибка конструктора, кадры не создаются.
+func StackRun(capacity int, ops []StackOp, emit func(frame.Frame)) error {
+	stack, err := structures.New(capacity)
+	if err != nil {
+		return err
+	}
+
 	r := &stackFrames{
-		stack:    structures.New(capacity),
+		stack:    stack,
 		capacity: capacity,
 		changed:  -1,
 		emit:     emit,
@@ -67,13 +73,16 @@ func StackRun(capacity int, ops []StackOp, emit func(frame.Frame)) {
 		// Сценарий валидирован до Run: pop из пустого стека сюда не доходит.
 		_, _ = r.stack.PopWithEmitter(r)
 	}
+	return nil
 }
 
 // StackFrames — все кадры сценария сразу (удобно для тестов).
-func StackFrames(capacity int, ops []StackOp) []frame.Frame {
+func StackFrames(capacity int, ops []StackOp) ([]frame.Frame, error) {
 	var frames []frame.Frame
-	StackRun(capacity, ops, func(f frame.Frame) { frames = append(frames, f) })
-	return frames
+	if err := StackRun(capacity, ops, func(f frame.Frame) { frames = append(frames, f) }); err != nil {
+		return nil, err
+	}
+	return frames, nil
 }
 
 // stackFrames — накапливает состояние между событиями и строит кадры.

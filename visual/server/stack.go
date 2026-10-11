@@ -38,7 +38,9 @@ func handleStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runStreaming(w, r, func(emit func(frame.Frame)) {
-		render.StackRun(capacity, ops, emit)
+		// Ёмкость валидирована в parseStackCapacity (1..maxStackCapacity):
+		// ошибка конструктора здесь недостижима.
+		_ = render.StackRun(capacity, ops, emit)
 	})
 }
 

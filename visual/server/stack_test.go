@@ -194,7 +194,10 @@ func TestRunStackMatchesDirectRenderer(t *testing.T) {
 		{IsPush: true, Value: 9},
 	}
 	frames := doRunStackSSE(t, "2", "push 5\npush 7\npop\npush 9")
-	want := render.StackFrames(2, ops)
+	want, err := render.StackFrames(2, ops)
+	if err != nil {
+		t.Fatalf("StackFrames(2): %v", err)
+	}
 
 	if len(frames) != len(want) {
 		t.Fatalf("кадров = %d, рендерер даёт %d", len(frames), len(want))

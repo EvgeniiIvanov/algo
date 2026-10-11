@@ -1,10 +1,14 @@
 package structures
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
-	ErrStackOverflow  = errors.New("stack overflow")
-	ErrStackUnderflow = errors.New("stack underflow")
+	ErrStackOverflow         = errors.New("stack overflow")
+	ErrStackUnderflow        = errors.New("stack underflow")
+	ErrStackNegativeCapacity = errors.New("negative stack capacity")
 )
 
 type Stack struct {
@@ -12,11 +16,17 @@ type Stack struct {
 	sp   int   // указатель
 }
 
-func New(size int) *Stack {
+// New создаёт стек фиксированной ёмкости size. Отрицательная ёмкость —
+// ошибка, а не паника и не тихое исправление: объем задаёт вызывающий,
+// и он же разбирается со своей ошибкой.
+func New(size int) (*Stack, error) {
+	if size < 0 {
+		return nil, fmt.Errorf("ёмкость стека %d отрицательна: %w", size, ErrStackNegativeCapacity)
+	}
 	return &Stack{
 		data: make([]int, size),
 		sp:   0,
-	}
+	}, nil
 }
 
 func (s *Stack) Push(v int) error {
