@@ -7,6 +7,7 @@ import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
 import { buildRunURL, buildStackRunURL } from "./sse";
+import { parseValues, parseTarget } from "./binarysearch";
 import { parseStackCapacity, parseStackScenario } from "./scenario";
 import type { Frame } from "./types";
 
@@ -17,27 +18,6 @@ function getElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (el === null) throw new Error(`id=${id} не найден в DOM`);
   return el as T;
-}
-
-function parseValues(raw: string): number[] {
-  const parts = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  if (parts.length === 0) throw new Error("введите массив — целые числа через запятую");
-  const out: number[] = [];
-  for (const p of parts) {
-    const n = Number(p);
-    if (!Number.isInteger(n)) throw new Error(`«${p}» — не целое число`);
-    out.push(n);
-  }
-  return out;
-}
-
-function parseTarget(raw: string): number {
-  const n = Number(raw.trim());
-  if (!Number.isInteger(n)) throw new Error("искомое значение — целое число");
-  return n;
 }
 
 function init(): void {
