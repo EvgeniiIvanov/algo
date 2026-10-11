@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** in-progress
+**Status:** done
 
 `автор-черновик: человек` — черновик Stack пишет пользователь; агент дорабатывает по находкам ревью, молча не переписывает.
 
