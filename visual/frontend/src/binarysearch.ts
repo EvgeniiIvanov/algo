@@ -2,30 +2,32 @@
 // ловим ошибки ввода до Run; сервер перепроверяет — он авторитетен.
 // Формы, которые Number() принимает, а серверный strconv.Atoi отвергнет
 // (2.0, 1e2, 0x10), сыплются здесь понятной ошибкой, а не HTTP 400 после Run.
-// Грамматика значений — Go strconv.Atoi: необязательный знак, только
-// десятичные цифры. Полного int64-паритета с сервером нет осознанно
-// (по итогам ревью тикета 08): Number не представляет целые больше
-// Number.MAX_SAFE_INTEGER точно, поэтому такие значения клиент отвергает
-// сам, а не молча округляет. Верхняя граница int на сервере шире — это
-// неустранимое ограничение клиента.
+// Грамматика значений — Go strconv.Atoi, см. общий модуль decimalInteger.ts:
+// там же живёт ограничение безопасного целого (Number.MAX_SAFE_INTEGER),
+// поэтому значения за его пределами клиент отвергает сам, а не молча
+// округляет (верхняя граница int на сервере шире — неустранимое
+// ограничение клиента).
+
+import { parseDecimalInteger } from "./decimalInteger";
 
 /**
- * Разобрать одно целое по грамматике Go strconv.Atoi (необязательный знак,
- * только десятичные цифры) в пределах безопасного целого. what — подсказка
- * поля в сообщении об ошибке, в стиле сервера.
+ * Разобрать одно целое по общей грамматике decimalInteger.ts
+ * (Go strconv.Atoi в пределах безопасного целого) и бросить Error
+ * с контекстным сообщением: при синтаксической ошибке — с подсказкой
+ * поля fieldHint (в стиле сервера), при выходе за безопасное целое —
+ * с сообщением именно про диапазон, а не «не целое».
  */
-export function parseBinaryInt(raw: string, what: string): number {
-  const trimmed = raw.trim();
-  if (!/^[+-]?\d+$/.test(trimmed)) {
-    throw new Error(`не удалось разобрать «${trimmed}» как целое число: ${what}`);
+export function parseBinaryInt(raw: string, fieldHint: string): number {
+  const result = parseDecimalInteger(raw);
+  if (!result.ok) {
+    if (result.reason === "unsafe-range") {
+      throw new Error(
+        `«${result.input}» — за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
+      );
+    }
+    throw new Error(`не удалось разобрать «${result.input}» как целое число: ${fieldHint}`);
   }
-  const n = Number(trimmed);
-  if (!Number.isSafeInteger(n)) {
-    throw new Error(
-      `«${trimmed}» — за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
-    );
-  }
-  return n;
+  return result.value;
 }
 
 /**

@@ -1,7 +1,10 @@
 // Парсинг сценария операций стека на клиенте (зеркало visual/server/stack.go):
 // ловим ошибки ввода до Run; сервер перепроверяет — он авторитетен.
-// ёмкость и значения push — грамматика Go strconv.Atoi (parseDecimalInt):
+// ёмкость и значения push — грамматика Go strconv.Atoi, реализованная
+// в общем модуле decimalInteger.ts (см. parseDecimalInteger):
 // клиент не пропустит формы, которые отвергнет сервер.
+
+import { parseDecimalInteger } from "./decimalInteger";
 
 /** Одна операция сценария стека: push со значением или pop. */
 export interface StackOp {
@@ -13,15 +16,12 @@ export interface StackOp {
 export const MAX_STACK_CAPACITY = 100;
 export const MAX_STACK_OPS = 500;
 
-/** Разобрать строку по грамматике Go strconv.Atoi: необязательный знак, только десятичные цифры.
- * Возвращает целое число или null, если грамматика не та (дробные, экспонента,
- * 0x-нотация, пустая строка, пробелы, сверх безопасного целого). */
-export function parseDecimalInt(raw: string): number | null {
-  if (!/^[+-]?\d+$/.test(raw)) return null;
-  const n = Number(raw);
-  // Go int64 переполняется и даёт ошибку парсера; на клиенте граница — Number.MAX_SAFE_INTEGER.
-  if (!Number.isSafeInteger(n)) return null;
-  return n;
+/** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
+ * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
+ * собирают caller'ы ниже. */
+function parseDecimalInt(raw: string): number | null {
+  const result = parseDecimalInteger(raw);
+  return result.ok ? result.value : null;
 }
 
 /** Разобрать ёмкость стека: целое от 1 до MAX_STACK_CAPACITY. */
