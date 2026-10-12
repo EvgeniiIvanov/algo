@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 ## Acceptance Criteria
 
-- [ ] Корневой `README.md` кратко описывает назначение проекта и его три слоя, требования к Go/Node/pnpm, быстрый запуск API и фронтенда в отдельных терминалах, запуск квиза и ссылки на `PLAN.md`, `PROGRESS.md`, `GLOSSARY.md` и `docs/WORKFLOWS.md`
-- [ ] `Makefile` содержит `help` с перечнем и кратким описанием доступных целей
-- [ ] Есть отдельные цели запуска API, dev-фронтенда и CLI-квиза
-- [ ] Цели сборки, тестов и линтинга покрывают Go и фронтенд; `check` повторяет проверки CI, включая `gofmt`, `go vet`, `golangci-lint`, `go test -race ./...`, `pnpm install --frozen-lockfile`, frontend lint/test/build
-- [ ] Все цели запускаются из корня репозитория, frontend-команды выполняются в `visual/frontend`, установка зависимостей не меняет lockfile
-- [ ] Инструкции README согласованы с `Makefile`, текущим CI и локальным способом запуска через Vite + Go API
+- [x] Корневой `README.md` кратко описывает назначение проекта и его три слоя, требования к Go/Node/pnpm, быстрый запуск API и фронтенда в отдельных терминалах, запуск квиза и ссылки на `PLAN.md`, `PROGRESS.md`, `GLOSSARY.md` и `docs/WORKFLOWS.md`
+- [x] `Makefile` содержит `help` с перечнем и кратким описанием доступных целей
+- [x] Есть отдельные цели запуска API, dev-фронтенда и CLI-квиза
+- [x] Цели сборки, тестов и линтинга покрывают Go и фронтенд; `check` повторяет проверки CI, включая `gofmt`, `go vet`, `golangci-lint`, `go test -race ./...`, `pnpm install --frozen-lockfile`, frontend lint/test/build
+- [x] Все цели запускаются из корня репозитория, frontend-команды выполняются в `visual/frontend`, установка зависимостей не меняет lockfile
+- [x] Инструкции README согласованы с `Makefile`, текущим CI и локальным способом запуска через Vite + Go API
