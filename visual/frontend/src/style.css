@@ -242,6 +242,13 @@ code {
   color: white;
 }
 
+/* Значение, приехавшее сдвигом влево (dequeue очереди): нейтральный сдвиг. */
+.cell.shifted {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #0c4a6e;
+}
+
 /* Указатель top: метка под вершиной стека. */
 .cell.top {
   position: relative;
@@ -249,6 +256,25 @@ code {
 
 .cell.top::after {
   content: "top";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Указатели очереди: метки head/tail под их ячейками (текст проставляет
+   render.ts в data-pointers — ячейка может быть и головой, и хвостом). */
+.cell[data-pointers] {
+  position: relative;
+}
+
+.cell[data-pointers]::after {
+  content: attr(data-pointers);
   position: absolute;
   left: 0;
   right: 0;

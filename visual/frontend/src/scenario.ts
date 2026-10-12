@@ -1,6 +1,7 @@
-// Парсинг сценария операций стека на клиенте (зеркало visual/server/stack.go):
-// ловим ошибки ввода до Run; сервер перепроверяет — он авторитетен.
-// ёмкость и значения push — грамматика Go strconv.Atoi, реализованная
+// Парсинг сценария операций стека и очереди на клиенте (зеркало
+// visual/server/stack.go и visual/server/queue.go): ловим ошибки ввода
+// до Run; сервер перепроверяет — он авторитетен.
+// ёмкость и значения push/enqueue — грамматика Go strconv.Atoi, реализованная
 // в общем модуле decimalInteger.ts (см. parseDecimalInteger):
 // клиент не пропустит формы, которые отвергнет сервер.
 
@@ -12,9 +13,17 @@ export interface StackOp {
   value: number;
 }
 
-/** Ограничения входа — как на сервере (visual/server/stack.go). */
+/** Одна операция сценария очереди: enqueue со значением или dequeue. */
+export interface QueueOp {
+  isEnqueue: boolean;
+  value: number;
+}
+
+/** Ограничения входа — как на сервере (visual/server/stack.go, queue.go). */
 export const MAX_STACK_CAPACITY = 100;
 export const MAX_STACK_OPS = 500;
+export const MAX_QUEUE_CAPACITY = 100;
+export const MAX_QUEUE_OPS = 500;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
  * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
@@ -95,6 +104,83 @@ export function parseStackScenario(raw: string, capacity: number): StackOp[] {
     }
     if (length === 0) {
       throw new Error(`операция №${i + 1}: pop из пустого стека — нечего снимать`);
+    }
+    length--;
+  }
+  return ops;
+}
+
+/** Разобрать ёмкость очереди: целое от 1 до MAX_QUEUE_CAPACITY. */
+export function parseQueueCapacity(raw: string): number {
+  const trimmed = raw.trim();
+  const n = parseDecimalInt(trimmed);
+  if (n === null) {
+    throw new Error(`не удалось разобрать «${trimmed}» как целое число: ёмкость очереди — одно целое, например 5`);
+  }
+  if (n < 1 || n > MAX_QUEUE_CAPACITY) {
+    throw new Error(`ёмкость очереди должна быть от 1 до ${MAX_QUEUE_CAPACITY}, получено ${n}`);
+  }
+  return n;
+}
+
+/**
+ * Разобрать сценарий операций очереди: одна на строку — «enqueue N»
+ * или «dequeue». Пустые строки пропускаются. Бросает Error с понятным
+ * сообщением. Проверяет и смысл: dequeue из пустой очереди — ошибка ввода;
+ * enqueue в полную — легален (переполнение покажет кадр).
+ */
+export function parseQueueScenario(raw: string, capacity: number): QueueOp[] {
+  const ops: QueueOp[] = [];
+  const lines = raw.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const fields = lines[i]
+      .trim()
+      .split(/\s+/)
+      .filter((f) => f.length > 0);
+    if (fields.length === 0) continue; // пустая строка — не операция
+    const lineNo = i + 1;
+
+    if (fields[0] === "enqueue") {
+      if (fields.length !== 2) {
+        throw new Error(
+          `строка ${lineNo}: enqueue требует ровно один аргумент — целое число, например «enqueue 5»`,
+        );
+      }
+      const v = parseDecimalInt(fields[1]);
+      if (v === null) {
+        throw new Error(
+          `строка ${lineNo}: не удалось разобрать «${fields[1]}» как целое число: enqueue N — значение одним целым`,
+        );
+      }
+      ops.push({ isEnqueue: true, value: v });
+    } else if (fields[0] === "dequeue") {
+      if (fields.length !== 1) {
+        throw new Error(`строка ${lineNo}: dequeue не принимает аргументов`);
+      }
+      ops.push({ isEnqueue: false, value: 0 });
+    } else {
+      throw new Error(
+        `строка ${lineNo}: неизвестная операция «${fields[0]}»: ожидается «enqueue N» или «dequeue»`,
+      );
+    }
+  }
+
+  if (ops.length === 0) {
+    throw new Error("сценарий пуст: нужна хотя бы одна операция (enqueue N или dequeue)");
+  }
+  if (ops.length > MAX_QUEUE_OPS) {
+    throw new Error(`сценарий слишком длинный: ${ops.length} операций, максимум ${MAX_QUEUE_OPS}`);
+  }
+
+  // Смысловая проверка прогоном по длине очереди.
+  let length = 0;
+  for (let i = 0; i < ops.length; i++) {
+    if (ops[i].isEnqueue) {
+      if (length < capacity) length++;
+      continue;
+    }
+    if (length === 0) {
+      throw new Error(`операция №${i + 1}: dequeue из пустой очереди — нечего снимать`);
     }
     length--;
   }

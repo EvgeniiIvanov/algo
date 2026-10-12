@@ -2,7 +2,8 @@
 // кадр самодостаточен, состояния между кадрами не накапливаем.
 // На вход Frame — на выход мутация двух DOM-узлов (пояснение + контейнер).
 //
-// Поддерживаем kind="array" (бинарный поиск) и kind="structure" (стек).
+// Поддерживаем kind="array" (бинарный поиск) и kind="structure"
+// (стек "stack" и очередь "queue").
 // Новые kind'ы — новая ветка без правок существующих.
 
 import {
@@ -77,6 +78,12 @@ function asStructureSnapshot(data: unknown): StructureSnapshot {
   if (typeof obj.top !== "number" || !Number.isInteger(obj.top)) {
     throw new Error("снимок структуры: поле top должно быть целым числом");
   }
+  // Указатели очереди head/tail — опциональные: старые снимки стека их не несут.
+  for (const field of ["head", "tail"] as const) {
+    if (obj[field] !== undefined && (typeof obj[field] !== "number" || !Number.isInteger(obj[field]))) {
+      throw new Error(`снимок структуры: поле ${field} должно быть целым числом`);
+    }
+  }
   if (typeof obj.operation !== "string") {
     throw new Error("снимок структуры: поле operation должно быть строкой");
   }
@@ -148,9 +155,10 @@ export function renderFrame(
 
 /**
  * Ветка kind="structure": ряд ячеек на всю ёмкость (пустые видны),
- * подсветка затронутой ячейки ролью, метка указателя top.
- * Переключение по snap.structure: пока один вариант — "stack" (непрерывные
- * ячейки); новые структуры — новые варианты внутри этой ветки.
+ * подсветка затронутой ячейки ролью, метки указателей (top у стека,
+ * head/tail у очереди). Переключение по snap.structure: "stack" и "queue"
+ * рисуются одинаковыми ячейками; новые структуры — новые варианты внутри
+ * этой ветки.
  */
 function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -176,8 +184,14 @@ function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): voi
       cell.classList.add("empty");
     }
     const role = roleByIndex.get(i);
-    if (role !== undefined) cell.classList.add(role); // "added" / "removed"
+    if (role !== undefined) cell.classList.add(role); // "added" / "removed" / "shifted"
     if (i === snap.top) cell.classList.add("top");
+
+    // Указатели очереди: метки head/tail под их ячейками (могут совпасть).
+    const pointers: string[] = [];
+    if (snap.head !== undefined && snap.head !== -1 && i === snap.head) pointers.push("head");
+    if (snap.tail !== undefined && snap.tail !== -1 && i === snap.tail) pointers.push("tail");
+    if (pointers.length > 0) cell.dataset.pointers = pointers.join(" · ");
 
     row.appendChild(cell);
   }
