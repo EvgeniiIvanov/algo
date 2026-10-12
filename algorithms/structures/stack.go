@@ -16,10 +16,10 @@ type Stack struct {
 	sp   int   // указатель
 }
 
-// New создаёт стек фиксированной ёмкости size. Отрицательная ёмкость —
+// NewStack создаёт стек фиксированной ёмкости size. Отрицательная ёмкость —
 // ошибка, а не паника и не тихое исправление: объем задаёт вызывающий,
 // и он же разбирается со своей ошибкой.
-func New(size int) (*Stack, error) {
+func NewStack(size int) (*Stack, error) {
 	if size < 0 {
 		return nil, fmt.Errorf("ёмкость стека %d отрицательна: %w", size, ErrStackNegativeCapacity)
 	}

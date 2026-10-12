@@ -7,10 +7,10 @@ import (
 	"github.com/EvgeniiIvanov/algo/algorithms/structures"
 )
 
-// mustStack — обёртка для тестов: New успешен, ошибки не ждём.
+// mustStack — обёртка для тестов: NewStack успешен, ошибки не ждём.
 func mustStack(t *testing.T, size int) *structures.Stack {
 	t.Helper()
-	s, err := structures.New(size)
+	s, err := structures.NewStack(size)
 	if err != nil {
 		t.Fatalf("New(%d): %v", size, err)
 	}
@@ -189,14 +189,14 @@ func TestStackZeroCapacity(t *testing.T) {
 
 // Отрицательная ёмкость — явная ошибка, а не паника и не тихое исправление в 0.
 func TestStackNegativeCapacity(t *testing.T) {
-	s, err := structures.New(-5)
+	s, err := structures.NewStack(-5)
 	if err == nil {
-		t.Fatal("New(-5) вернул стек без ошибки, ожидалась ошибка")
+		t.Fatal("NewStack(-5) вернул стек без ошибки, ожидалась ошибка")
 	}
 	if !errors.Is(err, structures.ErrStackNegativeCapacity) {
-		t.Fatalf("New(-5): ошибка = %v, ожидалась ErrStackNegativeCapacity", err)
+		t.Fatalf("NewStack(-5): ошибка = %v, ожидалась ErrStackNegativeCapacity", err)
 	}
 	if s != nil {
-		t.Fatal("New(-5) вернул ненулевой стек вместе с ошибкой")
+		t.Fatal("NewStack(-5) вернул ненулевой стек вместе с ошибкой")
 	}
 }

@@ -14,6 +14,7 @@ const StructureStack = "stack"
 const (
 	RoleAdded   = "added"   // ячейка записана этой операцией
 	RoleRemoved = "removed" // ячейка освобождена этой операцией
+	RoleShifted = "shifted" // значение сдвинулось на эту ячейку из соседней
 )
 
 // Highlight — подсветка одной позиции с ролью (что с ней случилось на шаге).
@@ -26,13 +27,18 @@ type Highlight struct {
 // (ADR-0002). Один снимок на все структуры модуля; переключение рендера —
 // по полю Structure. У стека кадр несёт и ёмкость: виден весь ряд ячеек,
 // включая пустые — переполнение читается глазами.
+//
+// Указатели — по структуре: у стека заполнен Top, у очереди Head и Tail;
+// указатели другой структуры равны -1, чтобы в кадре не висели нули.
 type StructureSnapshot struct {
-	Structure  string      `json:"structure"`  // идентичность структуры: "stack" (позже queue/list/linked-list)
+	Structure  string      `json:"structure"`  // идентичность структуры: "stack" / "queue" (позже list/linked-list)
 	Capacity   int         `json:"capacity"`   // ёмкость структуры
-	Values     []int       `json:"values"`     // содержимое от дна к вершине
+	Values     []int       `json:"values"`     // содержимое в логическом порядке (стек: дно → вершина, очередь: голова → хвост)
 	Highlights []Highlight `json:"highlights"` // подсветки затронутых позиций с ролью
-	Top        int         `json:"top"`        // указатель top — индекс вершины; -1 — стек пуст
-	Operation  string      `json:"operation"`  // имя операции шага ("push 5", "pop"); пусто — стартовый кадр
+	Top        int         `json:"top"`        // указатель top — индекс вершины стека; -1 — пуст или это очередь
+	Head       int         `json:"head"`       // указатель head — индекс головы очереди; -1 — пуста или это стек
+	Tail       int         `json:"tail"`       // указатель tail — индекс хвоста очереди; -1 — пуста или это стек
+	Operation  string      `json:"operation"`  // имя операции шага ("push 5", "enqueue 3", "pop"); пусто — стартовый кадр
 }
 
 // StackOp — одна операция сценария стека: push со значением или pop.
@@ -47,7 +53,7 @@ type StackOp struct {
 // входа живёт в маршруте; переполнение — легальное событие сценария.
 // Отрицательная ёмкость — ошибка конструктора, кадры не создаются.
 func StackRun(capacity int, ops []StackOp, emit func(frame.Frame)) error {
-	stack, err := structures.New(capacity)
+	stack, err := structures.NewStack(capacity)
 	if err != nil {
 		return err
 	}
@@ -141,6 +147,8 @@ func (r *stackFrames) frame(explanation string) {
 			Values:     append([]int{}, r.values...), // не nil: пустое содержимое — [], не null
 			Highlights: highlights,
 			Top:        len(r.values) - 1,
+			Head:       -1, // у стека указатели очереди не показываются
+			Tail:       -1,
 			Operation:  r.operation,
 		},
 	})
