@@ -20,9 +20,12 @@
 ## Prerequisites
 
 - **Go 1.27** (см. `go.mod`)
-- **Node 22** и **pnpm** — версионирование pnpm зафиксировано полем
-  `packageManager` в `visual/frontend/package.json` (pnpm 12.9.1, через corepack);
-  Node 22 — то, что использует CI
+- **Node 22** и **pnpm 12.9.1** — точная версия закреплена полем
+  `packageManager` в `visual/frontend/package.json`. CI получает pnpm через
+  `pnpm/action-setup` (читает `packageManager`), локально pnpm этой версии
+  должен быть доступен в `PATH` (`pnpm --version` → 12.9.1). Один из способов
+  локальной установки — Corepack: он не включён по умолчанию во всех
+  сборках Node, поэтому требуется явная активация (`corepack enable pnpm`)
 - `golangci-lint` для локального паритета с CI
 
 ## Быстрый старт
@@ -56,14 +59,16 @@ make run-quiz           # интерактивный CLI: go run ./cmd/quiz
 
 ## Проверки из корня
 
-Команды повторяют то, что гоняет CI (`.github/workflows/ci.yml`):
+Команды повторяют то, что гоняет CI (`.github/workflows/ci.yml`). Исключение:
+CI не имеет отдельного шага сборки Go, поэтому `make check` делает всё, что в
+CI, плюс `go build ./...`:
 
 | Цель | Что делает |
 |------|------------|
 | `make lint` | gofmt-check + `go vet ./...` + `golangci-lint run ./...` + frontend eslint |
 | `make test` | `go test -race ./...` + frontend vitest |
 | `make build` | `go build ./...` + frontend build (`tsc --noEmit` + `vite build`) |
-| `make check` | Полный CI-паритет: frozen install + все линтеры, тесты и сборка, fail-fast |
+| `make check` | frozen install, затем последовательно `lint` → `test` → `build`, fail-fast |
 
 Frontend-шаги внутри `make` выполняются в `visual/frontend`; запускать что-то
 вручную из этой папки не обязательно. Список всех целей — `make help`.

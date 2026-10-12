@@ -1,5 +1,6 @@
 # Единая точка входа для dev-команд (тикет 14). Все цели запускаются из корня репозитория.
-# Команды повторяют то, что гоняет CI (.github/workflows/ci.yml).
+# Проверки повторяют то, что гоняет CI (.github/workflows/ci.yml); make check
+# дополнительно включает go build ./... — отдельного шага сборки Go в CI нет.
 
 FRONTEND_DIR := visual/frontend
 
@@ -18,7 +19,7 @@ help:
 	@echo "  make lint             — gofmt-check + go vet + golangci-lint + frontend eslint"
 	@echo "  make test             — go test -race ./... + frontend vitest"
 	@echo "  make build            — go build ./... + frontend build (tsc + vite)"
-	@echo "  make check            — полный CI-паритет: install + все линтеры, тесты и сборка"
+	@echo "  make check            — frozen install, затем lint → test → build, fail-fast (как в CI, плюс go build)"
 
 ## Установить зависимости фронтенда (не меняет pnpm-lock.yaml)
 frontend-install:
@@ -90,5 +91,11 @@ test: go-test frontend-test
 ## Сборка Go и фронтенда
 build: go-build frontend-build
 
-## Полный паритет с CI: frozen install + все линтеры, тесты и сборка
-check: frontend-install lint go-test frontend-test go-build frontend-build
+## Полная проверка: frozen install, затем lint → test → build (как в CI, плюс go build).
+## check зависит только от frontend-install, поэтому frontend-install всегда
+## завершён до первой проверки, даже при make -j check. Последовательные $(MAKE)
+## в рецепте дают fail-fast по факту: неуспешная строка останавливает рецепт.
+check: frontend-install
+	$(MAKE) lint
+	$(MAKE) test
+	$(MAKE) build
