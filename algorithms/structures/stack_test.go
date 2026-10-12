@@ -12,7 +12,7 @@ func mustStack(t *testing.T, size int) *structures.Stack {
 	t.Helper()
 	s, err := structures.NewStack(size)
 	if err != nil {
-		t.Fatalf("New(%d): %v", size, err)
+		t.Fatalf("NewStack(%d): %v", size, err)
 	}
 	return s
 }
