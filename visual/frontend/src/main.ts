@@ -6,12 +6,12 @@
 import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
-import { buildRunURL, buildStackRunURL } from "./sse";
+import { buildQueueRunURL, buildRunURL, buildStackRunURL } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
-import { parseStackCapacity, parseStackScenario } from "./scenario";
+import { parseQueueCapacity, parseQueueScenario, parseStackCapacity, parseStackScenario } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search", "stack"] as const;
+const ALGORITHMS = ["binary-search", "stack", "queue"] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -28,8 +28,11 @@ function init(): void {
   const targetEl = getElement<HTMLInputElement>("target");
   const capacityEl = getElement<HTMLInputElement>("capacity");
   const scriptEl = getElement<HTMLTextAreaElement>("script");
+  const queueCapacityEl = getElement<HTMLInputElement>("queue-capacity");
+  const queueScriptEl = getElement<HTMLTextAreaElement>("queue-script");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
+  const queueInputsEl = getElement<HTMLElement>("queue-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -42,9 +45,10 @@ function init(): void {
 
   // Показываем поля ввода под выбранный алгоритм: у каждого свой блок.
   const syncInputs = (): void => {
-    const isStack = algorithmEl.value === "stack";
-    binarySearchInputsEl.hidden = isStack;
-    stackInputsEl.hidden = !isStack;
+    const algorithm = algorithmEl.value;
+    binarySearchInputsEl.hidden = algorithm !== "binary-search";
+    stackInputsEl.hidden = algorithm !== "stack";
+    queueInputsEl.hidden = algorithm !== "queue";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -86,6 +90,10 @@ function init(): void {
         const capacity = parseStackCapacity(capacityEl.value);
         parseStackScenario(scriptEl.value, capacity); // валидация; на сервер уедет сырой текст
         url = buildStackRunURL(capacity, scriptEl.value);
+      } else if (algorithm === "queue") {
+        const capacity = parseQueueCapacity(queueCapacityEl.value);
+        parseQueueScenario(queueScriptEl.value, capacity); // валидация; на сервер уедет сырой текст
+        url = buildQueueRunURL(capacity, queueScriptEl.value);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

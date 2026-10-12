@@ -18,6 +18,7 @@
           <select id="algorithm">
             <option value="binary-search">Бинарный поиск</option>
             <option value="stack">Стек</option>
+            <option value="queue">Очередь</option>
           </select>
         </label>
         <div id="binary-search-inputs" class="inputs">
@@ -43,6 +44,21 @@ pop
 push 9
 push 11
 push 13</textarea>
+          </label>
+        </div>
+        <div id="queue-inputs" class="inputs" hidden>
+          <label>
+            Ёмкость очереди
+            <input id="queue-capacity" type="text" value="3" />
+          </label>
+          <label>
+            Сценарий операций (по одной на строку)
+            <textarea id="queue-script" rows="6">enqueue 5
+enqueue 7
+dequeue
+enqueue 9
+enqueue 11
+enqueue 13</textarea>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>

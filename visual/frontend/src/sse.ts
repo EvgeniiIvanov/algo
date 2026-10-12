@@ -78,6 +78,18 @@ export function buildStackRunURL(capacity: number, script: string): string {
 }
 
 /**
+ * Построить URL запуска Run очереди: ёмкость + сырой текст сценария.
+ * Сценарий едет как есть — парсинг и валидация авторитетны на сервере.
+ */
+export function buildQueueRunURL(capacity: number, script: string): string {
+  const params = new URLSearchParams({
+    capacity: String(capacity),
+    script,
+  });
+  return `/api/run/queue?${params.toString()}`;
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.
