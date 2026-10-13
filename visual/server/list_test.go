@@ -118,6 +118,34 @@ func TestRunListScenario(t *testing.T) {
 	}
 }
 
+// Сценарий удаления первого элемента (головы) непустого списка: список —
+// на слайсе, голова удаляется тем же сдвигом влево, что и любой другой
+// элемент; регрессия на формулировку «удаление из середины».
+func TestRunListRemoveFirst(t *testing.T) {
+	frames := doRunListSSE(t, "insert 0 5\ninsert 0 3\nremove 0")
+	if len(frames) != 4 {
+		t.Fatalf("кадров = %d, ожидается 4:\n%v", len(frames), frames)
+	}
+
+	assertListSnapshot(t, frames[0], []int{}, "")
+	assertListSnapshot(t, frames[1], []int{5}, "insert 0 5")
+	assertListSnapshot(t, frames[2], []int{3, 5}, "insert 0 3")
+	// remove 0: удалили 3, 5 уехал влево на ячейку 0,
+	// освободилась дальняя от головы ячейка 1.
+	assertListSnapshot(t, frames[3], []int{5}, "remove 0")
+	assertListHighlights(t, frames[3], [][2]any{
+		{0, render.RoleShifted}, {1, render.RoleRemoved},
+	})
+
+	// Пояснение: про сдвиг влево и O(n), без «середины» — удалили голову.
+	if !strings.Contains(frames[3].Explanation, "удалили 3") ||
+		!strings.Contains(frames[3].Explanation, "влево") ||
+		!strings.Contains(frames[3].Explanation, "O(n)") ||
+		strings.Contains(frames[3].Explanation, "середин") {
+		t.Errorf("пояснение шага 4 = %q, ожидается «удалили 3», сдвиг влево и O(n) без «середины»", frames[3].Explanation)
+	}
+}
+
 // assertListHighlights сверяет подсветки кадра: точная последовательность
 // пар {индекс, роль} в порядке следования.
 func assertListHighlights(t *testing.T, f frame.Frame, want [][2]any) {
