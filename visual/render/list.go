@@ -93,12 +93,11 @@ func (r *listFrames) Emit(ev structures.ListEvent) {
 			r.frame(fmt.Sprintf("%s: вставили %d в конец (ячейка %d) — хвост, сдвигов нет.",
 				r.operation, e.Value, e.Index))
 		} else {
-			noun := fmt.Sprintf("%d значений", e.Shifted)
-			if e.Shifted == 1 {
-				noun = "1 значение"
-			}
-			r.frame(fmt.Sprintf("%s: вставили %d на позицию %d; %s сдвинулись вправо — вставка в середину стоит O(n).",
-				r.operation, e.Value, e.Index, noun))
+			// Позиция может быть любой — голова, середина, вставка перед
+			// существующими: важно само событие со сдвигом, не место в списке.
+			noun, verb := shiftedWords(e.Shifted)
+			r.frame(fmt.Sprintf("%s: вставили %d на позицию %d; %s %s вправо — операция со сдвигом стоит O(n).",
+				r.operation, e.Value, e.Index, noun, verb))
 		}
 
 	case structures.ListRemove:
@@ -122,13 +121,27 @@ func (r *listFrames) Emit(ev structures.ListEvent) {
 			r.frame(fmt.Sprintf("%s: удалили %d (позиция %d, ячейка %d освобождена) — удалили последний элемент, сдвигов нет.",
 				r.operation, e.Value, e.Index, len(old)-1))
 		} else {
-			noun := fmt.Sprintf("%d значений", e.Shifted)
-			if e.Shifted == 1 {
-				noun = "1 значение"
-			}
-			r.frame(fmt.Sprintf("%s: удалили %d (позиция %d); %s сдвинулись влево — удаление из середины стоит O(n).",
-				r.operation, e.Value, e.Index, noun))
+			noun, verb := shiftedWords(e.Shifted)
+			r.frame(fmt.Sprintf("%s: удалили %d (позиция %d); %s %s влево — операция со сдвигом стоит O(n).",
+				r.operation, e.Value, e.Index, noun, verb))
 		}
+	}
+}
+
+// shiftedWords — по-русски согласованная пара «N значений/значения/значение»
+// с глаголом «сдвинулись/сдвинулось»: счётчик сдвига события переводится в
+// точную фразу без привязки к месту операции в списке.
+func shiftedWords(n int) (noun, verb string) {
+	if n%100 >= 11 && n%100 <= 14 {
+		return fmt.Sprintf("%d значений", n), "сдвинулись"
+	}
+	switch n % 10 {
+	case 1:
+		return fmt.Sprintf("%d значение", n), "сдвинулось"
+	case 2, 3, 4:
+		return fmt.Sprintf("%d значения", n), "сдвинулись"
+	default:
+		return fmt.Sprintf("%d значений", n), "сдвинулись"
 	}
 }
 

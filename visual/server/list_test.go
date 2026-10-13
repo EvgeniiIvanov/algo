@@ -92,15 +92,23 @@ func TestRunListScenario(t *testing.T) {
 		{1, render.RoleShifted}, {2, render.RoleShifted}, {3, render.RoleRemoved},
 	})
 
-	// Пояснения отражают смысл шага.
-	if !strings.Contains(frames[3].Explanation, "сдвинулись вправо") {
-		t.Errorf("пояснение шага 4 = %q, ожидается упоминание сдвига вправо", frames[3].Explanation)
+	// Пояснения отражают смысл шага: обобщённо про сдвиг и O(n), без привязки
+	// к «середине» — эта формулировка неточна для головы списка.
+	if !strings.Contains(frames[2].Explanation, "вправо") ||
+		!strings.Contains(frames[2].Explanation, "O(n)") ||
+		strings.Contains(frames[2].Explanation, "середин") {
+		t.Errorf("пояснение шага 3 (вставка в голову) = %q, ожидается сдвиг вправо и O(n) без «середины»", frames[2].Explanation)
+	}
+	if !strings.Contains(frames[3].Explanation, "вправо") ||
+		!strings.Contains(frames[3].Explanation, "O(n)") {
+		t.Errorf("пояснение шага 4 = %q, ожидается сдвиг вправо и O(n)", frames[3].Explanation)
 	}
 	if !strings.Contains(frames[4].Explanation, "сдвигов нет") {
 		t.Errorf("пояснение шага 5 = %q, ожидается указание, что сдвигов нет", frames[4].Explanation)
 	}
-	if !strings.Contains(frames[5].Explanation, "удалили 9") || !strings.Contains(frames[5].Explanation, "влево") {
-		t.Errorf("пояснение шага 6 = %q, ожидается «удалили 9» и сдвиг влево", frames[5].Explanation)
+	if !strings.Contains(frames[5].Explanation, "удалили 9") || !strings.Contains(frames[5].Explanation, "влево") ||
+		!strings.Contains(frames[5].Explanation, "O(n)") || strings.Contains(frames[5].Explanation, "середин") {
+		t.Errorf("пояснение шага 6 = %q, ожидается «удалили 9», сдвиг влево и O(n) без «середины»", frames[5].Explanation)
 	}
 	// Шаги нумеруются с 1 и идут по порядку.
 	for i, f := range frames {
