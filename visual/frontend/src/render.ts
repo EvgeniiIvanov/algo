@@ -3,7 +3,7 @@
 // На вход Frame — на выход мутация двух DOM-узлов (пояснение + контейнер).
 //
 // Поддерживаем kind="array" (бинарный поиск) и kind="structure"
-// (стек "stack" и очередь "queue").
+// (стек "stack", очередь "queue", список "list").
 // Новые kind'ы — новая ветка без правок существующих.
 
 import {
@@ -48,9 +48,11 @@ function asStructureSnapshot(data: unknown): StructureSnapshot {
   if (
     typeof obj.capacity !== "number" ||
     !Number.isInteger(obj.capacity) ||
-    obj.capacity < 1
+    obj.capacity < 0
   ) {
-    throw new Error("снимок структуры: поле capacity должно быть положительным целым");
+    throw new Error(
+      "снимок структуры: поле capacity должно быть целым числом от 0: у фиксированных структур это заданная ёмкость, у списка — текущее число ячеек",
+    );
   }
   if (!Array.isArray(obj.values)) {
     throw new Error("снимок структуры: поле values должно быть массивом");
@@ -86,6 +88,23 @@ function asStructureSnapshot(data: unknown): StructureSnapshot {
   }
   if (typeof obj.operation !== "string") {
     throw new Error("снимок структуры: поле operation должно быть строкой");
+  }
+  // Согласованность по типу структуры: у списка ёмкость — это число
+  // существующих ячеек и обязана совпадать с числом значений (пустых ячеек
+  // список не рисует); у stack/queue заданная ёмкость положительна — их
+  // серверный контракт не допускает нулевой ряд.
+  if (obj.structure === "list") {
+    if (obj.capacity !== obj.values.length) {
+      throw new Error(
+        "снимок списка: поле capacity должно совпадать с числом значений — пустых ячеек список не рисует",
+      );
+    }
+  } else if (obj.structure === "stack" || obj.structure === "queue") {
+    if (obj.capacity === 0) {
+      throw new Error(
+        "снимок структуры: у stack и queue заданная ёмкость положительна — нулевой ряд не валиден",
+      );
+    }
   }
   return obj as unknown as StructureSnapshot;
 }
@@ -154,11 +173,14 @@ export function renderFrame(
 }
 
 /**
- * Ветка kind="structure": ряд ячеек на всю ёмкость (пустые видны),
- * подсветка затронутой ячейки ролью, метки указателей (top у стека,
- * head/tail у очереди). Переключение по snap.structure: "stack" и "queue"
- * рисуются одинаковыми ячейками; новые структуры — новые варианты внутри
- * этой ветки.
+ * Ветка kind="structure": ряд ячеек — сколько задано capacity, подсветка
+ * затронутой ячейки ролью, метки указателей (top у стека, head/tail у
+ * очереди). Переключение по snap.structure: "stack", "queue" и "list" рисуются
+ * одинаковыми ячейками — у фиксированных структур ряд на всю ёмкость
+ * (пустые видны), у списка capacity = len(values), рисуются только
+ * заполненные ячейки. У списка при удалении к ряду добавляется одна
+ * временная пустая ячейка-надгробие (см. ниже). Новые структуры — новые
+ * варианты внутри этой ветки.
  */
 function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -195,6 +217,23 @@ function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): voi
 
     row.appendChild(cell);
   }
+
+  // Временная ячейка-надгробие при удалении из списка: освободившийся индекс
+  // находится за концом нового ряда (index === values.length = capacity), так
+  // что без этой ячейки роль removed осталась бы невидимой. Рисуем один
+  // пустой маркер операции — он не входит в values/capacity снимка и не
+  // расширяет capacity; у stack/queue надгробий нет — их освободившиеся
+  // ячейки всегда попадают в фиксированный ряд.
+  if (snap.structure === "list") {
+    for (const h of snap.highlights) {
+      if (h.role !== "removed" || h.index !== snap.values.length) continue;
+      const ghost = document.createElement("div");
+      ghost.className = "cell removed";
+      ghost.dataset.index = String(h.index);
+      row.appendChild(ghost);
+    }
+  }
+
   wrap.appendChild(row);
 
   containerEl.replaceChildren(wrap);
