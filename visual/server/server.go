@@ -21,6 +21,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/run/binary-search", handleBinarySearch)
 	mux.HandleFunc("GET /api/run/stack", handleStack)
 	mux.HandleFunc("GET /api/run/queue", handleQueue)
+	mux.HandleFunc("GET /api/run/list", handleList)
 	return mux
 }
 
