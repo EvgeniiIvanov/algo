@@ -79,6 +79,10 @@ describe("isStructureFrame очередь", () => {
     expect(isStructureFrame(structureFrame(without))).toBe(true);
   });
 
+  it("отвергает нулевую заданную ёмкость очереди", () => {
+    expect(isStructureFrame(structureFrame({ ...baseSnapshot, capacity: 0 }))).toBe(false);
+  });
+
   it("отвергает снимок с дробным head", () => {
     expect(isStructureFrame(structureFrame({ ...baseSnapshot, head: 0.5 }))).toBe(false);
   });

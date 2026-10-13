@@ -63,6 +63,10 @@ describe("isStructureFrame", () => {
     expect(isStructureFrame(structureFrame(noCapacity))).toBe(false);
   });
 
+  it("отвергает нулевую заданную ёмкость стека", () => {
+    expect(isStructureFrame(structureFrame({ ...baseSnapshot, capacity: 0 }))).toBe(false);
+  });
+
   it("отвергает подсветку без роли", () => {
     expect(isStructureFrame(structureFrame({ ...baseSnapshot, highlights: [{ index: 1 }] }))).toBe(
       false,

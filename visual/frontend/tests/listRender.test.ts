@@ -83,6 +83,12 @@ describe("isStructureFrame список", () => {
   it("отвергает отрицательную ёмкость", () => {
     expect(isStructureFrame(structureFrame({ ...startSnapshot, capacity: -1 }))).toBe(false);
   });
+
+  it("отвергает снимок списка, где capacity не совпадает с числом значений", () => {
+    expect(isStructureFrame(structureFrame(removeMiddleSnapshot))).toBe(true); // границы корректны: 3=3
+    expect(isStructureFrame(structureFrame({ ...insertHeadSnapshot, capacity: 3 }))).toBe(false);
+    expect(isStructureFrame(structureFrame({ ...startSnapshot, values: [1], capacity: 0 }))).toBe(false);
+  });
 });
 
 describe("renderFrame список", () => {
@@ -110,17 +116,46 @@ describe("renderFrame список", () => {
     expect(containerEl.querySelectorAll("[data-pointers]")).toHaveLength(0); // указатели списку не нужны
   });
 
-  it("кадр удаления из середины: роли shifted и removed на ячейках", () => {
+  it("кадр удаления из середины: shifted на сдвинувшихся и tombstone на освободившемся индексе", () => {
     const { containerEl } = renderToDOM(structureFrame(removeMiddleSnapshot));
 
-    const cells = containerEl.querySelectorAll(".cell");
-    expect(cells).toHaveLength(3);
+    // Ряд текущих значений (3) + одна временная пустая ячейка-надгробие:
+    // роль removed стоит на освободившемся индексе 3 за пределами нового ряда.
+    const cells = containerEl.querySelectorAll(".cell") as NodeListOf<HTMLElement>;
+    expect(cells).toHaveLength(4);
     expect(cells[1].classList.contains("shifted")).toBe(true);
     expect(cells[2].classList.contains("shifted")).toBe(true);
-    // Освободившаяся ячейка за пределами новых значений: подсветка удалена,
-    // третьей ячейки в ряду нет — рисуются только существующие значения.
-    expect(containerEl.querySelectorAll(".removed")).toHaveLength(0);
+    expect(cells[3].classList.contains("removed")).toBe(true);
+    expect(cells[3].textContent).toBe(""); // временная ячейка-надгробие, а не значение
+    expect(cells[3].dataset.index).toBe("3");
+    expect(cells[3].classList.contains("empty")).toBe(false); // не часть ряда значений
     expect(containerEl.querySelector(".operation")?.textContent).toContain("remove 1");
+  });
+
+  it("кадр удаления единственного элемента: пустой ряд и одна ячейка-надгробие", () => {
+    const removeLastSnapshot: StructureSnapshot = {
+      structure: "list",
+      capacity: 0,
+      values: [],
+      highlights: [{ index: 0, role: "removed" }],
+      top: -1,
+      head: -1,
+      tail: -1,
+      operation: "remove 0",
+    };
+    const { containerEl } = renderToDOM(structureFrame(removeLastSnapshot));
+
+    const cells = containerEl.querySelectorAll(".cell");
+    // Ряд текущего содержимого пуст, но надгробие делает событие удаления видимым.
+    expect(cells).toHaveLength(1);
+    expect(cells[0].classList.contains("removed")).toBe(true);
+    expect(cells[0].textContent).toBe("");
+  });
+
+  it("кадр вставки без роли removed не рисует надгробий", () => {
+    const { containerEl } = renderToDOM(structureFrame(insertHeadSnapshot));
+
+    expect(containerEl.querySelectorAll(".removed")).toHaveLength(0);
   });
 
   it("снимок стека рисуется как раньше: класс top, ряд на всю ёмкость", () => {

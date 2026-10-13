@@ -20,7 +20,7 @@ const (
 // Highlight — подсветка одной позиции с ролью (что с ней случилось на шаге).
 type Highlight struct {
 	Index int    `json:"index"` // индекс затронутой ячейки
-	Role  string `json:"role"`  // роль: RoleAdded / RoleRemoved
+	Role  string `json:"role"`  // роль: RoleAdded / RoleRemoved / RoleShifted
 }
 
 // StructureSnapshot — снимок линейной структуры в кадре kind="structure"
