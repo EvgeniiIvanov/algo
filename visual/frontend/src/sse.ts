@@ -90,6 +90,16 @@ export function buildQueueRunURL(capacity: number, script: string): string {
 }
 
 /**
+ * Построить URL запуска Run списка: сырой текст сценария. Список растущий
+ * без заданной ёмкости, поэтому параметра capacity нет.
+ * Сценарий едет как есть — парсинг и валидация авторитетны на сервере.
+ */
+export function buildListRunURL(script: string): string {
+  const params = new URLSearchParams({ script });
+  return `/api/run/list?${params.toString()}`;
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.

@@ -3,7 +3,7 @@
 // На вход Frame — на выход мутация двух DOM-узлов (пояснение + контейнер).
 //
 // Поддерживаем kind="array" (бинарный поиск) и kind="structure"
-// (стек "stack" и очередь "queue").
+// (стек "stack", очередь "queue", список "list").
 // Новые kind'ы — новая ветка без правок существующих.
 
 import {
@@ -48,9 +48,11 @@ function asStructureSnapshot(data: unknown): StructureSnapshot {
   if (
     typeof obj.capacity !== "number" ||
     !Number.isInteger(obj.capacity) ||
-    obj.capacity < 1
+    obj.capacity < 0
   ) {
-    throw new Error("снимок структуры: поле capacity должно быть положительным целым");
+    throw new Error(
+      "снимок структуры: поле capacity должно быть целым числом от 0: у фиксированных структур это заданная ёмкость, у списка — текущее число ячеек",
+    );
   }
   if (!Array.isArray(obj.values)) {
     throw new Error("снимок структуры: поле values должно быть массивом");
@@ -154,11 +156,12 @@ export function renderFrame(
 }
 
 /**
- * Ветка kind="structure": ряд ячеек на всю ёмкость (пустые видны),
- * подсветка затронутой ячейки ролью, метки указателей (top у стека,
- * head/tail у очереди). Переключение по snap.structure: "stack" и "queue"
- * рисуются одинаковыми ячейками; новые структуры — новые варианты внутри
- * этой ветки.
+ * Ветка kind="structure": ряд ячеек — сколько задано capacity, подсветка
+ * затронутой ячейки ролью, метки указателей (top у стека, head/tail у
+ * очереди). Переключение по snap.structure: "stack", "queue" и "list" рисуются
+ * одинаковыми ячейками — у фиксированных структур ряд на всю ёмкость
+ * (пустые видны), у списка capacity = len(values), рисуются только
+ * заполненные ячейки. Новые структуры — новые варианты внутри этой ветки.
  */
 function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");

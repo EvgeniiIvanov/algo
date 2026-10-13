@@ -19,6 +19,7 @@
             <option value="binary-search">Бинарный поиск</option>
             <option value="stack">Стек</option>
             <option value="queue">Очередь</option>
+            <option value="list">Список</option>
           </select>
         </label>
         <div id="binary-search-inputs" class="inputs">
@@ -59,6 +60,16 @@ dequeue
 enqueue 9
 enqueue 11
 enqueue 13</textarea>
+          </label>
+        </div>
+        <div id="list-inputs" class="inputs" hidden>
+          <label>
+            Сценарий операций (по одной на строку)
+            <textarea id="list-script" rows="6">insert 0 5
+insert 0 3
+insert 1 9
+insert 3 7
+remove 1</textarea>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>
