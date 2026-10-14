@@ -1,12 +1,16 @@
 # Визуализатор — фронтенд
 
 Тупой рендерер кадров (ADR-0002): Vite + ванильный TypeScript, без фреймворка.
-Поддерживаемые kind'ы кадров: `array` (бинарный поиск) и `structure` (фиксированные
-Stack и Queue — ряд ячеек на всю ёмкость; для стека указатель top, для очереди head/tail,
-подсветки added/removed/shifted).
+Поддерживаемые kind'ы кадров: `array` (бинарный поиск) и `structure`:
+фиксированные Stack и Queue — ряд ячеек на всю ёмкость (для стека указатель top,
+для очереди head/tail); растущий List на слайсе — только заполненные ячейки,
+надгробие при удалении; односвязный LinkedList — узлы со стрелками next и
+разрывами между ними (память не непрерывна), метка head, роли подсветки
+added/removed/shifted/visited/relinked/found.
 Подробности — в [docs/tickets/03-ts-player.md](../../docs/tickets/03-ts-player.md),
-[docs/tickets/08-stack-vertical-slice.md](../../docs/tickets/08-stack-vertical-slice.md)
-и [docs/tickets/09-queue-vertical-slice.md](../../docs/tickets/09-queue-vertical-slice.md).
+[docs/tickets/08-stack-vertical-slice.md](../../docs/tickets/08-stack-vertical-slice.md),
+[docs/tickets/09-queue-vertical-slice.md](../../docs/tickets/09-queue-vertical-slice.md) и
+[docs/tickets/11-linked-list-vertical-slice.md](../../docs/tickets/11-linked-list-vertical-slice.md).
 Валидация ввода бинарного поиска описана в [docs/tickets/13-binary-search-integer-input.md](../../docs/tickets/13-binary-search-integer-input.md).
 
 ## Запуск в dev
@@ -43,8 +47,10 @@ pnpm test
 - парсер SSE-кадров (`sse.test.ts`);
 - плеер (`player.test.ts`): play/pause, seek, stepForward/Backward, setSpeed, subscribe, load, **append** (без сброса позиции), регрессия на авто-паузу в конце;
 - классификация кадра как массива (`render.test.ts`);
-- классификация и DOM-рендер кадра `structure` (`structure.test.ts`, `queueRender.test.ts`): ячейки, подсветки, указатели top/head/tail;
-- парсинг сценариев стека и очереди, ёмкости (`scenario.test.ts`, `queueScenario.test.ts`): ошибки ввода до Run;
+- классификация и DOM-рендер кадра `structure` вида stack (`structure.test.ts`): ячейки, подсветки, указатели top/head/tail;
+- рендер вида queue (`queueRender.test.ts`) и вида list (`listRender.test.ts`): последовательность ячеек, надгробие при удалении;
+- рендер вида linked-list (`linkedListRender.test.ts`): узлы со стрелками next, разрывы, метка head, роли visited/relinked/found, надгробие;
+- парсинг сценариев stack/queue/list/linked-list, ёмкости (`scenario.test.ts`, `queueScenario.test.ts`, `listScenario.test.ts`, `linkedListScenario.test.ts`): ошибки ввода до Run;
 - сетевой клиент + плеер (`stream.test.ts`): успешный поток, HTTP 400 с понятным сообщением, сетевая ошибка, **AbortError при stop() не показывается как ошибка**, кадры из стрима не сбрасывают позицию пользователя.
 
 ## Структура
@@ -54,16 +60,20 @@ src/
   types.ts          # Frame, ArraySnapshot, StructureSnapshot — зеркало Go-кадров
   decimalInteger.ts # общая грамматика десятичных целых и safe-integer проверка
   binarysearch.ts   # разбор входа бинарного поиска
-  sse.ts            # parseFrame, buildRunURL/buildStackRunURL/buildQueueRunURL, parseError
-  scenario.ts       # парсинг сценариев стека и очереди (зеркало серверной валидации)
+  sse.ts            # parseFrame, buildRunURL/buildStackRunURL/buildQueueRunURL/buildListRunURL/buildLinkedListRunURL, parseError
+  scenario.ts       # парсинг сценариев stack/queue/list/linked-list (зеркало серверной валидации)
   player.ts         # плеер: состояние кадров + таймер + подписки
   stream.ts         # SSE-клиент поверх плеера
-  render.ts         # тупой рендерер кадра в DOM (ветки array и structure)
+  render.ts         # тупой рендерер кадра в DOM (ветки array и structure; linked-list — узлы со стрелками)
   main.ts           # связка формы, плеера, SSE и рендера
   style.css         # стили
 tests/
   binarysearch.test.ts
   decimalInteger.test.ts
+  linkedListRender.test.ts
+  linkedListScenario.test.ts
+  listRender.test.ts
+  listScenario.test.ts
   queueRender.test.ts
   queueScenario.test.ts
   player.test.ts

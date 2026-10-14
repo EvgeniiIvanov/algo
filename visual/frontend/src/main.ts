@@ -6,9 +6,16 @@
 import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
-import { buildListRunURL, buildQueueRunURL, buildRunURL, buildStackRunURL } from "./sse";
+import {
+  buildLinkedListRunURL,
+  buildListRunURL,
+  buildQueueRunURL,
+  buildRunURL,
+  buildStackRunURL,
+} from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
 import {
+  parseLinkedListScenario,
   parseListScenario,
   parseQueueCapacity,
   parseQueueScenario,
@@ -17,7 +24,7 @@ import {
 } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search", "stack", "queue", "list"] as const;
+const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list"] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -37,10 +44,12 @@ function init(): void {
   const queueCapacityEl = getElement<HTMLInputElement>("queue-capacity");
   const queueScriptEl = getElement<HTMLTextAreaElement>("queue-script");
   const listScriptEl = getElement<HTMLTextAreaElement>("list-script");
+  const linkedListScriptEl = getElement<HTMLTextAreaElement>("linked-list-script");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
   const listInputsEl = getElement<HTMLElement>("list-inputs");
+  const linkedListInputsEl = getElement<HTMLElement>("linked-list-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -58,6 +67,7 @@ function init(): void {
     stackInputsEl.hidden = algorithm !== "stack";
     queueInputsEl.hidden = algorithm !== "queue";
     listInputsEl.hidden = algorithm !== "list";
+    linkedListInputsEl.hidden = algorithm !== "linked-list";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -106,6 +116,9 @@ function init(): void {
       } else if (algorithm === "list") {
         parseListScenario(listScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildListRunURL(listScriptEl.value);
+      } else if (algorithm === "linked-list") {
+        parseLinkedListScenario(linkedListScriptEl.value); // валидация; на сервер уедет сырой текст
+        url = buildLinkedListRunURL(linkedListScriptEl.value);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

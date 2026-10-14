@@ -100,6 +100,16 @@ export function buildListRunURL(script: string): string {
 }
 
 /**
+ * Построить URL запуска Run односвязного списка: сырой текст сценария.
+ * Ёмкости нет — список на указателях растёт без заданной ёмкости.
+ * Сценарий едет как есть — парсинг и валидация авторитетны на сервере.
+ */
+export function buildLinkedListRunURL(script: string): string {
+  const params = new URLSearchParams({ script });
+  return `/api/run/linked-list?${params.toString()}`;
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.

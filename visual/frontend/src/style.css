@@ -285,3 +285,48 @@ code {
   font-weight: 400;
   color: var(--muted);
 }
+
+/* Кадры односвязного списка ("linked-list"): узлы со стрелками next.
+   Память не непрерывна — между узлами разрывы, свойства ячеек слайса
+   (непрерывный ряд) здесь не применяются; адреса памяти не рисуются. */
+.linked-list-row {
+  gap: 0;
+  padding-bottom: 22px; /* место под метки head/tail */
+}
+
+.linked-list-row .arrow {
+  align-self: flex-start;
+  margin: 14px 6px 18px; /* разрыв вокруг стрелки: не непрерывная память */
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.linked-list-row .arrow::before {
+  content: "—next→";
+}
+
+/* Стрелка, соседняя с надгробием: цепочка идёт мимо удалённого узла. */
+.linked-list-row .arrow.skip {
+  opacity: 0.35;
+  filter: blur(0.4px);
+}
+
+/* Обход посетил узел (find/insert/remove по позиции). */
+.cell.visited {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* У узла переключена связь next (узлы в памяти не двигались). */
+.cell.relinked {
+  background: #fef9c3;
+  border-color: #ca8a04;
+  color: #713f12;
+  border-style: dashed;
+}
+
+/* Найденный узел: роль "found" берёт оформление общего правила .cell.found
+   выше (зелёная подсветка массива) — оно применяется к узлам списка так же. */
