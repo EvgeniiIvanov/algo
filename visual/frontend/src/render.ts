@@ -3,7 +3,8 @@
 // На вход Frame — на выход мутация двух DOM-узлов (пояснение + контейнер).
 //
 // Поддерживаем kind="array" (бинарный поиск) и kind="structure"
-// (стек "stack", очередь "queue", список "list").
+// (стек "stack", очередь "queue", список "list", односвязный список
+// "linked-list" — узлы со стрелками next).
 // Новые kind'ы — новая ветка без правок существующих.
 
 import {
@@ -89,11 +90,11 @@ function asStructureSnapshot(data: unknown): StructureSnapshot {
   if (typeof obj.operation !== "string") {
     throw new Error("снимок структуры: поле operation должно быть строкой");
   }
-  // Согласованность по типу структуры: у списка ёмкость — это число
-  // существующих ячеек и обязана совпадать с числом значений (пустых ячеек
-  // список не рисует); у stack/queue заданная ёмкость положительна — их
-  // серверный контракт не допускает нулевой ряд.
-  if (obj.structure === "list") {
+  // Согласованность по типу структуры: у списка (на слайсе и на ссылках)
+  // ёмкость — это число существующих ячеек/узлов и обязана совпадать с
+  // числом значений (пустых список не рисует); у stack/queue заданная
+  // ёмкость положительна — их серверный контракт не допускает нулевого ряда.
+  if (obj.structure === "list" || obj.structure === "linked-list") {
     if (obj.capacity !== obj.values.length) {
       throw new Error(
         "снимок списка: поле capacity должно совпадать с числом значений — пустых ячеек список не рисует",
@@ -175,12 +176,13 @@ export function renderFrame(
 /**
  * Ветка kind="structure": ряд ячеек — сколько задано capacity, подсветка
  * затронутой ячейки ролью, метки указателей (top у стека, head/tail у
- * очереди). Переключение по snap.structure: "stack", "queue" и "list" рисуются
- * одинаковыми ячейками — у фиксированных структур ряд на всю ёмкость
- * (пустые видны), у списка capacity = len(values), рисуются только
+ * очереди). Переключение по snap.structure: "stack", "queue" и "list"
+ * рисуются одинаковыми ячейками — у фиксированных структур ряд на всю
+ * ёмкость (пустые видны), у списка capacity = len(values), рисуются только
  * заполненные ячейки. У списка при удалении к ряду добавляется одна
- * временная пустая ячейка-надгробие (см. ниже). Новые структуры — новые
- * варианты внутри этой ветки.
+ * временная пустая ячейка-надгробие (см. ниже). "linked-list" рисуется
+ * своей разновидностью (см. ниже): узлы со стрелками next, разрывы между
+ * узлами, указатель head. Новые структуры — новые варианты внутри ветки.
  */
 function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -192,6 +194,15 @@ function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): voi
   wrap.appendChild(caption);
 
   const row = document.createElement("div");
+  if (snap.structure === "linked-list") {
+    // Односвязный список: память не непрерывна — узлы со стрелками next
+    // и разрывами между ними, никаких адресов.
+    row.className = "structure-row linked-list-row";
+    renderLinkedListRow(snap, row);
+    wrap.appendChild(row);
+    containerEl.replaceChildren(wrap);
+    return;
+  }
   row.className = "structure-row";
 
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
@@ -237,4 +248,62 @@ function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): voi
   wrap.appendChild(row);
 
   containerEl.replaceChildren(wrap);
+}
+
+/**
+ * Ряд односвязного списка: узлы со стрелкой next между соседями и разрывами
+ * (память не непрерывна — это не ряд ячеек слайса); ни адресов памяти, ни
+ * скрытой ёмкости — рисуются только существующие узлы (capacity =
+ * values.length). Свои роли: visited (обход), relinked (переключение next),
+ * found (найдено); added/removed работают как у остальных структур.
+ * При удалении рисуется ячейка-надгробие на освободившейся логической
+ * позиции: соседние с ней стрелки прерывисты — цепочка идёт мимо узла.
+ * Указатели: метка head под узлом 0, tail — под последним узлом.
+ */
+function renderLinkedListRow(snap: StructureSnapshot, row: HTMLElement): void {
+  const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
+  const ghosts = new Set(
+    snap.highlights.filter((h) => h.role === "removed").map((h) => h.index),
+  );
+
+  // Ячейка-надгробие на позиции i: узел удалён, его бывшая позиция
+  // находится между новым узлами i-1 и i (в конце ряда — был хвост,
+  // в начале — была голова).
+  const items: Array<{ kind: "ghost" | "node"; index: number }> = [];
+  for (let i = 0; i <= snap.values.length; i++) {
+    if (ghosts.has(i)) items.push({ kind: "ghost", index: i });
+    if (i < snap.values.length) items.push({ kind: "node", index: i });
+  }
+
+  items.forEach((item, k) => {
+    if (k > 0) {
+      const arrow = document.createElement("div");
+      arrow.className = "arrow";
+      // Стрелка к надгробию или от него: цепочка идёт мимо удалённого узла.
+      if (items[k - 1].kind === "ghost" || item.kind === "ghost") {
+        arrow.classList.add("skip");
+      }
+      row.appendChild(arrow);
+    }
+
+    const el = document.createElement("div");
+    el.dataset.index = String(item.index);
+    if (item.kind === "ghost") {
+      el.className = "cell removed";
+    } else {
+      el.className = "cell filled";
+      el.textContent = String(snap.values[item.index]);
+      const role = roleByIndex.get(item.index);
+      if (role !== undefined) el.classList.add(role); // added/visited/relinked/found/removed
+      const pointers: string[] = [];
+      if (snap.head !== undefined && snap.head !== -1 && item.index === snap.head) {
+        pointers.push("head");
+      }
+      if (snap.tail !== undefined && snap.tail !== -1 && item.index === snap.tail) {
+        pointers.push("tail");
+      }
+      if (pointers.length > 0) el.dataset.pointers = pointers.join(" · ");
+    }
+    row.appendChild(el);
+  });
 }
