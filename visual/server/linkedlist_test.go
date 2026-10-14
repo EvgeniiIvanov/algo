@@ -148,6 +148,65 @@ func TestRunLinkedListFindMiss(t *testing.T) {
 	}
 }
 
+// Границы вставки объясняют O(1) без утверждения об обходе: insert 0 —
+// Prepend, insert Len — Append, сам append — тоже O(1); только настоящая
+// середина вставки требует обхода по узлам (O(n)). Точная классификация —
+// по op/позиции до изменения списка, не по префиксу строки операции.
+func TestRunLinkedListInsertBoundaryComplexity(t *testing.T) {
+	frames := doRunLinkedListSSE(t, "insert 0 5\ninsert 1 8\ninsert 2 6\ninsert 1 9")
+	if len(frames) != 9 {
+		t.Fatalf("кадров = %d, ожидается 9:\n%v", len(frames), frames)
+	}
+
+	// insert 0 — голова → один кадр вставки; insert Len — хвост → связь
+	// хвоста + вставка; вставка в середину 1 — визит, связь, вставка.
+	assertLinkedSnapshot(t, frames[0], []int{}, "")                     // старт: пустой список
+	assertLinkedSnapshot(t, frames[1], []int{5}, "insert 0 5")          // в голову, обхода нет
+	assertLinkedSnapshot(t, frames[2], []int{5}, "insert 1 8")          // связь хвоста 5 → новый узел
+	assertLinkedSnapshot(t, frames[3], []int{5, 8}, "insert 1 8")       // в хвост (Len = 1), обхода нет
+	assertLinkedSnapshot(t, frames[4], []int{5, 8}, "insert 2 6")       // связь хвоста 8 → новый узел
+	assertLinkedSnapshot(t, frames[5], []int{5, 8, 6}, "insert 2 6")    // в хвост (Len = 2), обхода нет
+	assertLinkedSnapshot(t, frames[6], []int{5, 8, 6}, "insert 1 9")    // визит узла 0 по пути в середину
+	assertLinkedSnapshot(t, frames[7], []int{5, 8, 6}, "insert 1 9")    // связь узла 0 переключена
+	assertLinkedSnapshot(t, frames[8], []int{5, 9, 8, 6}, "insert 1 9") // узел 9 встал между 5 и 8
+
+	// Подсветки ролей: добавление/перелинковка/обход.
+	assertListHighlights(t, frames[1], [][2]any{{0, render.RoleAdded}})
+	assertListHighlights(t, frames[2], [][2]any{{0, render.RoleRelinked}})
+	assertListHighlights(t, frames[3], [][2]any{{1, render.RoleAdded}})
+	assertListHighlights(t, frames[4], [][2]any{{1, render.RoleRelinked}})
+	assertListHighlights(t, frames[5], [][2]any{{2, render.RoleAdded}})
+	assertListHighlights(t, frames[6], [][2]any{{0, render.RoleVisited}})
+	assertListHighlights(t, frames[7], [][2]any{{0, render.RoleRelinked}})
+	assertListHighlights(t, frames[8], [][2]any{{1, render.RoleAdded}})
+
+	// Голова и хвост — O(1) и «обхода нет», никакого O(n).
+	oneStep := []frame.Frame{frames[1], frames[3], frames[5]}
+	for _, f := range oneStep {
+		if !strings.Contains(f.Explanation, "O(1)") || !strings.Contains(f.Explanation, "обхода нет") {
+			t.Errorf("пояснение кадра %d = %q, ожидается O(1) с «обхода нет»", f.Step, f.Explanation)
+		}
+		if strings.Contains(f.Explanation, "O(n)") {
+			t.Errorf("пояснение кадра %d = %q, у границы вставки нет обхода O(n)", f.Step, f.Explanation)
+		}
+	}
+	// Только настоящая середина объясняет обход по узлам и суммарно O(n).
+	mid := frames[8].Explanation
+	if !strings.Contains(mid, "O(n)") || !strings.Contains(mid, "обход") {
+		t.Errorf("пояснение вставки в середину = %q, ожидается обход и O(n)", mid)
+	}
+	if !strings.Contains(frames[6].Explanation, "посетили узел на позиции 0") {
+		t.Errorf("пояснение визита = %q, ожидается посещение узла 0", frames[6].Explanation)
+	}
+	// append — тоже O(1) на хвосте, без обхода.
+	appendFrames := doRunLinkedListSSE(t, "insert 0 5\nappend 8")
+	last := appendFrames[len(appendFrames)-1]
+	assertLinkedSnapshot(t, last, []int{5, 8}, "append 8")
+	if !strings.Contains(last.Explanation, "O(1)") || !strings.Contains(last.Explanation, "обхода нет") {
+		t.Errorf("пояснение append = %q, ожидается O(1) с «обхода нет»", last.Explanation)
+	}
+}
+
 func TestRunLinkedListValidation(t *testing.T) {
 	tests := []struct {
 		name   string

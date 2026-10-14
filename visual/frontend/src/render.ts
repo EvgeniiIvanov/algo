@@ -195,19 +195,15 @@ function renderStructure(snap: StructureSnapshot, containerEl: HTMLElement): voi
 
   const row = document.createElement("div");
   if (snap.structure === "linked-list") {
-    row.className = "structure-row linked-list-row";
-  } else {
-    row.className = "structure-row";
-  }
-
-  if (snap.structure === "linked-list") {
     // Односвязный список: память не непрерывна — узлы со стрелками next
     // и разрывами между ними, никаких адресов.
+    row.className = "structure-row linked-list-row";
     renderLinkedListRow(snap, row);
     wrap.appendChild(row);
     containerEl.replaceChildren(wrap);
     return;
   }
+  row.className = "structure-row";
 
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
   for (let i = 0; i < snap.capacity; i++) {

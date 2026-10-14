@@ -28,6 +28,17 @@ const (
 	LinkedOpFind    = "find"
 )
 
+// Класс текущей вставки — решается до изменения списка по op/data
+// (LinkedList.InsertAt делегирует границы Prepend/Append, обхода там нет):
+// O(1) объясняют только голова и хвост, обход O(n) — настоящая середина.
+type linkedInsertClass int
+
+const (
+	linkedInsertHead   linkedInsertClass = iota // голова: index == 0 или команда prepend
+	linkedInsertTail                            // хвост: index == Len до операции или команда append
+	linkedInsertMiddle                          // настоящая середина: переход по узлам O(n)
+)
+
 // LinkedOp — одна операция сценария односвязного списка.
 type LinkedOp struct {
 	Kind  string // вид операции: LinkedOpPrepend / Append / Insert / Remove / Find
@@ -55,13 +66,26 @@ func LinkedRun(ops []LinkedOp, emit func(frame.Frame)) error {
 		switch op.Kind {
 		case LinkedOpPrepend:
 			r.operation = fmt.Sprintf("prepend %d", op.Value)
+			r.insertClass = linkedInsertHead
 			r.list.PrependWithEmitter(op.Value, r)
 		case LinkedOpAppend:
 			r.operation = fmt.Sprintf("append %d", op.Value)
+			r.insertClass = linkedInsertTail
 			r.list.AppendWithEmitter(op.Value, r)
 		case LinkedOpInsert:
 			r.operation = fmt.Sprintf("insert %d %d", op.Index, op.Value)
+			// Класс вставки — до изменения списка: 0 — голова, Len до
+			// операции — хвост (оба случая InsertAt делегирует в
+			// Prepend/Append без обхода), иначе — настоящая середина.
 			// Сценарий валидирован до Run: индекс вне 0..Len сюда не доходит.
+			switch {
+			case op.Index == 0:
+				r.insertClass = linkedInsertHead
+			case op.Index == r.list.Len():
+				r.insertClass = linkedInsertTail
+			default:
+				r.insertClass = linkedInsertMiddle
+			}
 			_ = r.list.InsertAtWithEmitter(op.Index, op.Value, r)
 		case LinkedOpRemove:
 			r.operation = fmt.Sprintf("remove %d", op.Index)
@@ -91,12 +115,13 @@ func LinkedFrames(ops []LinkedOp) ([]frame.Frame, error) {
 // один кадр (ADR-0002); визиты и переключения связей — тоже кадры, чтобы
 // обход узел за узлом был виден глазами.
 type linkedFrames struct {
-	list       *structures.LinkedList
-	values     []int       // зеркало логического порядка значений (кадр не зависит от будущего)
-	operation  string      // имя текущей операции ("prepend 4", "find 7")
-	highlights []Highlight // подсветки текущего шага
-	step       int
-	emit       func(frame.Frame)
+	list        *structures.LinkedList
+	values      []int             // зеркало логического порядка значений (кадр не зависит от будущего)
+	operation   string            // имя текущей операции ("prepend 4", "find 7")
+	insertClass linkedInsertClass // класс текущей вставки (решён до изменения списка)
+	highlights  []Highlight       // подсветки текущего шага
+	step        int
+	emit        func(frame.Frame)
 }
 
 // Emit — одно событие списка → один кадр (ADR-0002).
@@ -125,12 +150,12 @@ func (r *linkedFrames) Emit(ev structures.LinkedEvent) {
 		r.values = fresh
 		r.highlights = []Highlight{{Index: e.Index, Role: RoleAdded}}
 
-		switch {
-		case r.startsWith(LinkedOpPrepend):
+		switch r.insertClass {
+		case linkedInsertHead:
 			r.frame(fmt.Sprintf("%s: добавили %d в голову — нового узла достаточно, обхода нет, O(1).",
 				r.operation, e.Value))
-		case r.startsWith(LinkedOpAppend):
-			r.frame(fmt.Sprintf("%s: добавили %d в хвост — хвостовой узел вел прямо в конец, O(1).",
+		case linkedInsertTail:
+			r.frame(fmt.Sprintf("%s: добавили %d в хвост — хвостовой узел вел прямо в конец, обхода нет, O(1).",
 				r.operation, e.Value))
 		default:
 			r.frame(fmt.Sprintf("%s: вставили %d на позицию %d — сама вставка O(1), но переход к месту занял обход по узлам: суммарно O(n).",
@@ -167,13 +192,6 @@ func (r *linkedFrames) Emit(ev structures.LinkedEvent) {
 		r.frame(fmt.Sprintf("%s: значения нет в списке — обошли все %d узлов, поиск вернул -1 (промах — нормальный результат).",
 			r.operation, len(r.values)))
 	}
-}
-
-// startsWith — вычисляет вид операции по имени текущей: помогает
-// объяснению вставки отличать prepend/append от вставки по позиции,
-// не ведя отдельное поле-вид.
-func (r *linkedFrames) startsWith(kind string) bool {
-	return len(r.operation) >= len(kind) && r.operation[:len(kind)] == kind
 }
 
 // frame собирает самодостаточный кадр: копия логического порядка +
