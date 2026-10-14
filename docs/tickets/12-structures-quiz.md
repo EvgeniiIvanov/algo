@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 (односвязный список — PROGRESS отмечается, когда все части модуля готовы).
 
-**Status:** in-progress
+**Status:** done
 
 ## Acceptance Criteria
 
