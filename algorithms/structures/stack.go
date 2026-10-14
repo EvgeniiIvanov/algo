@@ -1,14 +1,7 @@
 package structures
 
 import (
-	"errors"
 	"fmt"
-)
-
-var (
-	ErrStackOverflow         = errors.New("stack overflow")
-	ErrStackUnderflow        = errors.New("stack underflow")
-	ErrStackNegativeCapacity = errors.New("negative stack capacity")
 )
 
 type Stack struct {

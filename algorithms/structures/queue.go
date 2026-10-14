@@ -1,14 +1,7 @@
 package structures
 
 import (
-	"errors"
 	"fmt"
-)
-
-var (
-	ErrQueueFull             = errors.New("queue overflow")
-	ErrQueueEmpty            = errors.New("queue underflow")
-	ErrQueueNegativeCapacity = errors.New("negative queue capacity")
 )
 
 type Queue struct {
