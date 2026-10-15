@@ -21,6 +21,7 @@
             <option value="queue">Очередь</option>
             <option value="list">Список</option>
             <option value="linked-list">Связный список</option>
+            <option value="hash-table">Хеш-таблица</option>
           </select>
         </label>
         <div id="binary-search-inputs" class="inputs">
@@ -81,6 +82,21 @@ append 7
 insert 1 9
 remove 0
 find 7</textarea>
+          </label>
+        </div>
+        <div id="hash-table-inputs" class="inputs" hidden>
+          <label>
+            Число корзин
+            <input id="hash-table-buckets" type="text" value="5" />
+          </label>
+          <label>
+            Сценарий операций (по одной на строку)
+            <textarea id="hash-table-script" rows="6">put 1 10
+put 6 20
+get 1
+get 9
+delete 6
+delete 9</textarea>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>

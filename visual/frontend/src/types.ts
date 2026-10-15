@@ -4,9 +4,15 @@
 /** Известные `kind` кадров. Другие принимаем как `unknown`, не падаем. */
 export const KIND_ARRAY = "array" as const;
 export const KIND_STRUCTURE = "structure" as const;
+export const KIND_HASH_TABLE = "hash-table" as const;
 export type ArrayKind = typeof KIND_ARRAY;
 export type StructureKind = typeof KIND_STRUCTURE;
-export type Kind = ArrayKind | StructureKind | (string & { readonly __brand?: unique symbol });
+export type HashTableKind = typeof KIND_HASH_TABLE;
+export type Kind =
+  | ArrayKind
+  | StructureKind
+  | HashTableKind
+  | (string & { readonly __brand?: unique symbol });
 
 /** Снимок массива — `Data` кадра для бинарного поиска. */
 export interface ArraySnapshot {
@@ -70,6 +76,69 @@ export interface StructureSnapshot {
   operation: string;
 }
 
+/**
+ * Подсветка одной записи цепочки хеш-таблицы с ролью — что с ней случилось
+ * на шаге кадра kind="hash-table". Роли: "visited" (запись посещена обходом
+ * цепочки) / "added" (запись вставлена во главу цепочки) /
+ * "updated" (значение существующего ключа переписано) /
+ * "found" (запись с искомым ключом найдена). Удалённая запись в подсветках
+ * не участвует: в снимке её уже нет — она несётся надгробием в `removed`
+ * (см. HashEntryRemoval), иначе роль указывала бы на соседа, вставшего
+ * на её место.
+ */
+export interface HashEntryHighlight {
+  /** Корзина, в которой лежит запись. */
+  bucket: number;
+  /** Позиция записи в цепочке (0 — голова цепочки). */
+  position: number;
+  role: string;
+}
+
+/**
+ * Запись, удалённая на этом шаге: надгробие на бывшей позиции цепочки.
+ * Живые записи снимка (buckets) её уже не содержат — надгробие несёт ключ
+ * и значение, чтобы учащийся видел, что именно удалилось и где стояло;
+ * renderer рисует его между соседями по бывшей позиции.
+ */
+export interface HashEntryRemoval {
+  /** Корзина, из которой удалили запись. */
+  bucket: number;
+  /** Бывшая позиция записи в цепочке (0 — голова). */
+  position: number;
+  /** Ключ удалённой записи. */
+  key: number;
+  /** Удалённое значение. */
+  value: number;
+}
+
+/** Одна запись цепочки корзины хеш-таблицы. */
+export interface HashEntry {
+  key: number;
+  value: number;
+}
+
+/**
+ * Снимок хеш-таблицы — `Data` кадра kind="hash-table" (зеркало
+ * render.HashTableSnapshot). Самодостаточен (ADR-0002): все корзины
+ * с их цепочками идут в каждом кадре — от головы записи.
+ */
+export interface HashTableSnapshot {
+  /** Число корзин, заданное при создании таблицы. */
+  bucketCount: number;
+  /** Содержимое каждой корзины: цепочка записей от головы. */
+  buckets: HashEntry[][];
+  /** Корзина, выбранная хешированием на шаге; -1 — шаг без выбора. */
+  highlightBucket: number;
+  /** Подсветки затронутых живых записей с ролью. */
+  highlights: HashEntryHighlight[];
+  /** Надгробия шага: удалённые записи на бывших позициях; пустой массив — шагов удаления нет. */
+  removed: HashEntryRemoval[];
+  /** Число записей во всей таблице. */
+  entryCount: number;
+  /** Имя операции шага ("put 6 20", "get 9"); пусто — стартовый кадр. */
+  operation: string;
+}
+
 /** Кадр визуализации. Самодостаточен (ADR-0002). */
 export interface Frame {
   /** Порядковый номер шага, начиная с 1. */
@@ -78,5 +147,5 @@ export interface Frame {
   /** Пояснение на русском. */
   explanation: string;
   /** Снимок структуры. У каждого рендерера свой тип. */
-  data: ArraySnapshot | StructureSnapshot | { readonly [key: string]: unknown };
+  data: ArraySnapshot | StructureSnapshot | HashTableSnapshot | { readonly [key: string]: unknown };
 }

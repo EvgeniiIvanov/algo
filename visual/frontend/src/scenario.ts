@@ -37,6 +37,10 @@ export const MAX_LIST_OPS = 500;
 export const MAX_LIST_LENGTH = 100;
 export const MAX_LINKED_OPS = 500;
 export const MAX_LINKED_LENGTH = 100;
+/** Ограничения входа хеш-таблицы — как на сервере (visual/server/hashtable.go). */
+export const MAX_HASH_TABLE_BUCKETS = 100;
+export const MAX_HASH_TABLE_OPS = 500;
+export const MAX_HASH_TABLE_ENTRIES = 100;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
  * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
@@ -444,6 +448,132 @@ export function parseLinkedListScenario(raw: string): LinkedListOp[] {
     }
     // find: значение, отсутствующее в списке, — легальный промах,
     // кадр покажет обход и возврат -1.
+  }
+  return ops;
+}
+
+/** Вид операции сценария хеш-таблицы. */
+export type HashTableOpKind = "put" | "get" | "delete";
+
+/** Одна операция сценария хеш-таблицы. */
+export interface HashTableOp {
+  kind: HashTableOpKind;
+  key: number; // ключ операции
+  value: number; // значение для put (в get/delete не используется)
+}
+
+/**
+ * Разобрать число корзин хеш-таблицы: целое от 1 до MAX_HASH_TABLE_BUCKETS.
+ * Бросает Error с понятным сообщением. Зеркало серверной проверки
+ * (visual/server/hashtable.go): ноль и отрицательные значения отвергаются
+ * и фронтендом, и библиотечным конструктором.
+ */
+export function parseHashTableBucketCount(raw: string): number {
+  const trimmed = raw.trim();
+  const n = parseDecimalInt(trimmed);
+  if (n === null) {
+    throw new Error(
+      `не удалось разобрать «${trimmed}» как целое число: число корзин — одно целое, например 5`,
+    );
+  }
+  if (n < 1 || n > MAX_HASH_TABLE_BUCKETS) {
+    throw new Error(
+      `число корзин должно быть от 1 до ${MAX_HASH_TABLE_BUCKETS}, получено ${n}`,
+    );
+  }
+  return n;
+}
+
+/**
+ * Разобрать сценарий операций хеш-таблицы: одна на строку — «put K V»
+ * (ключ и значение), «get K» или «delete K». Пустые строки пропускаются.
+ * Бросает Error с понятным сообщением. Промахи get/delete не проверяются
+ * по содержимому таблицы: отсутствующий ключ — легальный шаг сценария,
+ * кадр его покажет. Лимит одновременно хранимых записей проверяется
+ * прогоном: put нового ключа растит таблицу (не более 100 записей),
+ * повторный put того же ключа обновляет значение и места не занимает,
+ * delete существующего ключа освобождает запись.
+ */
+export function parseHashTableScenario(raw: string): HashTableOp[] {
+  const ops: HashTableOp[] = [];
+  const lines = raw.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const fields = lines[i]
+      .trim()
+      .split(/\s+/)
+      .filter((f) => f.length > 0);
+    if (fields.length === 0) continue; // пустая строка — не операция
+    const lineNo = i + 1;
+
+    if (fields[0] === "put") {
+      if (fields.length !== 3) {
+        throw new Error(
+          `строка ${lineNo}: put требует ровно два аргумента — ключ и значение, например «put 1 10»`,
+        );
+      }
+      const key = parseDecimalInt(fields[1]);
+      if (key === null) {
+        throw new Error(
+          `строка ${lineNo}: не удалось разобрать «${fields[1]}» как целое число: put K V — ключ и значение целыми`,
+        );
+      }
+      const value = parseDecimalInt(fields[2]);
+      if (value === null) {
+        throw new Error(
+          `строка ${lineNo}: не удалось разобрать «${fields[2]}» как целое число: put K V — ключ и значение целыми`,
+        );
+      }
+      ops.push({ kind: "put", key, value });
+    } else if (fields[0] === "get" || fields[0] === "delete") {
+      if (fields.length !== 2) {
+        throw new Error(
+          `строка ${lineNo}: ${fields[0]} требует ровно один аргумент — ключ, например «${fields[0]} 1»`,
+        );
+      }
+      const key = parseDecimalInt(fields[1]);
+      if (key === null) {
+        throw new Error(
+          `строка ${lineNo}: не удалось разобрать «${fields[1]}» как целое число: ${fields[0]} K — ключ одним целым`,
+        );
+      }
+      ops.push({ kind: fields[0], key, value: 0 });
+    } else {
+      throw new Error(
+        `строка ${lineNo}: неизвестная операция «${fields[0]}»: ожидается «put K V», «get K» или «delete K»`,
+      );
+    }
+  }
+
+  if (ops.length === 0) {
+    throw new Error(
+      "сценарий пуст: нужна хотя бы одна операция (put K V, get K или delete K)",
+    );
+  }
+  if (ops.length > MAX_HASH_TABLE_OPS) {
+    throw new Error(
+      `сценарий слишком длинный: ${ops.length} операций, максимум ${MAX_HASH_TABLE_OPS}`,
+    );
+  }
+
+  // Смысловая проверка прогоном по числу записей таблицы.
+  const keys = new Set<number>();
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    if (op.kind === "put") {
+      if (!keys.has(op.key)) {
+        if (keys.size + 1 > MAX_HASH_TABLE_ENTRIES) {
+          throw new Error(
+            `операция №${i + 1}: в таблице будет ${keys.size + 1} записей — максимум ${MAX_HASH_TABLE_ENTRIES}; сократите сценарий`,
+          );
+        }
+        keys.add(op.key);
+      }
+      continue;
+    }
+    if (op.kind === "delete") {
+      keys.delete(op.key); // промах тоже нормален: нечего освобождать
+    }
+    // get: отсутствующий ключ — легальный промах, кадр его покажет.
   }
   return ops;
 }
