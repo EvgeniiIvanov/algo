@@ -18,9 +18,14 @@ permissions:
     resource: tester
     effect: allow
   # Unmatched shell commands ask via the shared rules in opencode.json; push
-  # therefore asks too, and its force forms are natively denied there. The
-  # cleanup commands below ask before they run, so the force forms of
-  # `git worktree remove` are re-denied after these asks (last matching rule wins).
+  # therefore asks too (explicit `git push *` ask there), and its direct force
+  # forms are natively denied there for explicitly matched direct command
+  # forms — text matching is not a sandbox against wrappers, but any command
+  # without an exact rule asks. The cleanup commands below ask before they
+  # run, so the direct force forms of `git worktree remove` (long `--force`,
+  # short `-f` anywhere including short-flag clusters, and the
+  # `git -C <path>` variants) are re-denied after these asks; later matching
+  # rules win.
   - action: shell
     resource: git worktree add *
     effect: ask
@@ -31,17 +36,25 @@ permissions:
     resource: git worktree remove*--force*
     effect: deny
   - action: shell
-    resource: git worktree remove -f *
+    resource: git worktree remove -f*
     effect: deny
   - action: shell
-    resource: git worktree remove * -f *
+    resource: git worktree remove * -f*
     effect: deny
   - action: shell
-    resource: git worktree remove * -f
+    resource: git -C *worktree remove*--force*
     effect: deny
-  # Local branch deletion only with explicit user approval; force deletes are denied.
+  - action: shell
+    resource: git -C *worktree remove* -f*
+    effect: deny
+  # Local branch deletion only with explicit user approval; force deletes and
+  # direct force branch forms (`--force`, clusters `-df`/`-fd`) are denied
+  # natively via the shared rules.
   - action: shell
     resource: git branch -d *
+    effect: ask
+  - action: shell
+    resource: git branch --delete *
     effect: ask
   - action: shell
     resource: git branch -D *
