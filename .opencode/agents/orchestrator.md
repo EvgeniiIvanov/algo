@@ -47,15 +47,11 @@ permissions:
   - action: shell
     resource: git -C *worktree remove* -f*
     effect: deny
-  # Local branch deletion only with explicit user approval; force deletes and
-  # direct force branch forms (`--force`, clusters `-df`/`-fd`) are denied
-  # natively via the shared rules.
-  - action: shell
-    resource: git branch -d *
-    effect: ask
-  - action: shell
-    resource: git branch --delete *
-    effect: ask
+  # Ordinary local branch deletion uses no agent-specific rule: it falls
+  # through to the shared `shell *` -> ask fallback and prompts via OpenCode.
+  # Force-delete forms (`-D`, `--delete --force`, short clusters) remain
+  # denied by the shared rules; these asks previously shadowed those denies
+  # for flags like `--force` hidden after `-d`/`--delete`.
   - action: shell
     resource: git branch -D *
     effect: deny
