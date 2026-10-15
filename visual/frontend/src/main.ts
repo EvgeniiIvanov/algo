@@ -7,6 +7,7 @@ import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
 import {
+  buildHashTableRunURL,
   buildLinkedListRunURL,
   buildListRunURL,
   buildQueueRunURL,
@@ -15,6 +16,8 @@ import {
 } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
 import {
+  parseHashTableBucketCount,
+  parseHashTableScenario,
   parseLinkedListScenario,
   parseListScenario,
   parseQueueCapacity,
@@ -24,7 +27,7 @@ import {
 } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list"] as const;
+const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list", "hash-table"] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -45,11 +48,14 @@ function init(): void {
   const queueScriptEl = getElement<HTMLTextAreaElement>("queue-script");
   const listScriptEl = getElement<HTMLTextAreaElement>("list-script");
   const linkedListScriptEl = getElement<HTMLTextAreaElement>("linked-list-script");
+  const hashTableBucketsEl = getElement<HTMLInputElement>("hash-table-buckets");
+  const hashTableScriptEl = getElement<HTMLTextAreaElement>("hash-table-script");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
   const listInputsEl = getElement<HTMLElement>("list-inputs");
   const linkedListInputsEl = getElement<HTMLElement>("linked-list-inputs");
+  const hashTableInputsEl = getElement<HTMLElement>("hash-table-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -68,6 +74,7 @@ function init(): void {
     queueInputsEl.hidden = algorithm !== "queue";
     listInputsEl.hidden = algorithm !== "list";
     linkedListInputsEl.hidden = algorithm !== "linked-list";
+    hashTableInputsEl.hidden = algorithm !== "hash-table";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -119,6 +126,10 @@ function init(): void {
       } else if (algorithm === "linked-list") {
         parseLinkedListScenario(linkedListScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildLinkedListRunURL(linkedListScriptEl.value);
+      } else if (algorithm === "hash-table") {
+        const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
+        parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
+        url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

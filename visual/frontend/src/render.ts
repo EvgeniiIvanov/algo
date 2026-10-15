@@ -2,16 +2,22 @@
 // кадр самодостаточен, состояния между кадрами не накапливаем.
 // На вход Frame — на выход мутация двух DOM-узлов (пояснение + контейнер).
 //
-// Поддерживаем kind="array" (бинарный поиск) и kind="structure"
+// Поддерживаем kind="array" (бинарный поиск), kind="structure"
 // (стек "stack", очередь "queue", список "list", односвязный список
-// "linked-list" — узлы со стрелками next).
+// "linked-list" — узлы со стрелками next) и kind="hash-table"
+// (корзины с цепочками записей).
 // Новые kind'ы — новая ветка без правок существующих.
 
 import {
   KIND_ARRAY,
+  KIND_HASH_TABLE,
   KIND_STRUCTURE,
   type ArraySnapshot,
   type Frame,
+  type HashEntry,
+  type HashEntryHighlight,
+  type HashEntryRemoval,
+  type HashTableSnapshot,
   type StructureSnapshot,
 } from "./types";
 
@@ -132,6 +138,116 @@ export function isStructureFrame(frame: Frame): boolean {
   }
 }
 
+/** Внутренний помощник: бросает, если снимок не похож на снимок хеш-таблицы. */
+function asHashTableSnapshot(data: unknown): HashTableSnapshot {
+  if (data === null || typeof data !== "object") {
+    throw new Error("снимок не объект");
+  }
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.bucketCount !== "number" || !Number.isInteger(obj.bucketCount) || obj.bucketCount < 1) {
+    throw new Error(
+      "снимок хеш-таблицы: поле bucketCount должно быть положительным целым — нулевых таблиц не существует",
+    );
+  }
+  if (!Array.isArray(obj.buckets) || obj.buckets.length !== obj.bucketCount) {
+    throw new Error(
+      "снимок хеш-таблицы: поле buckets должно быть массивом длины bucketCount — каждая корзина обязана присутствовать в кадре",
+    );
+  }
+  for (const chain of obj.buckets) {
+    if (!Array.isArray(chain)) {
+      throw new Error("снимок хеш-таблицы: каждая корзина — массив записей");
+    }
+    for (const e of chain) {
+      if (e === null || typeof e !== "object") {
+        throw new Error("снимок хеш-таблицы: запись должна быть объектом {key, value}");
+      }
+      const entry = e as Record<string, unknown>;
+      for (const field of ["key", "value"] as const) {
+        if (typeof entry[field] !== "number" || !Number.isInteger(entry[field])) {
+          throw new Error(`снимок хеш-таблицы: поле ${field} записи должно быть целым числом`);
+        }
+      }
+    }
+  }
+  if (typeof obj.highlightBucket !== "number" || !Number.isInteger(obj.highlightBucket)) {
+    throw new Error("снимок хеш-таблицы: поле highlightBucket должно быть целым числом");
+  }
+  if (obj.highlightBucket < -1 || obj.highlightBucket >= obj.bucketCount) {
+    throw new Error(
+      "снимок хеш-таблицы: highlightBucket вне диапазона корзин (0..bucketCount-1, -1 — нет выбора)",
+    );
+  }
+  if (!Array.isArray(obj.highlights)) {
+    throw new Error("снимок хеш-таблицы: поле highlights должно быть массивом");
+  }
+  for (const h of obj.highlights) {
+    if (h === null || typeof h !== "object") {
+      throw new Error("снимок хеш-таблицы: подсветка должна быть объектом {bucket, position, role}");
+    }
+    const hl = h as HashEntryHighlight;
+    if (typeof hl.bucket !== "number" || !Number.isInteger(hl.bucket)) {
+      throw new Error("снимок хеш-таблицы: поле bucket подсветки должно быть целым числом");
+    }
+    if (typeof hl.position !== "number" || !Number.isInteger(hl.position)) {
+      throw new Error("снимок хеш-таблицы: поле position подсветки должно быть целым числом");
+    }
+    if (typeof hl.role !== "string") {
+      throw new Error("снимок хеш-таблицы: поле role подсветки должно быть строкой");
+    }
+  }
+  // Надгробия шага: удалённые записи на бывших позициях (не входят в
+  // buckets — иначе живой снимок был бы искажён). Отсутствие поля — ошибка:
+  // снимок от рендерера всегда несёт массив, пусть и пустой.
+  if (!Array.isArray(obj.removed)) {
+    throw new Error(
+      "снимок хеш-таблицы: поле removed должно быть массивом надгробий (пустым, если шаг без удаления)",
+    );
+  }
+  for (const item of obj.removed) {
+    if (item === null || typeof item !== "object") {
+      throw new Error("снимок хеш-таблицы: надгробие должно быть объектом {bucket, position, key, value}");
+    }
+    const gone = item as Record<string, unknown>;
+    for (const field of ["bucket", "position", "key", "value"] as const) {
+      if (typeof gone[field] !== "number" || !Number.isInteger(gone[field])) {
+        throw new Error(`снимок хеш-таблицы: поле ${field} надгробия должно быть целым числом`);
+      }
+    }
+    // bucket ведёт в массив корзин рендера: вне диапазона он рисовать не может.
+    const removal = item as HashEntryRemoval;
+    if (removal.bucket < 0 || removal.bucket >= obj.bucketCount) {
+      throw new Error(
+        "снимок хеш-таблицы: поле bucket надгробия вне диапазона корзин (0..bucketCount-1)",
+      );
+    }
+  }
+  let entries = 0;
+  for (const chain of obj.buckets as unknown[][]) {
+    entries += chain.length;
+  }
+  if (obj.entryCount !== entries) {
+    throw new Error(
+      "снимок хеш-таблицы: поле entryCount должно совпадать с числом записей во всех цепочках",
+    );
+  }
+  if (typeof obj.operation !== "string") {
+    throw new Error("снимок хеш-таблицы: поле operation должно быть строкой");
+  }
+  return obj as unknown as HashTableSnapshot;
+}
+
+/** Является ли кадр снимком хеш-таблицы с допустимыми полями. */
+export function isHashTableFrame(frame: Frame): boolean {
+  if (frame.kind !== KIND_HASH_TABLE) return false;
+  try {
+    asHashTableSnapshot(frame.data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Отрисовать кадр в DOM. Возвращает true, если кадр был отрисован;
  * false — если kind не поддерживается (тогда узлы остаются нетронутыми).
@@ -145,6 +261,12 @@ export function renderFrame(
     const snap = asStructureSnapshot(frame.data);
     explanationEl.textContent = frame.explanation;
     renderStructure(snap, arrayEl);
+    return true;
+  }
+  if (frame.kind === KIND_HASH_TABLE) {
+    const snap = asHashTableSnapshot(frame.data);
+    explanationEl.textContent = frame.explanation;
+    renderHashTable(snap, arrayEl);
     return true;
   }
   if (frame.kind !== KIND_ARRAY) return false;
@@ -306,4 +428,117 @@ function renderLinkedListRow(snap: StructureSnapshot, row: HTMLElement): void {
     }
     row.appendChild(el);
   });
+}
+
+/**
+ * Ветка kind="hash-table": каждый ряд — одна корзина; внутри ряда метка
+ * индекса корзины и цепочка записей «ключ:значение» со стрелками next
+ * (метод цепочек: столько записей, сколько ключей попали в корзину).
+ * Пустая корзина рисуется пустым маркером — она сравнивается глазами
+ * с соседями, как ряд ячеек у фиксированных структур. Подсветки:
+ * выбранная хешированием корзина подчёркивается целиком (selected),
+ * живые записи — своей ролью (visited/added/updated/found). Удалённые
+ * записи в снимке не живут: они рисуются надгробиями из removed на своих
+ * бывших позициях, соседние стрелки — прерывистые (цепочка идёт мимо).
+ * Ряды не перетасовываются: индекс корзины — адрес статики, не позиция
+ * обхода.
+ */
+function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): void {
+  const wrap = document.createElement("div");
+  wrap.className = "hash-table";
+
+  const caption = document.createElement("div");
+  caption.className = "operation";
+  caption.textContent = snap.operation === "" ? "Исходное состояние" : `Операция: ${snap.operation}`;
+  wrap.appendChild(caption);
+
+  const roleByEntry = new Map(
+    snap.highlights.map((h) => [`${h.bucket}:${h.position}`, h.role] as const),
+  );
+
+  // Надгробия по корзинам: бывшая позиция → удалённая пара.
+  const tombstones = new Map<number, Map<number, HashEntryRemoval>>();
+  for (const removal of snap.removed) {
+    let byBucket = tombstones.get(removal.bucket);
+    if (!byBucket) {
+      byBucket = new Map();
+      tombstones.set(removal.bucket, byBucket);
+    }
+    byBucket.set(removal.position, removal);
+  }
+
+  for (let i = 0; i < snap.bucketCount; i++) {
+    const row = document.createElement("div");
+    row.className = "hash-table-row";
+    row.dataset.bucket = String(i);
+    if (i === snap.highlightBucket) row.classList.add("selected");
+
+    const label = document.createElement("div");
+    label.className = "bucket-label";
+    label.textContent = String(i);
+    row.appendChild(label);
+
+    const chain = snap.buckets[i];
+    const ghosts = tombstones.get(i);
+
+    // Элементы ряда через сцепку позиций: надгробия встают на свои бывшие
+    // позиции, живые записи — по позициям снимка (после удаления они
+    // сдвинуты, поэтому соседом надгробия оказывается вставший рядом).
+    type RowItem =
+      | { kind: "ghost"; removal: HashEntryRemoval }
+      | { kind: "empty" }
+      | { kind: "entry"; entry: HashEntry; position: number };
+    const items: RowItem[] = [];
+    if (chain.length === 0 && (ghosts === undefined || ghosts.size === 0)) {
+      items.push({ kind: "empty" });
+    }
+    for (let position = 0; position <= chain.length; position++) {
+      const ghost = ghosts?.get(position);
+      if (ghost !== undefined) items.push({ kind: "ghost", removal: ghost });
+      if (position < chain.length) {
+        items.push({ kind: "entry", entry: chain[position], position });
+      }
+    }
+
+    items.forEach((item, k) => {
+      if (k > 0) {
+        const arrow = document.createElement("div");
+        arrow.className = "arrow";
+        // Стрелка к надгробию или от него: цепочка идёт мимо удалённой записи.
+        if (items[k - 1].kind === "ghost" || item.kind === "ghost") {
+          arrow.classList.add("skip");
+        }
+        row.appendChild(arrow);
+      }
+      if (item.kind === "ghost") {
+        // Надгробие не входит в buckets: data-position — бывшая позиция
+        // удалённой записи, живые номера позиций ряда оно не считает.
+        const cell = document.createElement("div");
+        cell.className = "hash-entry removed";
+        cell.textContent = `${item.removal.key}:${item.removal.value}`;
+        cell.dataset.bucket = String(i);
+        cell.dataset.position = String(item.removal.position);
+        row.appendChild(cell);
+        return;
+      }
+      if (item.kind === "empty") {
+        const empty = document.createElement("div");
+        empty.className = "hash-entry empty";
+        row.appendChild(empty);
+        return;
+      }
+      const cell = document.createElement("div");
+      cell.className = "hash-entry filled";
+      cell.textContent = `${item.entry.key}:${item.entry.value}`;
+      cell.dataset.bucket = String(i);
+      cell.dataset.position = String(item.position);
+      const role = roleByEntry.get(`${i}:${item.position}`);
+      if (role !== undefined) cell.classList.add(role); // visited/added/updated/found
+      row.appendChild(cell);
+    });
+
+    wrap.appendChild(row);
+  }
+
+  containerEl.replaceChildren(wrap);
 }

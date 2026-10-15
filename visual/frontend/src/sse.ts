@@ -110,6 +110,19 @@ export function buildLinkedListRunURL(script: string): string {
 }
 
 /**
+ * Построить URL запуска Run хеш-таблицы: число корзин + сырой текст
+ * сценария. Сценарий едет как есть — парсинг и валидация авторитетны
+ * на сервере.
+ */
+export function buildHashTableRunURL(buckets: number, script: string): string {
+  const params = new URLSearchParams({
+    buckets: String(buckets),
+    script,
+  });
+  return `/api/run/hash-table?${params.toString()}`;
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.

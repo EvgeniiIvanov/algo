@@ -192,13 +192,6 @@ code {
   transform: scale(1.05);
 }
 
-.cell.found {
-  background: var(--found);
-  border-color: #15803d;
-  color: white;
-  transform: scale(1.05);
-}
-
 /* Кадр kind="structure" (стек): подпись операции + ряд ячеек на всю ёмкость. */
 .structure {
   display: flex;
@@ -227,26 +220,6 @@ code {
   background: var(--in-range);
   border-color: var(--accent);
   color: var(--fg);
-}
-
-.cell.added {
-  background: var(--found);
-  border-color: #15803d;
-  color: white;
-  transform: scale(1.05);
-}
-
-.cell.removed {
-  background: var(--mid);
-  border-color: #b45309;
-  color: white;
-}
-
-/* Значение, приехавшее сдвигом влево (dequeue очереди): нейтральный сдвиг. */
-.cell.shifted {
-  background: #e0f2fe;
-  border-color: #0284c7;
-  color: #0c4a6e;
 }
 
 /* Указатель top: метка под вершиной стека. */
@@ -306,18 +279,12 @@ code {
   content: "—next→";
 }
 
-/* Стрелка, соседняя с надгробием: цепочка идёт мимо удалённого узла. */
-.linked-list-row .arrow.skip {
+/* Стрелка, соседняя с надгробием (linked-list и хеш-таблица): цепочка
+   идёт мимо удалённого элемента. */
+.linked-list-row .arrow.skip,
+.hash-table-row .arrow.skip {
   opacity: 0.35;
   filter: blur(0.4px);
-}
-
-/* Обход посетил узел (find/insert/remove по позиции). */
-.cell.visited {
-  background: var(--mid);
-  border-color: #b45309;
-  color: white;
-  transform: scale(1.05);
 }
 
 /* У узла переключена связь next (узлы в памяти не двигались). */
@@ -328,5 +295,133 @@ code {
   border-style: dashed;
 }
 
-/* Найденный узел: роль "found" берёт оформление общего правила .cell.found
-   выше (зелёная подсветка массива) — оно применяется к узлам списка так же. */
+/* Найденный узел: роль "found" берёт оформление общей группы роли found
+   ниже (зелёная подсветка массива) — оно применяется к узлам списка так же. */
+/* Кадры kind="hash-table": ряды-корзины с цепочками записей.
+   Ряд — статичный адрес корзины (индекс не двигается), записи выстраиваются
+   цепочкой со стрелками next; только существующие записи рисуются, пустая
+   корзина остаётся одним пустым маркером. */
+.hash-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hash-table-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding-bottom: 22px; /* место под метки указателей, как у рядов структур */
+}
+
+/* Корзина, выбранная хешированием на этом шаге. */
+.hash-table-row.selected {
+  background: var(--in-range);
+  border-color: var(--accent);
+}
+
+/* Индекс корзины слева — адрес страницы bucket-массива. */
+.bucket-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  width: 28px;
+  text-align: center;
+  flex: none;
+}
+
+/* Запись цепочки «ключ:значение»: уже ячейки структуры — своё оформление:
+   пары длиннее одного числа, фиксированную ширину 56px не принимаем. */
+.hash-entry {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  font-weight: 600;
+  background: var(--out);
+  color: var(--muted);
+  transition: all 0.15s ease-out;
+}
+
+.hash-entry.empty {
+  width: 48px;
+  background: white;
+  border-style: dashed;
+}
+
+.hash-entry.filled {
+  background: var(--in-range);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.hash-table-row .arrow {
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.hash-table-row .arrow::before {
+  content: "→";
+}
+
+/* Роли подсветки ячеек структур и записей хеш-таблицы: одинаковые
+   оформления живут в общих группах ниже — дубли «те же цвета, но другие
+   классы» не держим. Порядок правил важен: роль должна перекрашивать
+   заполненную ячейку (последнее правило с той же специфичностью
+   побеждает), поэтому группы стоят после .cell.filled и
+   .hash-entry.filled. */
+
+/* Запись вставлена (во главу цепочки хеш-таблицы, в ячейку структуры). */
+.cell.added,
+.hash-entry.added {
+  background: var(--found);
+  border-color: #15803d;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Освобождённая ячейка структуры и надгробие удаления хеш-таблицы:
+   выбывший элемент ещё виден одним кадром. */
+.cell.removed,
+.hash-entry.removed {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+}
+
+/* Обход посетил узел/ячейку/запись цепочки. */
+.cell.visited,
+.hash-entry.visited {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Найденное значение массива/узла linked-list и найденная запись
+   хеш-таблицы: одно зелёное оформление на все структуры. */
+.cell.found,
+.hash-entry.found {
+  background: var(--found);
+  border-color: #15803d;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Нейтральная перекраска затронутого значения: очередь сдвинула хвост
+   влево (shifted) или переписано значение существующего ключа
+   (updated хеш-таблицы). */
+.cell.shifted,
+.hash-entry.updated {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #0c4a6e;
+}
