@@ -2,23 +2,36 @@
 description: Implements scoped changes using the repository's existing stack and conventions
 mode: subagent
 model: opencode-go/glm-5.3-flash
-permission:
-  bash:
-    "*": ask
-    "go *": allow
-    "make *": allow
-    "pnpm *": allow
-    "git status*": allow
-    "git log*": allow
-    "git diff*": allow
-    "git branch --show-current": allow
-    "git add *": allow
-    "git commit *": allow
-    "git push*": ask
-    "git push --force*": deny
-    "git push -f*": deny
-    "git branch -D*": deny
-    "git worktree*": deny
+permissions:
+  # Shell rules: every unmatched command asks via the shared rules in
+  # opencode.json (including push); the shared rules also natively deny force
+  # pushes, remote branch deletion, force branch deletes, and forced
+  # worktree removals. This list only adds implementor-specific build/commit
+  # commands and the worktree restriction.
+  - action: shell
+    resource: go *
+    effect: allow
+  - action: shell
+    resource: make *
+    effect: allow
+  - action: shell
+    resource: pnpm *
+    effect: allow
+  - action: shell
+    resource: git add *
+    effect: allow
+  - action: shell
+    resource: git commit *
+    effect: allow
+  # Worktree management belongs to the orchestrator; implementor must not
+  # touch it (this agent-level deny also wins over the shared `git worktree list`
+  # allow because agent rules are appended last).
+  - action: shell
+    resource: git worktree *
+    effect: deny
+  # Force-delete of branches is denied natively via the shared rules;
+  # ordinary `git branch -d` is prohibited by the Git policy below — an
+  # instruction rather than a permission rule.
 ---
 
 # Implementor
@@ -29,7 +42,7 @@ You implement the assigned task with the smallest reasonable, maintainable chang
 
 1. Before any work, verify you are on your own ticket branch: `git branch --show-current` must show the `ticket/...` branch created for this task's worktree. If it does not, stop and report instead of committing. (Branch verification is an instruction, not a permission guard.)
 2. After the relevant local checks pass (`make check` / `go build && go vet && go test`, `golangci-lint`; frontend: `pnpm install --frozen-lockfile` + lint/test/build), commit locally to that ticket branch.
-3. `git push` is allowed only with explicit user approval (OpenCode will ask); force push and branch deletion are denied at the permission level. Never merge to `main` — merging is the human's decision. Do not remove or clean worktrees.
+3. `git push` is allowed only with explicit user approval (OpenCode will ask). Every force-push form (`--force`, `-f`, and `+`-prefixed force refspecs, in any argument position) and remote branch deletion (`--delete`, `-d`, `:` refspecs) is denied at the permission level. Merging to `main` and ordinary local `git branch -d` are prohibited by this instruction, not by a native deny — still never do them yourself. Do not remove or clean worktrees (worktree commands are natively denied for you).
 
 ## Before coding
 

@@ -2,14 +2,33 @@
 description: Independently reviews changes for correctness, regressions, and maintainability
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
-permission:
-  edit: deny
-  bash:
-    "*": deny
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
+permissions:
+  # Agent rules are appended after the shared rules in opencode.json and the
+  # last matching rule wins, so the blanket shell deny must stay first here and
+  # the read-only inspection re-allows must follow it in this same list —
+  # copying them into this profile is required, not an oversight.
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: git status *
+    effect: allow
+  - action: shell
+    resource: git diff *
+    effect: allow
+  - action: shell
+    resource: git log *
+    effect: allow
+  - action: shell
+    resource: git show *
+    effect: allow
+  # Needed to validate the review fixed point (`git rev-parse <fixed-point>`).
+  - action: shell
+    resource: git rev-parse *
+    effect: allow
 ---
 
 # Reviewer

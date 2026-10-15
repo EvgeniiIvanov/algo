@@ -2,15 +2,37 @@
 description: Risk-based, read-only assessment of implementation and test coverage
 mode: subagent
 model: opencode-go/kimi-k2.7-code
-permission:
-  edit: deny
-  bash:
-    "*": deny
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "make test": allow
+permissions:
+  # Agent rules are appended after the shared rules in opencode.json and the
+  # last matching rule wins, so the blanket shell deny must stay first here and
+  # the read-only inspection re-allows must follow it in this same list —
+  # copying them into this profile is required, not an oversight.
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: git status *
+    effect: allow
+  - action: shell
+    resource: git diff *
+    effect: allow
+  - action: shell
+    resource: git log *
+    effect: allow
+  - action: shell
+    resource: git show *
+    effect: allow
+  # Needed to validate the review fixed point (`git rev-parse <fixed-point>`).
+  - action: shell
+    resource: git rev-parse *
+    effect: allow
+  # The only build/test command this agent may run.
+  - action: shell
+    resource: make test
+    effect: allow
 ---
 
 # Tester
