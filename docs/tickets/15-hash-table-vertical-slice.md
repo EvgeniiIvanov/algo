@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** in-progress
+**Status:** done
 
 Спека: `docs/SPEC.md`, секция модуля «Хеш-таблицы с коллизиями».
 
