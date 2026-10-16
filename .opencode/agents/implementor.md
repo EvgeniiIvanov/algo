@@ -7,9 +7,13 @@ permissions:
   # safety fallback, native deny rules cover explicitly matched direct forms
   # of force push / remote branch deletion / force branch deletion / forced
   # worktree removal (short-flag clusters included), and a few read-only git
-  # inspection commands are allowed. The list below is therefore deliberately
-  # EXACT: only real project commands from the Makefile and frontend package
-  # scripts plus `git add`/`git commit`. Weaker prefixes (`go *`, `make *`,
+  # inspection commands are allowed (read-only; in opencode.json the shared
+  # inspection list additionally includes `git branch --list *`,
+  # `git ls-remote --heads origin *` and `git -C ../algo-* status *`). The
+  # list below is therefore deliberately EXACT: only real project commands
+  # from the Makefile and frontend package scripts, the exact
+  # `gofmt -l quiz` command, plus `git add`/`git commit`.
+  # Weaker prefixes (`go *`, `make *`,
   # `pnpm *`) are intentionally absent — arbitrary `make` targets, `pnpm exec
   # ...`, `go run`, dev servers and focused tests are not matched and fall
   # through to OpenCode approval. Shell glob matching works on parsed command
@@ -26,6 +30,11 @@ permissions:
     effect: allow
   - action: shell
     resource: go test -race ./...
+    effect: allow
+  # Exact gofmt listing command for the quiz package (make gofmt-check runs
+  # `gofmt -l .` over the whole repo and stays the canonical formatting gate).
+  - action: shell
+    resource: gofmt -l quiz
     effect: allow
   - action: shell
     resource: golangci-lint run ./...
