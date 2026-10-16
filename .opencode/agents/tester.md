@@ -1,7 +1,7 @@
 ---
 description: Risk-based, read-only assessment of implementation and test coverage
 mode: subagent
-model: opencode-go/kimi-k2.7-code
+model: opencode-go/minimax-m3
 permissions:
   # Agent rules are appended after the shared rules in opencode.json and the
   # last matching rule wins, so the blanket shell deny must stay first here and
