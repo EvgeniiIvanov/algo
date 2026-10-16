@@ -124,3 +124,48 @@ func TestParseBankMalformedJSON(t *testing.T) {
 		t.Fatal("ожидали ошибку разбора")
 	}
 }
+
+// Тест порядка модулей block-1 (тикет 16): hash-tables стоит после
+// structures и до модулей сортировок, если они уже добавлены.
+func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	var block1 *Block
+	for i := range bank.Blocks {
+		if bank.Blocks[i].ID == "block-1" {
+			block1 = &bank.Blocks[i]
+			break
+		}
+	}
+	if block1 == nil {
+		t.Fatal("в банке нет блока block-1")
+	}
+	structuresIdx, hashIdx := -1, -1
+	for i, m := range block1.Modules {
+		switch m.ID {
+		case "structures":
+			structuresIdx = i
+		case "hash-tables":
+			hashIdx = i
+		}
+	}
+	if structuresIdx == -1 {
+		t.Fatal("в block-1 нет модуля structures")
+	}
+	if hashIdx == -1 {
+		t.Fatal("в block-1 нет модуля hash-tables")
+	}
+	if hashIdx < structuresIdx {
+		t.Errorf("модуль hash-tables (индекс %d) стоит раньше structures (индекс %d), ожидалось после", hashIdx, structuresIdx)
+	}
+	// ID модулей сортировок ещё не зафиксированы; когда они появятся,
+	// hash-tables должна остаться перед ними — опознаём по подстроке
+	// "sort" в id (sorting, merge-sort, quick-sort и т. п.).
+	for i, m := range block1.Modules {
+		if i < hashIdx && strings.Contains(m.ID, "sort") {
+			t.Errorf("модуль сортировок %q (индекс %d) стоит раньше hash-tables (индекс %d)", m.ID, i, hashIdx)
+		}
+	}
+}
