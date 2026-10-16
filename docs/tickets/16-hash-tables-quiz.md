@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 (хеш-таблица сквозным срезом).
 
-**Status:** blocked
+**Status:** in-progress
 
 ## Acceptance Criteria
 
