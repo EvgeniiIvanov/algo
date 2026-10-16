@@ -2,12 +2,116 @@
 description: Implements scoped changes using the repository's existing stack and conventions
 mode: subagent
 model: opencode-go/glm-5.3-flash
-temperature: 0.2
+permissions:
+  # Shared rules in opencode.json run first: a global `shell *` ask is the
+  # safety fallback, native deny rules cover explicitly matched direct forms
+  # of force push / remote branch deletion / force branch deletion / forced
+  # worktree removal (short-flag clusters included), and a few read-only git
+  # inspection commands are allowed. The list below is therefore deliberately
+  # EXACT: only real project commands from the Makefile and frontend package
+  # scripts plus `git add`/`git commit`. Weaker prefixes (`go *`, `make *`,
+  # `pnpm *`) are intentionally absent — arbitrary `make` targets, `pnpm exec
+  # ...`, `go run`, dev servers and focused tests are not matched and fall
+  # through to OpenCode approval. Shell glob matching works on parsed command
+  # segments by text; it is not a sandbox against scripts/hooks (see the Git
+  # policy).
+  - action: shell
+    resource: go build ./...
+    effect: allow
+  - action: shell
+    resource: go vet ./...
+    effect: allow
+  - action: shell
+    resource: go test ./...
+    effect: allow
+  - action: shell
+    resource: go test -race ./...
+    effect: allow
+  - action: shell
+    resource: golangci-lint run ./...
+    effect: allow
+  - action: shell
+    resource: make check
+    effect: allow
+  - action: shell
+    resource: make lint
+    effect: allow
+  - action: shell
+    resource: make test
+    effect: allow
+  - action: shell
+    resource: make build
+    effect: allow
+  - action: shell
+    resource: make gofmt-check
+    effect: allow
+  - action: shell
+    resource: make go-build
+    effect: allow
+  - action: shell
+    resource: make go-vet
+    effect: allow
+  - action: shell
+    resource: make go-test
+    effect: allow
+  - action: shell
+    resource: make go-lint
+    effect: allow
+  - action: shell
+    resource: make frontend-install
+    effect: allow
+  - action: shell
+    resource: make frontend-lint
+    effect: allow
+  - action: shell
+    resource: make frontend-test
+    effect: allow
+  - action: shell
+    resource: make frontend-build
+    effect: allow
+  - action: shell
+    resource: pnpm install --frozen-lockfile
+    effect: allow
+  - action: shell
+    resource: pnpm lint
+    effect: allow
+  - action: shell
+    resource: pnpm test
+    effect: allow
+  - action: shell
+    resource: pnpm build
+    effect: allow
+  - action: shell
+    resource: git add *
+    effect: allow
+  - action: shell
+    resource: git commit *
+    effect: allow
+  # Worktree management belongs to the orchestrator; implementor must not
+  # touch it (this agent-level deny also wins over the shared `git worktree list`
+  # allow because agent rules are appended last). The `git -C <path> worktree`
+  # variant is denied as well so a path prefix cannot evade this rule.
+  - action: shell
+    resource: git worktree *
+    effect: deny
+  - action: shell
+    resource: git -C *worktree*
+    effect: deny
+  # Force-delete of branches is denied natively via the shared rules;
+  # ordinary `git branch -d` is prohibited by the Git policy below — it falls
+  # through to an `ask` prompt, but works only as an instruction, not a
+  # permission rule.
 ---
 
 # Implementor
 
-You implement the assigned task with the smallest reasonable, maintainable change.
+You implement the assigned task with the smallest reasonable, maintainable change. Tests are part of your job: you write and update them yourself — do not expect `tester` to author them.
+
+## Git policy
+
+1. Before any work, verify you are on your own ticket branch: `git branch --show-current` must show the `ticket/...` branch created for this task's worktree. If it does not, stop and report instead of committing. (Branch verification is an instruction, not a permission guard.)
+2. After the relevant local checks pass (`make check` / `go build && go vet && go test`, `golangci-lint`; frontend: `pnpm install --frozen-lockfile` + lint/test/build), commit locally to that ticket branch.
+3. `git push` is allowed only with explicit user approval (OpenCode asks). Direct force-push forms (`--force*`, short `-f` in leading, middle, or trailing position including clusters, and `+`-prefixed refspecs) and remote branch deletion (`--delete`, short `-d`, `:` deletion refspecs, `--mirror`, `--prune`), including `git -C <path> push ...`, are denied at the permission level for explicitly matched direct command forms; the same applies to force branch deletions (`-D`, long `--delete --force`, clustered `-df`/`-fd`) and forced `git worktree remove`. Do not try to circumvent this; report instead. Permission matching is text-based over parsed command segments — it is **not a sandbox** against arbitrary code wrappers (`pnpm exec ...`, make recipes, git hooks, test harnesses); any command without an exact allow rule requires OpenCode approval, and the shared force/delete denies likewise apply only to explicitly matched direct forms. Merging to `main` and ordinary local `git branch -d` are prohibited by this instruction, not by a native deny — still never do them yourself. Worktree management is native-denied for you (including `git worktree list`).
 
 ## Before coding
 
@@ -71,7 +175,7 @@ These are guidelines, not assumptions that every task involves every concern.
 - Work only within the assigned scope.
 - Do not take over orchestration, independent review, or unrelated testing tasks.
 - Preserve unrelated working-tree changes.
-- Do not commit, push, publish, or perform destructive operations without explicit authorization.
+- Follow the Git policy above: local commits to your own ticket branch after checks are authorized; anything beyond that (push, merge, branch/worktree management) is not yours.
 
 ## Completion report
 

@@ -2,12 +2,40 @@
 description: Independently reviews changes for correctness, regressions, and maintainability
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
-temperature: 0.1
+permissions:
+  # Agent rules are appended after the shared rules in opencode.json and the
+  # last matching rule wins, so the blanket shell deny must stay first here and
+  # the read-only inspection re-allows must follow it in this same list —
+  # copying them into this profile is required, not an oversight.
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: git status *
+    effect: allow
+  - action: shell
+    resource: git diff *
+    effect: allow
+  - action: shell
+    resource: git log *
+    effect: allow
+  - action: shell
+    resource: git show *
+    effect: allow
+  # Needed to validate the review fixed point (`git rev-parse <fixed-point>`).
+  - action: shell
+    resource: git rev-parse *
+    effect: allow
 ---
 
 # Reviewer
 
 You are an independent code reviewer. Your goal is to find real defects, regressions, and unmet requirements—not to rewrite the implementation or produce a stylistic critique.
+
+You are read-only: edits are denied at the permission level, and your shell access is limited to Git inspection commands (`git status`, `git diff`, `git log`, `git show`). Do not attempt to work around this; report findings instead of fixing anything.
 
 ## Review process
 
