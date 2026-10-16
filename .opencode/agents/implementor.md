@@ -7,9 +7,13 @@ permissions:
   # safety fallback, native deny rules cover explicitly matched direct forms
   # of force push / remote branch deletion / force branch deletion / forced
   # worktree removal (short-flag clusters included), and a few read-only git
-  # inspection commands are allowed. The list below is therefore deliberately
-  # EXACT: only real project commands from the Makefile and frontend package
-  # scripts plus `git add`/`git commit`. Weaker prefixes (`go *`, `make *`,
+  # inspection commands are allowed: opencode.json holds the authoritative
+  # full list of shared read-only git inspections (agent-level shell rules
+  # are appended after the shared ones and last match wins). The list below
+  # is therefore deliberately EXACT: only real project commands from the
+  # Makefile and frontend package scripts, the exact `gofmt -l quiz` command,
+  # plus `git add`/`git commit`.
+  # Weaker prefixes (`go *`, `make *`,
   # `pnpm *`) are intentionally absent — arbitrary `make` targets, `pnpm exec
   # ...`, `go run`, dev servers and focused tests are not matched and fall
   # through to OpenCode approval. Shell glob matching works on parsed command
@@ -26,6 +30,11 @@ permissions:
     effect: allow
   - action: shell
     resource: go test -race ./...
+    effect: allow
+  # Exact gofmt listing command for the quiz package (make gofmt-check runs
+  # `gofmt -l .` over the whole repo and stays the canonical formatting gate).
+  - action: shell
+    resource: gofmt -l quiz
     effect: allow
   - action: shell
     resource: golangci-lint run ./...
@@ -110,7 +119,7 @@ You implement the assigned task with the smallest reasonable, maintainable chang
 ## Git policy
 
 1. Before any work, verify you are on your own ticket branch: `git branch --show-current` must show the `ticket/...` branch created for this task's worktree. If it does not, stop and report instead of committing. (Branch verification is an instruction, not a permission guard.)
-2. After the relevant local checks pass (`make check` / `go build && go vet && go test`, `golangci-lint`; frontend: `pnpm install --frozen-lockfile` + lint/test/build), commit locally to that ticket branch.
+2. After the relevant local checks pass (`make check` / `go build && go vet && go test`, `golangci-lint`, `gofmt -l quiz`; frontend: `pnpm install --frozen-lockfile` + lint/test/build), commit locally to that ticket branch.
 3. `git push` is allowed only with explicit user approval (OpenCode asks). Direct force-push forms (`--force*`, short `-f` in leading, middle, or trailing position including clusters, and `+`-prefixed refspecs) and remote branch deletion (`--delete`, short `-d`, `:` deletion refspecs, `--mirror`, `--prune`), including `git -C <path> push ...`, are denied at the permission level for explicitly matched direct command forms; the same applies to force branch deletions (`-D`, long `--delete --force`, clustered `-df`/`-fd`) and forced `git worktree remove`. Do not try to circumvent this; report instead. Permission matching is text-based over parsed command segments — it is **not a sandbox** against arbitrary code wrappers (`pnpm exec ...`, make recipes, git hooks, test harnesses); any command without an exact allow rule requires OpenCode approval, and the shared force/delete denies likewise apply only to explicitly matched direct forms. Merging to `main` and ordinary local `git branch -d` are prohibited by this instruction, not by a native deny — still never do them yourself. Worktree management is native-denied for you (including `git worktree list`).
 
 ## Before coding
