@@ -26,7 +26,7 @@ type SortHighlight struct {
 type SortSnapshot struct {
 	Values     []int           `json:"values"`     // весь массив на шаге (копия, не nil)
 	Highlights []SortHighlight `json:"highlights"` // подсветки сравниваемых/обмениваемых позиций (пустые шаги — [])
-	Operation  string          `json:"operation"`  // имя шага ("compare 0 1", "swap 1 2"); пусто — стартовый кадр
+	Operation  string          `json:"operation"`  // имя шага ("сравнение 0 1", "обмен 1 2"); пусто — стартовый кадр
 }
 
 // BubbleRun — Frame Renderer bubble sort: запускает сортировку в режиме
@@ -53,7 +53,7 @@ func BubbleFrames(values []int) []frame.Frame {
 }
 
 // sortFrames — накапливает состояние между событиями и строит кадры.
-// Реализует algorithms.Emitter[sort.Event].
+// Реализует algorithms.Emitter[sort.BubbleEvent].
 type sortFrames struct {
 	mirror     []int           // массив по событиям (чистое зеркало, кадр за шагом)
 	highlights []SortHighlight // подсветки текущего шага
@@ -65,14 +65,14 @@ type sortFrames struct {
 // Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
 // по детерминированным индексам события Swap; values и подсветки в кадре
 // всегда согласованы.
-func (r *sortFrames) Emit(ev sort.Event) {
+func (r *sortFrames) Emit(ev sort.BubbleEvent) {
 	switch e := ev.(type) {
-	case sort.Compare:
+	case sort.BubbleCompare:
 		r.highlights = []SortHighlight{
 			{Index: e.Left, Role: RoleCompare},
 			{Index: e.Right, Role: RoleCompare},
 		}
-		r.operation = fmt.Sprintf("compare %d %d", e.Left, e.Right)
+		r.operation = fmt.Sprintf("сравнение %d %d", e.Left, e.Right)
 		if e.LeftValue > e.RightValue {
 			r.frame(fmt.Sprintf("Сравниваем позиции %d и %d: %d больше %d — пара убывает, следом обмен.",
 				e.Left, e.Right, e.LeftValue, e.RightValue))
@@ -81,13 +81,13 @@ func (r *sortFrames) Emit(ev sort.Event) {
 				e.Left, e.Right, e.LeftValue, e.RightValue))
 		}
 
-	case sort.Swap:
+	case sort.BubbleSwap:
 		r.mirror[e.Left], r.mirror[e.Right] = e.RightValue, e.LeftValue
 		r.highlights = []SortHighlight{
 			{Index: e.Left, Role: RoleSwapped},
 			{Index: e.Right, Role: RoleSwapped},
 		}
-		r.operation = fmt.Sprintf("swap %d %d", e.Left, e.Right)
+		r.operation = fmt.Sprintf("обмен %d %d", e.Left, e.Right)
 		r.frame(fmt.Sprintf("Обменяли позиции %d и %d: %d и %d поменялись местами.",
 			e.Left, e.Right, e.LeftValue, e.RightValue))
 	}

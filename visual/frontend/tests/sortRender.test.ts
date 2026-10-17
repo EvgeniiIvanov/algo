@@ -31,7 +31,7 @@ function snapshot(overrides?: Partial<SortSnapshot>): SortSnapshot {
       { index: 0, role: "compare" },
       { index: 1, role: "compare" },
     ],
-    operation: "compare 0 1",
+    operation: "сравнение 0 1",
     ...overrides,
   };
 }
@@ -83,7 +83,7 @@ describe("renderFrame — kind=\"sort\"", () => {
             { index: 1, role: "swap" },
             { index: 2, role: "swap" },
           ],
-          operation: "swap 1 2",
+          operation: "обмен 1 2",
         }),
       ),
     );
@@ -97,7 +97,7 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(cells[2].textContent).toBe("2");
     expect(containerEl.querySelectorAll(".cell.swap")).toHaveLength(2);
     expect(containerEl.querySelectorAll(".cell.compare")).toHaveLength(0);
-    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: swap 1 2");
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: обмен 1 2");
   });
 
   it("стартовый кадр без подсветок: подпись «Исходное состояние»", () => {

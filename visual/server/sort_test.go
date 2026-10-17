@@ -108,12 +108,12 @@ func TestRunBubbleSortScenario(t *testing.T) {
 	}
 
 	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
-	assertSortSnapshot(t, frames[1], start, pair(0, render.RoleCompare), "compare 0 1")
-	assertSortSnapshot(t, frames[2], afterSwap01, pair(0, render.RoleSwapped), "swap 0 1")
-	assertSortSnapshot(t, frames[3], afterSwap01, pair(1, render.RoleCompare), "compare 1 2")
-	assertSortSnapshot(t, frames[4], sorted, pair(1, render.RoleSwapped), "swap 1 2")
+	assertSortSnapshot(t, frames[1], start, pair(0, render.RoleCompare), "сравнение 0 1")
+	assertSortSnapshot(t, frames[2], afterSwap01, pair(0, render.RoleSwapped), "обмен 0 1")
+	assertSortSnapshot(t, frames[3], afterSwap01, pair(1, render.RoleCompare), "сравнение 1 2")
+	assertSortSnapshot(t, frames[4], sorted, pair(1, render.RoleSwapped), "обмен 1 2")
 	// Второй проход: обменов нет — кадр сравнения хранит отсортированный массив.
-	assertSortSnapshot(t, frames[5], sorted, pair(0, render.RoleCompare), "compare 0 1")
+	assertSortSnapshot(t, frames[5], sorted, pair(0, render.RoleCompare), "сравнение 0 1")
 
 	// Пояснения отражают учебные точки: убывающую пару, сохранённый порядок
 	// и итоговый массив.
@@ -200,7 +200,7 @@ func TestRunBubbleSortLengthLimit(t *testing.T) {
 	pair := func(index int, role string) []render.SortHighlight {
 		return []render.SortHighlight{{Index: index, Role: role}, {Index: index + 1, Role: role}}
 	}
-	assertSortSnapshot(t, frames[len(frames)-1], mustInts(t, input(100)), pair(98, render.RoleCompare), "compare 98 99")
+	assertSortSnapshot(t, frames[len(frames)-1], mustInts(t, input(100)), pair(98, render.RoleCompare), "сравнение 98 99")
 
 	resp := doRunBubble(t, input(101))
 	if resp.Code != http.StatusBadRequest {
@@ -226,7 +226,7 @@ func TestRunBubbleSortNegativesAndDuplicates(t *testing.T) {
 	last := frames[len(frames)-1]
 	assertSortSnapshot(t, last, []int{-1, -1, 0},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
-		"compare 1 2")
+		"сравнение 1 2")
 	if !strings.Contains(last.Explanation, "порядок сохраняется") {
 		t.Errorf("пояснение сравнения дубликатов = %q, ожидается сохранение порядка", last.Explanation)
 	}

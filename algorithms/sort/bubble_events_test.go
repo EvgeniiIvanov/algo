@@ -9,9 +9,9 @@ import (
 
 // spySortEmitter — тестовый Emitter: собирает события сортировки в слайс
 // для проверки последовательности шагов.
-type spySortEmitter []sort.Event
+type spySortEmitter []sort.BubbleEvent
 
-func (s *spySortEmitter) Emit(event sort.Event) { *s = append(*s, event) }
+func (s *spySortEmitter) Emit(event sort.BubbleEvent) { *s = append(*s, event) }
 
 // Известный сценарий [3,1,2]: первый проход — два убывающих обмена,
 // второй — одно сравнение без обменов, затем досрочное завершение
@@ -22,18 +22,18 @@ func TestBubbleSortEventsScenario(t *testing.T) {
 
 	sort.BubbleSortWithEmitter(nums, &spy)
 
-	want := []sort.Event{
+	want := []sort.BubbleEvent{
 		// Проход 1: 3 и 1 — пара убывает, обмен; 3 и 2 — обмен.
-		sort.Compare{Left: 0, Right: 1, LeftValue: 3, RightValue: 1},
-		sort.Swap{Left: 0, Right: 1, LeftValue: 3, RightValue: 1},
-		sort.Compare{Left: 1, Right: 2, LeftValue: 3, RightValue: 2},
-		sort.Swap{Left: 1, Right: 2, LeftValue: 3, RightValue: 2},
+		sort.BubbleCompare{Left: 0, Right: 1, LeftValue: 3, RightValue: 1},
+		sort.BubbleSwap{Left: 0, Right: 1, LeftValue: 3, RightValue: 1},
+		sort.BubbleCompare{Left: 1, Right: 2, LeftValue: 3, RightValue: 2},
+		sort.BubbleSwap{Left: 1, Right: 2, LeftValue: 3, RightValue: 2},
 		// Проход 2: 1 и 2 — порядок сохраняется; обменов нет → выход.
-		sort.Compare{Left: 0, Right: 1, LeftValue: 1, RightValue: 2},
+		sort.BubbleCompare{Left: 0, Right: 1, LeftValue: 1, RightValue: 2},
 	}
-	if !reflect.DeepEqual([]sort.Event(spy), want) {
+	if !reflect.DeepEqual([]sort.BubbleEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
-			[]sort.Event(spy), want)
+			[]sort.BubbleEvent(spy), want)
 	}
 	// После сортировки содержимое согласовано с трейсом: результат —
 	// отсортированный исходный слайс.
@@ -51,13 +51,13 @@ func TestBubbleSortEventsAlreadySorted(t *testing.T) {
 
 	sort.BubbleSortWithEmitter(nums, &spy)
 
-	want := []sort.Event{
-		sort.Compare{Left: 0, Right: 1, LeftValue: 1, RightValue: 2},
-		sort.Compare{Left: 1, Right: 2, LeftValue: 2, RightValue: 3},
+	want := []sort.BubbleEvent{
+		sort.BubbleCompare{Left: 0, Right: 1, LeftValue: 1, RightValue: 2},
+		sort.BubbleCompare{Left: 1, Right: 2, LeftValue: 2, RightValue: 3},
 	}
-	if !reflect.DeepEqual([]sort.Event(spy), want) {
+	if !reflect.DeepEqual([]sort.BubbleEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
-			[]sort.Event(spy), want)
+			[]sort.BubbleEvent(spy), want)
 	}
 }
 
@@ -68,12 +68,12 @@ func TestBubbleSortEventsDuplicates(t *testing.T) {
 
 	sort.BubbleSortWithEmitter(nums, &spy)
 
-	want := []sort.Event{
-		sort.Compare{Left: 0, Right: 1, LeftValue: 5, RightValue: 5},
+	want := []sort.BubbleEvent{
+		sort.BubbleCompare{Left: 0, Right: 1, LeftValue: 5, RightValue: 5},
 	}
-	if !reflect.DeepEqual([]sort.Event(spy), want) {
+	if !reflect.DeepEqual([]sort.BubbleEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
-			[]sort.Event(spy), want)
+			[]sort.BubbleEvent(spy), want)
 	}
 }
 

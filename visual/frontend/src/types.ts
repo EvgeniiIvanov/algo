@@ -162,7 +162,7 @@ export interface SortSnapshot {
   values: number[];
   /** Подсветки сравниваемых/обмениваемых позиций. */
   highlights: SortHighlight[];
-  /** Имя шага ("compare 0 1", "swap 1 2"); пусто — стартовый кадр. */
+  /** Имя шага ("сравнение 0 1", "обмен 1 2"); пусто — стартовый кадр. */
   operation: string;
 }
 
