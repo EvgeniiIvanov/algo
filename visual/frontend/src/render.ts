@@ -4,13 +4,15 @@
 //
 // Поддерживаем kind="array" (бинарный поиск), kind="structure"
 // (стек "stack", очередь "queue", список "list", односвязный список
-// "linked-list" — узлы со стрелками next) и kind="hash-table"
-// (корзины с цепочками записей).
-// Новые kind'ы — новая ветка без правок существующих.
+// "linked-list" — узлы со стрелками next), kind="hash-table"
+// (корзины с цепочками записей) и kind="sort" (простые сортировки,
+// bubble sort и далее). Новые kind'ы — новая ветка без правок
+// существующих.
 
 import {
   KIND_ARRAY,
   KIND_HASH_TABLE,
+  KIND_SORT,
   KIND_STRUCTURE,
   type ArraySnapshot,
   type Frame,
@@ -18,6 +20,8 @@ import {
   type HashEntryHighlight,
   type HashEntryRemoval,
   type HashTableSnapshot,
+  type SortHighlight,
+  type SortSnapshot,
   type StructureSnapshot,
 } from "./types";
 
@@ -248,6 +252,60 @@ export function isHashTableFrame(frame: Frame): boolean {
   }
 }
 
+/** Внутренний помощник: бросает, если снимок не похож на снимок сортировки. */
+function asSortSnapshot(data: unknown): SortSnapshot {
+  if (data === null || typeof data !== "object") {
+    throw new Error("снимок не объект");
+  }
+  const obj = data as Record<string, unknown>;
+  if (!Array.isArray(obj.values)) {
+    throw new Error("снимок сортировки: поле values должно быть массивом");
+  }
+  for (const v of obj.values) {
+    if (typeof v !== "number") {
+      throw new Error("снимок сортировки: все values — числа");
+    }
+  }
+  if (!Array.isArray(obj.highlights)) {
+    throw new Error("снимок сортировки: поле highlights должно быть массивом");
+  }
+  for (const h of obj.highlights as unknown[]) {
+    if (h === null || typeof h !== "object") {
+      throw new Error("снимок сортировки: подсветка должна быть объектом {index, role}");
+    }
+    const hl = h as Record<string, unknown>;
+    if (typeof hl.index !== "number" || !Number.isInteger(hl.index)) {
+      throw new Error("снимок сортировки: поле index подсветки должно быть целым числом");
+    }
+    if (typeof hl.role !== "string") {
+      throw new Error("снимок сортировки: поле role подсветки должно быть строкой");
+    }
+  }
+  // Подсветка ведёт в массив рендера: индекс вне диапазона рисовать нечем.
+  for (const hl of obj.highlights as SortHighlight[]) {
+    if (hl.index < 0 || hl.index >= obj.values.length) {
+      throw new Error(
+        "снимок сортировки: индекс подсветки вне диапазона массива (0..values.length-1)",
+      );
+    }
+  }
+  if (typeof obj.operation !== "string") {
+    throw new Error("снимок сортировки: поле operation должно быть строкой");
+  }
+  return obj as unknown as SortSnapshot;
+}
+
+/** Является ли кадр снимком сортировки с допустимыми полями. */
+export function isSortFrame(frame: Frame): boolean {
+  if (frame.kind !== KIND_SORT) return false;
+  try {
+    asSortSnapshot(frame.data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Отрисовать кадр в DOM. Возвращает true, если кадр был отрисован;
  * false — если kind не поддерживается (тогда узлы остаются нетронутыми).
@@ -267,6 +325,12 @@ export function renderFrame(
     const snap = asHashTableSnapshot(frame.data);
     explanationEl.textContent = frame.explanation;
     renderHashTable(snap, arrayEl);
+    return true;
+  }
+  if (frame.kind === KIND_SORT) {
+    const snap = asSortSnapshot(frame.data);
+    explanationEl.textContent = frame.explanation;
+    renderSort(snap, arrayEl);
     return true;
   }
   if (frame.kind !== KIND_ARRAY) return false;
@@ -539,6 +603,39 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
 
     wrap.appendChild(row);
   }
+
+  containerEl.replaceChildren(wrap);
+}
+
+/**
+ * Ветка kind="sort": ряд ячеек всего массива (кадр самодостаточен —
+ * пересоздаётся целиком, состояние не копится) с ролями подсветки:
+ * "compare" — сравниваемая сейчас пара, "swap" — обмениваемая.
+ * Все простые сортировки модуля (bubble sort и далее) идут в эту же ветку
+ * по снимку kind="sort".
+ */
+function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
+  const wrap = document.createElement("div");
+  wrap.className = "sort";
+
+  const caption = document.createElement("div");
+  caption.className = "operation";
+  caption.textContent = snap.operation === "" ? "Исходное состояние" : `Шаг: ${snap.operation}`;
+  wrap.appendChild(caption);
+
+  const row = document.createElement("div");
+  row.className = "array";
+  const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
+  for (let i = 0; i < snap.values.length; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cell filled";
+    cell.dataset.index = String(i);
+    cell.textContent = String(snap.values[i]);
+    const role = roleByIndex.get(i);
+    if (role !== undefined) cell.classList.add(role); // "compare" / "swap"
+    row.appendChild(cell);
+  }
+  wrap.appendChild(row);
 
   containerEl.replaceChildren(wrap);
 }

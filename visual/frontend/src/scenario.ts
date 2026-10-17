@@ -1,8 +1,8 @@
-// Парсинг сценария операций стека, очереди, списка на слайсе и
-// односвязного списка на клиенте (зеркало visual/server/stack.go,
-// visual/server/queue.go, visual/server/list.go и
-// visual/server/linkedlist.go): ловим ошибки ввода до Run; сервер
-// перепроверяет — он авторитетен.
+// Парсинг сценария операций стека, очереди, списка на слайсе,
+// односвязного списка и входа массива сортировки на клиенте (зеркало
+// visual/server/stack.go, visual/server/queue.go, visual/server/list.go,
+// visual/server/linkedlist.go и visual/server/sort.go): ловим ошибки
+// ввода до Run; сервер перепроверяет — он авторитетен.
 // ёмкость и значения push/enqueue — грамматика Go strconv.Atoi, реализованная
 // в общем модуле decimalInteger.ts (см. parseDecimalInteger):
 // клиент не пропустит формы, которые отвергнет сервер.
@@ -41,6 +41,8 @@ export const MAX_LINKED_LENGTH = 100;
 export const MAX_HASH_TABLE_BUCKETS = 100;
 export const MAX_HASH_TABLE_OPS = 500;
 export const MAX_HASH_TABLE_ENTRIES = 100;
+/** Ограничения входа сортировки — как на сервере (visual/server/sort.go). */
+export const MAX_SORT_VALUES = 100;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
  * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
@@ -576,4 +578,40 @@ export function parseHashTableScenario(raw: string): HashTableOp[] {
     // get: отсутствующий ключ — легальный промах, кадр его покажет.
   }
   return ops;
+}
+
+/**
+ * Разобрать массив сортировки: целые числа через запятую (зеркало
+ * parseSortInput в visual/server/sort.go). Пустой ввод — допустимый
+ * пустой массив: сортировать нечего, кадр покажет пустой ряд. Мусор
+ * вместо целого и пустая компонента между запятыми — ошибки до Run;
+ * грамматика целого — общий модуль decimalInteger.ts (strconv.Atoi
+ * в пределах безопасного целого). Лимит длины — MAX_SORT_VALUES.
+ */
+export function parseSortValues(raw: string): number[] {
+  const trimmed = raw.trim();
+  if (trimmed === "") return [];
+
+  const values: number[] = [];
+  const parts = raw.split(",");
+  for (const part of parts) {
+    const result = parseDecimalInteger(part); // парсер триммирует сам
+    if (!result.ok) {
+      if (result.reason === "unsafe-range") {
+        throw new Error(
+          `«${result.input}» — за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
+        );
+      }
+      throw new Error(
+        `не удалось разобрать «${result.input}» как целое число: массив — целые числа через запятую, например «3,1,2»`,
+      );
+    }
+    values.push(result.value);
+  }
+  if (values.length > MAX_SORT_VALUES) {
+    throw new Error(
+      `массив слишком длинный: ${values.length} элементов, максимум ${MAX_SORT_VALUES}; сократите вход`,
+    );
+  }
+  return values;
 }

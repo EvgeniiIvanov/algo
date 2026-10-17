@@ -5,13 +5,16 @@
 export const KIND_ARRAY = "array" as const;
 export const KIND_STRUCTURE = "structure" as const;
 export const KIND_HASH_TABLE = "hash-table" as const;
+export const KIND_SORT = "sort" as const;
 export type ArrayKind = typeof KIND_ARRAY;
 export type StructureKind = typeof KIND_STRUCTURE;
 export type HashTableKind = typeof KIND_HASH_TABLE;
+export type SortKind = typeof KIND_SORT;
 export type Kind =
   | ArrayKind
   | StructureKind
   | HashTableKind
+  | SortKind
   | (string & { readonly __brand?: unique symbol });
 
 /** Снимок массива — `Data` кадра для бинарного поиска. */
@@ -139,6 +142,30 @@ export interface HashTableSnapshot {
   operation: string;
 }
 
+/**
+ * Подсветка одной позиции массива сортировки с ролью — что с ней случилось
+ * на шаге кадра kind="sort". Роли: "compare" (позиция сравниваемой сейчас
+ * пары) / "swap" (позиция обмениваемой сейчас пары).
+ */
+export interface SortHighlight {
+  index: number;
+  role: string;
+}
+
+/**
+ * Снимок массива сортировки — `Data` кадра kind="sort" (зеркало
+ * render.SortSnapshot). Самодостаточен (ADR-0002): весь массив идёт
+ * в каждом кадре, клиент ничего не докапливает.
+ */
+export interface SortSnapshot {
+  /** Весь массив на шаге (копия бэкенда). */
+  values: number[];
+  /** Подсветки сравниваемых/обмениваемых позиций. */
+  highlights: SortHighlight[];
+  /** Имя шага ("compare 0 1", "swap 1 2"); пусто — стартовый кадр. */
+  operation: string;
+}
+
 /** Кадр визуализации. Самодостаточен (ADR-0002). */
 export interface Frame {
   /** Порядковый номер шага, начиная с 1. */
@@ -147,5 +174,5 @@ export interface Frame {
   /** Пояснение на русском. */
   explanation: string;
   /** Снимок структуры. У каждого рендерера свой тип. */
-  data: ArraySnapshot | StructureSnapshot | HashTableSnapshot | { readonly [key: string]: unknown };
+  data: ArraySnapshot | StructureSnapshot | HashTableSnapshot | SortSnapshot | { readonly [key: string]: unknown };
 }

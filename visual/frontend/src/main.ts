@@ -7,6 +7,7 @@ import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
 import {
+  buildBubbleSortRunURL,
   buildHashTableRunURL,
   buildLinkedListRunURL,
   buildListRunURL,
@@ -22,12 +23,13 @@ import {
   parseListScenario,
   parseQueueCapacity,
   parseQueueScenario,
+  parseSortValues,
   parseStackCapacity,
   parseStackScenario,
 } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list", "hash-table"] as const;
+const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list", "hash-table", "bubble-sort"] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -50,12 +52,14 @@ function init(): void {
   const linkedListScriptEl = getElement<HTMLTextAreaElement>("linked-list-script");
   const hashTableBucketsEl = getElement<HTMLInputElement>("hash-table-buckets");
   const hashTableScriptEl = getElement<HTMLTextAreaElement>("hash-table-script");
+  const sortValuesEl = getElement<HTMLInputElement>("sort-values");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
   const listInputsEl = getElement<HTMLElement>("list-inputs");
   const linkedListInputsEl = getElement<HTMLElement>("linked-list-inputs");
   const hashTableInputsEl = getElement<HTMLElement>("hash-table-inputs");
+  const sortInputsEl = getElement<HTMLElement>("sort-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -75,6 +79,7 @@ function init(): void {
     listInputsEl.hidden = algorithm !== "list";
     linkedListInputsEl.hidden = algorithm !== "linked-list";
     hashTableInputsEl.hidden = algorithm !== "hash-table";
+    sortInputsEl.hidden = algorithm !== "bubble-sort";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -130,6 +135,9 @@ function init(): void {
         const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
         parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
+      } else if (algorithm === "bubble-sort") {
+        const values = parseSortValues(sortValuesEl.value);
+        url = buildBubbleSortRunURL(values);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

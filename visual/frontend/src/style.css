@@ -425,3 +425,27 @@ code {
   border-color: #0284c7;
   color: #0c4a6e;
 }
+
+/* Кадр kind="sort" (сортировки): подпись шага + ряд ячеек всего массива.
+   Класс .array у ряда и .cell у ячеек общие с бинарным поиском —
+   кадр сортировки выглядит ровно так же, как любой массив проекта. */
+.sort {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Сравнение сейчас: обе ячейки сравниваемой пары. */
+.cell.compare {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+}
+
+/* Обмен сейчас: обе ячейки обмениваемой пары. */
+.cell.swap {
+  background: #7c3aed;
+  border-color: #5b21b6;
+  color: white;
+  transform: scale(1.05);
+}
