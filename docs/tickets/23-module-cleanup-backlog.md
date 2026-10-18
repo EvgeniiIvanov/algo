@@ -4,7 +4,7 @@
 
 **Blocked by:** — (процессный тикет, без зависимостей).
 
-**Status:** in-progress
+**Status:** done
 
 ## Acceptance Criteria
 
