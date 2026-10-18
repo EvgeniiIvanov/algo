@@ -96,6 +96,26 @@ permissions:
   - action: shell
     resource: git commit *
     effect: allow
+  # Pushing your own ticket branch to origin is non-destructive and
+  # recoverable (no force, no delete, no refspec tricks); PR creation and
+  # merging stay the user's job. Only the plain ticket/* branch form is
+  # allowed, not arbitrary refspecs.
+  - action: shell
+    resource: git push origin ticket/*
+    effect: allow
+  - action: shell
+    resource: git push -u origin ticket/*
+    effect: allow
+  - action: shell
+    resource: git push --set-upstream origin ticket/*
+    effect: allow
+  # Implementor has no legitimate reason to ever be on main.
+  - action: shell
+    resource: git checkout main
+    effect: deny
+  - action: shell
+    resource: git switch main
+    effect: deny
   # Worktree management belongs to the orchestrator; implementor must not
   # touch it (this agent-level deny also wins over the shared `git worktree list`
   # allow because agent rules are appended last). The `git -C <path> worktree`
@@ -120,7 +140,7 @@ You implement the assigned task with the smallest reasonable, maintainable chang
 
 1. Before any work, verify you are on your own ticket branch: `git branch --show-current` must show the `ticket/...` branch created for this task's worktree. If it does not, stop and report instead of committing. (Branch verification is an instruction, not a permission guard.)
 2. After the relevant local checks pass (`make check` / `go build && go vet && go test`, `golangci-lint`, `gofmt -l quiz`; frontend: `pnpm install --frozen-lockfile` + lint/test/build), commit locally to that ticket branch.
-3. `git push` is allowed only with explicit user approval (OpenCode asks). Direct force-push forms (`--force*`, short `-f` in leading, middle, or trailing position including clusters, and `+`-prefixed refspecs) and remote branch deletion (`--delete`, short `-d`, `:` deletion refspecs, `--mirror`, `--prune`), including `git -C <path> push ...`, are denied at the permission level for explicitly matched direct command forms; the same applies to force branch deletions (`-D`, long `--delete --force`, clustered `-df`/`-fd`) and forced `git worktree remove`. Do not try to circumvent this; report instead. Permission matching is text-based over parsed command segments — it is **not a sandbox** against arbitrary code wrappers (`pnpm exec ...`, make recipes, git hooks, test harnesses); any command without an exact allow rule requires OpenCode approval, and the shared force/delete denies likewise apply only to explicitly matched direct forms. Merging to `main` and ordinary local `git branch -d` are prohibited by this instruction, not by a native deny — still never do them yourself. Worktree management is native-denied for you (including `git worktree list`).
+3. `git push origin ticket/...` (plain, `-u`, or `--set-upstream`) is allowed automatically for your own ticket branch; PR creation and merging remain the user's job. Any other push form is allowed only with explicit user approval (OpenCode asks). Direct force-push forms (`--force*`, short `-f` in leading, middle, or trailing position including clusters, and `+`-prefixed refspecs) and remote branch deletion (`--delete`, short `-d`, `:` deletion refspecs, `--mirror`, `--prune`), including `git -C <path> push ...`, are denied at the permission level for explicitly matched direct command forms; the same applies to force branch deletions (`-D`, long `--delete --force`, clustered `-df`/`-fd`) and forced `git worktree remove`. Do not try to circumvent this; report instead. Permission matching is text-based over parsed command segments — it is **not a sandbox** against arbitrary code wrappers (`pnpm exec ...`, make recipes, git hooks, test harnesses); any command without an exact allow rule requires OpenCode approval, and the shared force/delete denies likewise apply only to explicitly matched direct forms. Merging to `main` and ordinary local `git branch -d` are prohibited by this instruction, not by a native deny — still never do them yourself. Worktree management is native-denied for you (including `git worktree list`).
 
 ## Before coding
 

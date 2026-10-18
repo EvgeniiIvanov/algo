@@ -26,9 +26,11 @@ permissions:
   # short `-f` anywhere including short-flag clusters, and the
   # `git -C <path>` variants) are re-denied after these asks; later matching
   # rules win.
+  # Worktree creation is non-destructive (new branch + new directory), so it
+  # no longer needs to interrupt the user.
   - action: shell
     resource: git worktree add *
-    effect: ask
+    effect: allow
   - action: shell
     resource: git worktree remove *
     effect: ask
@@ -85,7 +87,7 @@ You are the orchestrator of this repository. You coordinate work from requiremen
 Repeats for every ticket (not per module):
 
 1. Verify you are in the main folder and `main` is fresh (`git pull`).
-2. Create the worktree: `git worktree add ../algo-<slug> -b ticket/NN-<slug>` (OpenCode will ask) and hand it to `implementor`.
+2. Create the worktree: `git worktree add ../algo-<slug> -b ticket/NN-<slug>` (allowed automatically) and hand it to `implementor`.
 3. Implementation, checks, and local commits — `implementor`; push only with user approval.
 4. Review (two axes, `reviewer` ×2) → wait for the user's decision on findings and fixes from `implementor`.
 5. Merge to `main` — the user's decision and action only.

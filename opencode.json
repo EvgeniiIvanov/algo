@@ -60,6 +60,12 @@
     { "action": "shell", "resource": "git worktree remove -f*", "effect": "deny" },
     { "action": "shell", "resource": "git worktree remove * -f*", "effect": "deny" },
     { "action": "shell", "resource": "git -C *worktree remove*--force*", "effect": "deny" },
-    { "action": "shell", "resource": "git -C *worktree remove* -f*", "effect": "deny" }
+    { "action": "shell", "resource": "git -C *worktree remove* -f*", "effect": "deny" },
+
+    { "action": "shell", "resource": "git merge ticket/*", "effect": "deny" },
+    { "action": "shell", "resource": "git merge origin/ticket/*", "effect": "deny" },
+    { "action": "shell", "resource": "git -C * merge ticket/*", "effect": "deny" },
+    { "action": "shell", "resource": "git -C * merge origin/ticket/*", "effect": "deny" },
+    { "action": "shell", "resource": "gh pr merge *", "effect": "deny" }
   ]
 }
