@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start after пользовательский черновик и Ч2.5).
 
-**Status:** in-progress
+**Status:** done
 
 Спека: `docs/SPEC.md`, модуль «Простые сортировки».
 
