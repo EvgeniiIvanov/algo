@@ -306,10 +306,19 @@ func TestRunSelectionSortScenario(t *testing.T) {
 	start := []int{3, 1, 2}
 	afterSwap01 := []int{1, 3, 2}
 	sorted := []int{1, 2, 3}
-	compareMin := func(min, scanned int) []render.SortHighlight {
+	// Сравнение без смены минимума: минимум остаётся на прежней позиции.
+	compareKeep := func(min, scanned int) []render.SortHighlight {
 		return []render.SortHighlight{
 			{Index: min, Role: render.RoleMin},
 			{Index: scanned, Role: render.RoleCompare},
+		}
+	}
+	// Сравнение со сменой минимума: кадр показывает новый минимум
+	// на проверяемой позиции, прежний — участником сравнения.
+	compareMove := func(oldMin, newMin int) []render.SortHighlight {
+		return []render.SortHighlight{
+			{Index: oldMin, Role: render.RoleCompare},
+			{Index: newMin, Role: render.RoleMin},
 		}
 	}
 	swapPair := func(a, b int) []render.SortHighlight {
@@ -321,12 +330,12 @@ func TestRunSelectionSortScenario(t *testing.T) {
 
 	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
 	// Проход 0: кандидат 1 меньше минимума 3 — минимум переходит на позицию 1.
-	assertSortSnapshot(t, frames[1], start, compareMin(0, 1), "сравнение 0 1")
+	assertSortSnapshot(t, frames[1], start, compareMove(0, 1), "сравнение 0 1")
 	// Кандидат 2 минимум 1 не смещает.
-	assertSortSnapshot(t, frames[2], start, compareMin(1, 2), "сравнение 1 2")
+	assertSortSnapshot(t, frames[2], start, compareKeep(1, 2), "сравнение 1 2")
 	assertSortSnapshot(t, frames[3], afterSwap01, swapPair(0, 1), "обмен 0 1")
 	// Проход 1: кандидат 2 меньше минимума 3 — минимум на позиции 2.
-	assertSortSnapshot(t, frames[4], afterSwap01, compareMin(1, 2), "сравнение 1 2")
+	assertSortSnapshot(t, frames[4], afterSwap01, compareMove(1, 2), "сравнение 1 2")
 	assertSortSnapshot(t, frames[5], sorted, swapPair(1, 2), "обмен 1 2")
 
 	// Пояснения отражают учебные точки: смену минимума, сохранение
@@ -347,6 +356,36 @@ func TestRunSelectionSortScenario(t *testing.T) {
 			t.Errorf("кадр %d: step = %d, ожидалось %d", i, f.Step, i+1)
 		}
 	}
+}
+
+// Регрессия учебной точки сравнения: когда кандидат становится новым
+// минимумом, кадр обязан показывать роль "min" на его позиции — тот
+// минимум, о котором говорит пояснение, — а прежний минимум — участником
+// сравнения ("compare"), а не наоборот.
+func TestRunSelectionSortCompareFrameShowsNewMinimum(t *testing.T) {
+	frames := doRunSelectionSSE(t, "5,2")
+	if len(frames) != 3 {
+		t.Fatalf("кадров = %d, ожидалось 3:\n%v", len(frames), frames)
+	}
+
+	// Кандидат 2 на позиции 1 меньше минимума 5: минимум теперь на позиции 1.
+	assertSortSnapshot(t, frames[1], []int{5, 2},
+		[]render.SortHighlight{
+			{Index: 0, Role: render.RoleCompare},
+			{Index: 1, Role: render.RoleMin},
+		},
+		"сравнение 0 1")
+	if !strings.Contains(frames[1].Explanation, "минимум переходит на позицию 1") {
+		t.Errorf("пояснение смены минимума = %q, ожидается переход минимума", frames[1].Explanation)
+	}
+
+	// Финальный обмен перемещает новый минимум на первую позицию прохода.
+	assertSortSnapshot(t, frames[2], []int{2, 5},
+		[]render.SortHighlight{
+			{Index: 0, Role: render.RoleSwapped},
+			{Index: 1, Role: render.RoleSwapped},
+		},
+		"обмен 0 1")
 }
 
 // Пустой массив — легальный вход: SSE-поток состоит из одного стартового

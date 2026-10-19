@@ -145,23 +145,31 @@ func (r *bubbleFrames) Emit(ev sort.BubbleEvent) {
 // selectionFrames — обёртка-эмиттер событий selection sort над общей основой.
 type selectionFrames struct{ sortFrames }
 
-// Emit — одно событие алгоритма → один кадр (ADR-0002). На сравнении видно
-// два индекса — текущий минимум (role "min") и проверяемого кандидата;
-// на обмене — пара «первый неотсортированный / найденный минимум».
+// Emit — одно событие алгоритма → один кадр (ADR-0002). Результат сравнения
+// и минимум прохода берутся из события (NewMin/NewMinValue) как есть: кадр
+// показывает тот минимум, о котором говорит пояснение. На сравнении видно
+// пару «минимум / проверяемый кандидат», на обмене — пару «первый
+// неотсортированный / найденный минимум».
 func (r *selectionFrames) Emit(ev sort.SelectionEvent) {
 	switch e := ev.(type) {
 	case sort.SelectionCompare:
-		r.highlights = []SortHighlight{
-			{Index: e.Min, Role: RoleMin},
-			{Index: e.Scanned, Role: RoleCompare},
-		}
 		r.operation = fmt.Sprintf("сравнение %d %d", e.Min, e.Scanned)
-		if e.ScanValue < e.MinValue {
+		if e.NewMin == e.Scanned {
+			// Минимум перешёл на проверяемую позицию: она — новый минимум,
+			// прежний минимум — участник сравнения.
+			r.highlights = []SortHighlight{
+				{Index: e.Min, Role: RoleCompare},
+				{Index: e.NewMin, Role: RoleMin},
+			}
 			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d меньше — минимум переходит на позицию %d.",
-				e.Scanned, e.Min, e.ScanValue, e.Scanned))
+				e.Scanned, e.Min, e.ScanValue, e.NewMin))
 		} else {
+			r.highlights = []SortHighlight{
+				{Index: e.NewMin, Role: RoleMin},
+				{Index: e.Scanned, Role: RoleCompare},
+			}
 			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d не меньше %d — минимум остаётся на позиции %d.",
-				e.Scanned, e.Min, e.ScanValue, e.MinValue, e.Min))
+				e.Scanned, e.Min, e.ScanValue, e.MinValue, e.NewMin))
 		}
 
 	case sort.SelectionSwap:

@@ -9,15 +9,19 @@ import "github.com/EvgeniiIvanov/algo/algorithms"
 type SelectionEvent interface{ isSelectionEvent() }
 
 // SelectionCompare — сравнение проверяемого элемента Scanned с текущим
-// минимумом прохода Min (Min < Scanned). Значения — на момент сравнения:
-// их достаточно, чтобы построить кадр и показать текущий минимум, не
-// зная внутренностей алгоритма.
+// минимумом прохода Min (Min < Scanned). MinValue/ScanValue — значения
+// на момент сравнения (до него); NewMin/NewMinValue — минимум прохода
+// после сравнения: строгий «меньше» переводит минимум на Scanned, иначе
+// минимум остаётся на Min. Рендерер строит кадр из события как есть —
+// без повторного вывода результата сравнения из значений.
 type SelectionCompare struct {
-	Pass      int // индекс первой неотсортированной позиции (начало прохода)
-	Min       int // индекс текущего минимума прохода
-	MinValue  int // значение текущего минимума на момент сравнения
-	Scanned   int // индекс проверяемого элемента
-	ScanValue int // значение проверяемого элемента
+	Pass        int // индекс первой неотсортированной позиции (начало прохода)
+	Min         int // индекс текущего минимума прохода на момент сравнения
+	MinValue    int // значение текущего минимума на момент сравнения
+	Scanned     int // индекс проверяемого элемента
+	ScanValue   int // значение проверяемого элемента
+	NewMin      int // индекс минимума прохода после сравнения (Min или Scanned)
+	NewMinValue int // значение минимума прохода после сравнения
 }
 
 // SelectionSwap — обмен первого неотсортированного элемента Pass с найденным
@@ -55,17 +59,19 @@ func SelectionSortWithEmitter(nums []int, em algorithms.Emitter[SelectionEvent])
 	for i := 0; i < n-1; i++ {
 		minIdx := i
 		for j := i + 1; j < n; j++ {
-			emitSelection(em, SelectionCompare{
-				Pass:      i,
-				Min:       minIdx,
-				MinValue:  nums[minIdx],
-				Scanned:   j,
-				ScanValue: nums[j],
-			})
-
+			curMin, curMinValue := minIdx, nums[minIdx] // минимум на момент сравнения
 			if nums[j] < nums[minIdx] {
 				minIdx = j
 			}
+			emitSelection(em, SelectionCompare{
+				Pass:        i,
+				Min:         curMin,
+				MinValue:    curMinValue,
+				Scanned:     j,
+				ScanValue:   nums[j],
+				NewMin:      minIdx,
+				NewMinValue: nums[minIdx],
+			})
 		}
 		if minIdx != i {
 			passValue, minValue := nums[i], nums[minIdx] // значения до обмена
