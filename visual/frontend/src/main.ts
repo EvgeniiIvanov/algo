@@ -9,6 +9,7 @@ import { renderFrame } from "./render";
 import {
   buildBubbleSortRunURL,
   buildHashTableRunURL,
+  buildInsertionSortRunURL,
   buildLinkedListRunURL,
   buildListRunURL,
   buildQueueRunURL,
@@ -39,6 +40,7 @@ const ALGORITHMS = [
   "hash-table",
   "bubble-sort",
   "selection-sort",
+  "insertion-sort",
 ] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
@@ -89,8 +91,11 @@ function init(): void {
     listInputsEl.hidden = algorithm !== "list";
     linkedListInputsEl.hidden = algorithm !== "linked-list";
     hashTableInputsEl.hidden = algorithm !== "hash-table";
-    // Обе простые сортировки пользуются общим блоком ввода массива.
-    sortInputsEl.hidden = algorithm !== "bubble-sort" && algorithm !== "selection-sort";
+    // Простые сортировки пользуются общим блоком ввода массива.
+    sortInputsEl.hidden =
+      algorithm !== "bubble-sort" &&
+      algorithm !== "selection-sort" &&
+      algorithm !== "insertion-sort";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -146,12 +151,15 @@ function init(): void {
         const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
         parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
-      } else if (algorithm === "bubble-sort" || algorithm === "selection-sort") {
+      } else if (algorithm === "bubble-sort" || algorithm === "selection-sort" || algorithm === "insertion-sort") {
         const values = parseSortValues(sortValuesEl.value);
-        url =
-          algorithm === "bubble-sort"
-            ? buildBubbleSortRunURL(values)
-            : buildSelectionSortRunURL(values);
+        if (algorithm === "bubble-sort") {
+          url = buildBubbleSortRunURL(values);
+        } else if (algorithm === "selection-sort") {
+          url = buildSelectionSortRunURL(values);
+        } else {
+          url = buildInsertionSortRunURL(values);
+        }
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

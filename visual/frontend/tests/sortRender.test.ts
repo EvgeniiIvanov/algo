@@ -130,6 +130,29 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.swap")).toHaveLength(0);
   });
 
+  it("подсвечивает сдвиг и вставку insertion sort отдельными ролями", () => {
+    // Кадр вставки insertion sort: позиция 2 — куда встал ключ (insert);
+    // на кадре сдвига источником и приёмником выступает роль shift.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [1, 3, 3],
+          highlights: [
+            { index: 1, role: "shift" },
+            { index: 2, role: "shift" },
+            { index: 0, role: "insert" },
+          ],
+          operation: "вставка на позицию 0",
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.shift")).toHaveLength(2);
+    expect(containerEl.querySelectorAll(".cell.insert")).toHaveLength(1);
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: вставка на позицию 0");
+  });
+
   it("пустой массив рисуется без ячеек", () => {
     const { ok, containerEl } = renderToDOM(sortFrame({ values: [], highlights: [], operation: "" }));
 

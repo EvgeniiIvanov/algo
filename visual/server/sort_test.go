@@ -1,7 +1,7 @@
 // Тесты шва 2 для bubble sort и selection sort (см. docs/SPEC.md): вход →
 // SSE-поток → последовательность кадров. Покрывают emitter, Frame Renderer
 // и HTTP-слой одной проверкой — и отказ на невалидном входе/лимите до
-// начала SSE.
+// начала SSE. Insertion sort проходит тот же шов теми же проверками.
 package server
 
 import (
@@ -540,6 +540,234 @@ func TestRunSelectionSortNegativesAndDuplicates(t *testing.T) {
 func TestRunSelectionSortMatchesDirectRenderer(t *testing.T) {
 	frames := doRunSelectionSSE(t, "3,1,2")
 	want := render.SelectionFrames([]int{3, 1, 2})
+
+	if len(frames) != len(want) {
+		t.Fatalf("кадров = %d, рендерер даёт %d", len(frames), len(want))
+	}
+	for i := range want {
+		// Обе стороны прогоняем через JSON-кругосветку: снимок из потока
+		// приходит как map, порядок ключей не должен влиять на сравнение.
+		aw, _ := json.Marshal(toWire(t, frames[i]))
+		bw, _ := json.Marshal(toWire(t, want[i]))
+		if !bytes.Equal(aw, bw) {
+			t.Errorf("кадр %d отличается:\nэндпоинт %s\nрендерер %s", i, aw, bw)
+		}
+	}
+}
+
+// doRunInsertion — запрос Run insertion sort.
+func doRunInsertion(t *testing.T, values string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/run/insertion-sort", nil)
+	q := req.URL.Query()
+	q.Set("values", values)
+	req.URL.RawQuery = q.Encode()
+
+	resp := httptest.NewRecorder()
+	NewMux().ServeHTTP(resp, req)
+
+	return resp
+}
+
+// doRunInsertionSSE — успешный Run insertion sort: базовые проверки
+// SSE-ответа + кадры.
+func doRunInsertionSSE(t *testing.T, values string) []frame.Frame {
+	t.Helper()
+
+	resp := doRunInsertion(t, values)
+	assertSSE(t, resp)
+	return readSSEFrames(t, resp)
+}
+
+// Сквозной сценарий теста: сортировка [3,1,2] — один стартовый кадр и по
+// кадру на каждое событие (сравнение с ключом, сдвиг, вставка). Кадр сдвига
+// показывает «дырку» — удвоенное значение уходит вправо; итог —
+// упорядоченный массив.
+func TestRunInsertionSortScenario(t *testing.T) {
+	frames := doRunInsertionSSE(t, "3,1,2")
+	if len(frames) != 8 {
+		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	}
+
+	start := []int{3, 1, 2}
+	hole := []int{3, 3, 2} // после сдвига: 3 стоит дважды, дырка на позиции 0
+	sorted := []int{1, 2, 3}
+
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+	// Ключ 1: 3 больше ключа — сдвиг, затем вставка в позицию 0.
+	assertSortSnapshot(t, frames[1], start, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
+	assertSortSnapshot(t, frames[2], hole, []render.SortHighlight{{Index: 0, Role: render.RoleShift}, {Index: 1, Role: render.RoleShift}}, "сдвиг 0 → 1")
+	assertSortSnapshot(t, frames[3], []int{1, 3, 2}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
+	// Ключ 2: 3 больше — сдвиг; 1 меньше — сканирование остановлено; вставка в позицию 1.
+	assertSortSnapshot(t, frames[4], []int{1, 3, 2}, []render.SortHighlight{{Index: 1, Role: render.RoleCompare}}, "сравнение 1 с ключом")
+	assertSortSnapshot(t, frames[5], []int{1, 3, 3}, []render.SortHighlight{{Index: 1, Role: render.RoleShift}, {Index: 2, Role: render.RoleShift}}, "сдвиг 1 → 2")
+	assertSortSnapshot(t, frames[6], []int{1, 3, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
+	assertSortSnapshot(t, frames[7], sorted, []render.SortHighlight{{Index: 1, Role: render.RoleInsert}}, "вставка на позицию 1")
+
+	// Пояснения отражают учебные точки: больший ключа сдвигается,
+	// меньший останавливает сканирование, ключ вставляется в дырку.
+	if !strings.Contains(frames[1].Explanation, "больше ключа") {
+		t.Errorf("пояснение сравнения с большим = %q, ожидается «больше ключа»", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[6].Explanation, "меньше ключа") {
+		t.Errorf("пояснение сравнения с меньшим = %q, ожидается «меньше ключа»", frames[6].Explanation)
+	}
+	if !strings.Contains(frames[7].Explanation, "вставляем") {
+		t.Errorf("пояснение вставки = %q, ожидается упоминание вставки", frames[7].Explanation)
+	}
+
+	// Шаги нумеруются с 1 и идут по порядку.
+	for i, f := range frames {
+		if f.Step != i+1 {
+			t.Errorf("кадр %d: step = %d, ожидалось %d", i, f.Step, i+1)
+		}
+	}
+}
+
+// Обратный вход [3,2,1]: каждый ключ проходит весь префикс — цепочка
+// сдвигов до позиции 0, финальная вставка в начало.
+func TestRunInsertionSortReverseShiftsToStart(t *testing.T) {
+	frames := doRunInsertionSSE(t, "3,2,1")
+	if len(frames) != 9 {
+		t.Fatalf("кадров = %d, ожидалось 9:\n%v", len(frames), frames)
+	}
+
+	shiftPair := func(a, b int) []render.SortHighlight {
+		return []render.SortHighlight{{Index: a, Role: render.RoleShift}, {Index: b, Role: render.RoleShift}}
+	}
+
+	assertSortSnapshot(t, frames[0], []int{3, 2, 1}, nil, "")
+	// Ключ 2: сдвиг 0 → 1, вставка в позицию 0.
+	assertSortSnapshot(t, frames[1], []int{3, 2, 1}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
+	assertSortSnapshot(t, frames[2], []int{3, 3, 1}, shiftPair(0, 1), "сдвиг 0 → 1")
+	assertSortSnapshot(t, frames[3], []int{2, 3, 1}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
+	// Ключ 1: два сдвига (дырка доходит до позиции 0), вставка в начало.
+	assertSortSnapshot(t, frames[4], []int{2, 3, 1}, []render.SortHighlight{{Index: 1, Role: render.RoleCompare}}, "сравнение 1 с ключом")
+	assertSortSnapshot(t, frames[5], []int{2, 3, 3}, shiftPair(1, 2), "сдвиг 1 → 2")
+	assertSortSnapshot(t, frames[6], []int{2, 3, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
+	assertSortSnapshot(t, frames[7], []int{2, 2, 3}, shiftPair(0, 1), "сдвиг 0 → 1")
+	assertSortSnapshot(t, frames[8], []int{1, 2, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
+}
+
+// Устойчивость (учебная точка): элемент, равный ключу, не сдвигается —
+// для [5,5] кадр сравнения с равным остаётся единственным шагом.
+func TestRunInsertionSortEqualKeyDoesNotShift(t *testing.T) {
+	frames := doRunInsertionSSE(t, "5,5")
+	if len(frames) != 2 {
+		t.Fatalf("кадров = %d, ожидалось 2 (сдвига и вставки нет):\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{5, 5}, nil, "")
+	assertSortSnapshot(t, frames[1], []int{5, 5},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}},
+		"сравнение 0 с ключом")
+	if !strings.Contains(frames[1].Explanation, "порядок равных сохраняется") {
+		t.Errorf("пояснение сравнения равных = %q, ожидается устойчивость", frames[1].Explanation)
+	}
+}
+
+// Пустой массив — легальный вход: SSE-поток состоит из одного стартового
+// кадра с пустым рядом и завершается.
+func TestRunInsertionSortEmptyInput(t *testing.T) {
+	frames := doRunInsertionSSE(t, "")
+	if len(frames) != 1 {
+		t.Fatalf("кадров = %d, ожидался 1 (пустой массив сортировать не надо):\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{}, nil, "")
+
+	// Одноэлементный вход: кадр исходного состояния без сравнений.
+	frames = doRunInsertionSSE(t, "-7")
+	if len(frames) != 1 {
+		t.Fatalf("кадров = %d, ожидался 1 (один элемент отсортирован):\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{-7}, nil, "")
+}
+
+func TestRunInsertionSortValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		values string
+		want   string
+	}{
+		{"мусор в values", "1,x,3", "не удалось разобрать"},
+		{"пустая компонента", "1,,3", "не удалось разобрать"},
+		{"запятая в конце", "1,3,", "не удалось разобрать"},
+		{"дробное значение", "1.5,2", "не удалось разобрать"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := doRunInsertion(t, tt.values)
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("статус = %d, ожидается 400", resp.Code)
+			}
+			var got map[string]string
+			if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+				t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
+			}
+			if !strings.Contains(got["error"], tt.want) {
+				t.Errorf("ошибка = %q, ожидается упоминание %q", got["error"], tt.want)
+			}
+		})
+	}
+}
+
+// Граница лимита длины: 100 элементов принимаются (SSE-поток завершён),
+// 101-й элемент отвергается до начала потока.
+func TestRunInsertionSortLengthLimit(t *testing.T) {
+	input := func(n int) string {
+		// Уже отсортированные данные: каждый ключ сразу встаёт на своё
+		// место — ровно n-1 сравнений без сдвигов, поток короткий,
+		// а граница всё равно честная.
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = fmt.Sprintf("%d", i)
+		}
+		return strings.Join(parts, ",")
+	}
+
+	frames := doRunInsertionSSE(t, input(100))
+	if want := 100; len(frames) != want {
+		t.Fatalf("кадров = %d, ожидалось %d", len(frames), want)
+	}
+	assertSortSnapshot(t, frames[len(frames)-1], mustInts(t, input(100)),
+		[]render.SortHighlight{{Index: 98, Role: render.RoleCompare}},
+		"сравнение 98 с ключом")
+
+	resp := doRunInsertion(t, input(101))
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("статус = %d, ожидается 400: лимит превышен на 101-м элементе", resp.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
+	}
+	if !strings.Contains(got["error"], "максимум 100") {
+		t.Errorf("ошибка = %q, ожидается упоминание максимума 100", got["error"])
+	}
+}
+
+// Отрицательные значения и дубликаты сортируются на месте и читаются
+// в кадрах: вход уже упорядочен — сравнения без сдвигов и вставок.
+func TestRunInsertionSortNegativesAndDuplicates(t *testing.T) {
+	frames := doRunInsertionSSE(t, "-1,-1,0")
+	if len(frames) != 3 {
+		t.Fatalf("кадров = %d, ожидалось 3:\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{-1, -1, 0}, nil, "")
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}},
+		"сравнение 1 с ключом")
+	if !strings.Contains(last.Explanation, "меньше ключа") {
+		t.Errorf("пояснение сравнения = %q, ожидается остановка сканирования", last.Explanation)
+	}
+}
+
+// Рендерер и транспорт не должны расходиться: кадры из эндпоинта совпадают
+// с кадрами, собранными напрямую у рендерера.
+func TestRunInsertionSortMatchesDirectRenderer(t *testing.T) {
+	frames := doRunInsertionSSE(t, "3,1,2")
+	want := render.InsertionFrames([]int{3, 1, 2})
 
 	if len(frames) != len(want) {
 		t.Fatalf("кадров = %d, рендерер даёт %d", len(frames), len(want))

@@ -458,3 +458,20 @@ code {
   color: white;
   transform: scale(1.05);
 }
+
+/* Сдвиг сейчас (insertion sort): значение уходит вправо, освобождая место
+   ключу, — источник и приёмник («дырка») одного сдвига. */
+.cell.shift {
+  background: #0f766e;
+  border-color: #134e4a;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Вставка сейчас (insertion sort): позиция, куда встал ключ. */
+.cell.insert {
+  background: #15803d;
+  border-color: #166534;
+  color: white;
+  transform: scale(1.05);
+}

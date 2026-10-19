@@ -12,6 +12,8 @@ const (
 	RoleCompare = "compare" // позиция сравниваемой сейчас пары
 	RoleSwapped = "swap"    // позиция обмениваемой сейчас пары
 	RoleMin     = "min"     // позиция текущего минимума прохода (selection sort)
+	RoleShift   = "shift"   // позиция сдвигаемого сейчас значения (insertion sort)
+	RoleInsert  = "insert"  // позиция, куда вставляется ключ (insertion sort)
 )
 
 // SortHighlight — подсветка одной позиции с ролью (что с ней случилось на шаге).
@@ -65,6 +67,24 @@ func SelectionRun(values []int, emit func(frame.Frame)) {
 func SelectionFrames(values []int) []frame.Frame {
 	var frames []frame.Frame
 	SelectionRun(values, func(f frame.Frame) { frames = append(frames, f) })
+	return frames
+}
+
+// InsertionRun — Frame Renderer insertion sort: запускает сортировку в режиме
+// наблюдения и на каждое событие отдаёт кадр в emit. Вход уже валидирован
+// маршрутом (лимит длины, целые числа), ошибок здесь нет.
+func InsertionRun(values []int, emit func(frame.Frame)) {
+	r := &insertionFrames{sortFrames: *newSortFrames(values, emit)}
+
+	r.frame(fmt.Sprintf("Начинаем сортировку вставками: массив из %d элементов упорядочивается по возрастанию — берём очередной элемент (ключ) и вставляем его в отсортированный префикс, сдвигая строго большие значения вправо. Равные ключу элементы не сдвигаются, поэтому сортировка устойчива.",
+		len(values)))
+	sort.InsertionSortWithEmitter(values, r)
+}
+
+// InsertionFrames — все кадры сортировки сразу (удобно для тестов).
+func InsertionFrames(values []int) []frame.Frame {
+	var frames []frame.Frame
+	InsertionRun(values, func(f frame.Frame) { frames = append(frames, f) })
 	return frames
 }
 
@@ -181,5 +201,49 @@ func (r *selectionFrames) Emit(ev sort.SelectionEvent) {
 		r.operation = fmt.Sprintf("обмен %d %d", e.Pass, e.Min)
 		r.frame(fmt.Sprintf("Минимум остатка найден: меняем позиции %d и %d — значения %d и %d поменялись местами.",
 			e.Pass, e.Min, e.PassValue, e.MinValue))
+	}
+}
+
+// insertionFrames — обёртка-эмиттер событий insertion sort над общей основой.
+type insertionFrames struct{ sortFrames }
+
+// Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
+// по детерминированным индексам событий Shift/Write; исход сравнения берётся
+// из события (Shifts) как есть — кадр показывает тот расклад, о котором
+// говорит пояснение. На сравнении видна проверяемая позиция префикса,
+// на сдвиге — источник и приёмник («дырка»), на вставке — позиция ключа.
+func (r *insertionFrames) Emit(ev sort.InsertionEvent) {
+	switch e := ev.(type) {
+	case sort.InsertionCompare:
+		r.highlights = []SortHighlight{{Index: e.Pos, Role: RoleCompare}}
+		r.operation = fmt.Sprintf("сравнение %d с ключом", e.Pos)
+		switch {
+		case e.Shifts:
+			r.frame(fmt.Sprintf("Сравниваем элемент на позиции %d (%d) с ключом %d: он больше ключа — следом сдвиг вправо.",
+				e.Pos, e.PosValue, e.Key))
+		case e.PosValue == e.Key:
+			r.frame(fmt.Sprintf("Сравниваем элемент на позиции %d (%d) с ключом %d: он равен ключу — не сдвигается, порядок равных сохраняется, ключ встанет правее.",
+				e.Pos, e.PosValue, e.Key))
+		default:
+			r.frame(fmt.Sprintf("Сравниваем элемент на позиции %d (%d) с ключом %d: он меньше ключа — сканирование остановлено, ключ встанет правее.",
+				e.Pos, e.PosValue, e.Key))
+		}
+
+	case sort.InsertionShift:
+		r.mirror[e.To] = e.Value
+		r.highlights = []SortHighlight{
+			{Index: e.From, Role: RoleShift},
+			{Index: e.To, Role: RoleShift},
+		}
+		r.operation = fmt.Sprintf("сдвиг %d → %d", e.From, e.To)
+		r.frame(fmt.Sprintf("Сдвигаем %d с позиции %d на позицию %d: значение больше ключа %d — освобождаем ему место слева.",
+			e.Value, e.From, e.To, e.Key))
+
+	case sort.InsertionWrite:
+		r.mirror[e.Index] = e.Value
+		r.highlights = []SortHighlight{{Index: e.Index, Role: RoleInsert}}
+		r.operation = fmt.Sprintf("вставка на позицию %d", e.Index)
+		r.frame(fmt.Sprintf("Место для ключа найдено: вставляем %d на позицию %d — префикс снова отсортирован.",
+			e.Value, e.Index))
 	}
 }
