@@ -45,6 +45,21 @@ func handleSelectionSort(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleInsertionSort — Run insertion sort: тот же вход и шаблон, что у
+// handleBubbleSort, кадры идут по событиям insertion sort (сравнения
+// с ключом, сдвиги, вставка).
+func handleInsertionSort(w http.ResponseWriter, r *http.Request) {
+	values, err := parseSortInput(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	runStreaming(w, r, func(emit func(frame.Frame)) {
+		render.InsertionRun(values, emit)
+	})
+}
+
 // parseSortInput разбирает параметр values — целые числа через запятую,
 // например values=3,1,2. Пустой массив — легальный вход: сортировать
 // нечего, кадр покажет пустой ряд. Пустая компонента между запятыми

@@ -292,7 +292,46 @@ function asSortSnapshot(data: unknown): SortSnapshot {
   if (typeof obj.operation !== "string") {
     throw new Error("снимок сортировки: поле operation должно быть строкой");
   }
-  return obj as unknown as SortSnapshot;
+  // Состояние вставки insertion sort: «дырка» — валидный индекс массива
+  // или -1 (шага без дырки); ключ — значение, осмысленное при дырке.
+  // Допустимы ровно две формы снимка: старый без обоих полей (кадры
+  // bubble/selection и кадры до тикета 21 — нормализуются к шагу без
+  // вставки, чтобы код рендера видел поля явно) и новый с обоими полями.
+  // Частичная пара (только gap или только key) — искажённый снимок,
+  // как и присутствующие кривые значения.
+  const hasGap = obj.gap !== undefined;
+  const hasKey = obj.key !== undefined;
+  if (hasGap !== hasKey) {
+    throw new Error(
+      "снимок сортировки: поля gap и key идут парой — частичное состояние вставки не читается",
+    );
+  }
+  let gap = -1;
+  if (hasGap) {
+    if (
+      typeof obj.gap !== "number" ||
+      !Number.isInteger(obj.gap) ||
+      obj.gap < -1 ||
+      obj.gap >= (obj.values as number[]).length
+    ) {
+      throw new Error(
+        "снимок сортировки: поле gap должно быть индексом «дырки» вставки (-1 или позиция в массиве)",
+      );
+    }
+    gap = obj.gap;
+  }
+  let key = 0;
+  if (hasKey) {
+    if (typeof obj.key !== "number" || !Number.isInteger(obj.key)) {
+      throw new Error(
+        "снимок сортировки: поле key должно быть целым числом (значение удерживаемого ключа; игнорируется при gap = -1)",
+      );
+    }
+    key = obj.key;
+  }
+  // Нормализованный снимок: gap/key заданы явно — рендер не различает
+  // старые и новые кадры.
+  return { ...obj, gap, key } as unknown as SortSnapshot;
 }
 
 /** Является ли кадр снимком сортировки с допустимыми полями. */
@@ -612,10 +651,18 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * пересоздаётся целиком, состояние не копится) с ролями подсветки:
  * "compare" — сравниваемая сейчас пара (у selection sort — обычно
  * проверяемый кандидат, а при сравнении, сменившем минимум, — прежний
- * минимум), "swap" — обмениваемая, "min" — текущий минимум прохода
- * selection sort (в том числе новый минимум сразу после сравнения).
- * Все простые сортировки модуля (bubble sort и далее) идут в эту же ветку
- * по снимку kind="sort".
+ * минимум; у insertion sort — элемент префикса, сравниваемый с ключом),
+ * "swap" — обмениваемая, "min" — текущий минимум прохода selection sort
+ * (в том числе новый минимум сразу после сравнения), "shift" — позиция,
+ * в которую сейчас сдвинулось значение (insertion sort), "insert" —
+ * позиция, куда вставляется ключ (insertion sort). Временное состояние
+ * вставки insertion sort (пока ключ удерживается вне массива) рисуется
+ * из полей снимка — видимое состояние задают gap и key вместе: ячейка
+ * на позиции gap — пустая «дырка» (значение массива под ней — исходное
+ * значение ключа до сдвигов или устаревшая копия после них — не
+ * рисуется), над рядом — чип со значением удерживаемого
+ * ключа (snap.key). Все простые сортировки
+ * модуля (bubble sort и далее) идут в эту же ветку по снимку kind="sort".
  */
 function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -626,16 +673,30 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   caption.textContent = snap.operation === "" ? "Исходное состояние" : `Шаг: ${snap.operation}`;
   wrap.appendChild(caption);
 
+  // Удерживаемый ключ (insertion sort): чип над рядом, пока проход ищет
+  // ему место; после вставки (gap = -1) чипа нет — ключ в массиве.
+  if (snap.gap >= 0) {
+    const keyChip = document.createElement("div");
+    keyChip.className = "sort-key";
+    keyChip.textContent = `Ключ вне массива: ${snap.key}`;
+    wrap.appendChild(keyChip);
+  }
+
   const row = document.createElement("div");
   row.className = "array";
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
   for (let i = 0; i < snap.values.length; i++) {
     const cell = document.createElement("div");
-    cell.className = "cell filled";
+    cell.className = "cell";
     cell.dataset.index = String(i);
-    cell.textContent = String(snap.values[i]);
-    const role = roleByIndex.get(i);
-    if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min"
+    if (i === snap.gap) {
+      cell.classList.add("gap"); // «дырка»: значение из неё уехало, здесь ждёт ключ
+    } else {
+      cell.classList.add("filled");
+      cell.textContent = String(snap.values[i]);
+      const role = roleByIndex.get(i);
+      if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert"
+    }
     row.appendChild(cell);
   }
   wrap.appendChild(row);
