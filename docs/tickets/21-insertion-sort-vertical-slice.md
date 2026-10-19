@@ -4,7 +4,7 @@
 
 **Blocked by:** 19 (Bubble sort — сквозной вертикальный срез).
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 Спека: `docs/SPEC.md`, модуль «Простые сортировки».
 
