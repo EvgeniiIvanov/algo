@@ -294,22 +294,37 @@ function asSortSnapshot(data: unknown): SortSnapshot {
   }
   // Состояние вставки insertion sort: «дырка» — валидный индекс массива
   // или -1 (шага без дырки); ключ — значение, осмысленное при дырке.
-  if (
-    typeof obj.gap !== "number" ||
-    !Number.isInteger(obj.gap) ||
-    obj.gap < -1 ||
-    obj.gap >= (obj.values as number[]).length
-  ) {
-    throw new Error(
-      "снимок сортировки: поле gap должно быть индексом «дырки» вставки (-1 или позиция в массиве)",
-    );
+  // Обратная совместимость: старые снимки kind="sort" без этих полей
+  // (кадры bubble/selection и кадры до тикета 21) — валидные шаги без
+  // вставки, нормализация заполняет их значениями по умолчанию, чтобы код
+  // рендера видел поля явно. Присутствующие кривые значения по-прежнему
+  // отвергаются.
+  let gap = -1;
+  if (obj.gap !== undefined) {
+    if (
+      typeof obj.gap !== "number" ||
+      !Number.isInteger(obj.gap) ||
+      obj.gap < -1 ||
+      obj.gap >= (obj.values as number[]).length
+    ) {
+      throw new Error(
+        "снимок сортировки: поле gap должно быть индексом «дырки» вставки (-1 или позиция в массиве)",
+      );
+    }
+    gap = obj.gap;
   }
-  if (typeof obj.key !== "number" || !Number.isInteger(obj.key)) {
-    throw new Error(
-      "снимок сортировки: поле key должно быть целым числом (значение удерживаемого ключа; игнорируется при gap = -1)",
-    );
+  let key = 0;
+  if (obj.key !== undefined) {
+    if (typeof obj.key !== "number" || !Number.isInteger(obj.key)) {
+      throw new Error(
+        "снимок сортировки: поле key должно быть целым числом (значение удерживаемого ключа; игнорируется при gap = -1)",
+      );
+    }
+    key = obj.key;
   }
-  return obj as unknown as SortSnapshot;
+  // Нормализованный снимок: gap/key заданы явно — рендер не различает
+  // старые и новые кадры.
+  return { ...obj, gap, key } as unknown as SortSnapshot;
 }
 
 /** Является ли кадр снимком сортировки с допустимыми полями. */
@@ -635,9 +650,10 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * в которую сейчас сдвинулось значение (insertion sort), "insert" —
  * позиция, куда вставляется ключ (insertion sort). Временное состояние
  * вставки insertion sort (пока ключ удерживается вне массива) рисуется
- * из полей снимка: ячейка на позиции gap — пустая «дырка», над рядом —
- * чип со значением удерживаемого ключа (snap.key); значение массива под
- * дыркой — устаревшая копия, оно не рисуется. Все простые сортировки
+ * из полей снимка — видимое состояние задают gap и key вместе: ячейка
+ * на позиции gap — пустая «дырка» (значение массива под ней — устаревшая
+ * копия, оно не рисуется), над рядом — чип со значением удерживаемого
+ * ключа (snap.key). Все простые сортировки
  * модуля (bubble sort и далее) идут в эту же ветку по снимку kind="sort".
  */
 function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {

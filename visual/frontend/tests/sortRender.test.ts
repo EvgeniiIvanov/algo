@@ -218,6 +218,20 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelector(".sort-key")).toBeNull();
   });
 
+  it("старый снимок без gap/key остаётся валидным и рисуется без UI вставки", () => {
+    // Кадры bubble/selection и кадры до тикета 21 не несут полей gap/key:
+    // нормализация читает их как шаг без вставки — ряд ячеек прежний.
+    const oldFrame = { step: 1, kind: "sort", explanation: "шаг", data: { values: [3, 1, 2], highlights: [], operation: "" } } as unknown as Frame;
+
+    expect(isSortFrame(oldFrame)).toBe(true);
+
+    const { ok, containerEl } = renderToDOM(oldFrame);
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(3); // весь ряд заполнен
+    expect(containerEl.querySelectorAll(".cell.gap")).toHaveLength(0); // дырки нет
+    expect(containerEl.querySelector(".sort-key")).toBeNull(); // чипа ключа нет
+  });
+
   it("некорректный снимок вызывает ошибку — ветка рендера не рисует мусор", () => {
     expect(() => renderToDOM(sortFrame({ values: "целиком не массив" }))).toThrow();
   });
