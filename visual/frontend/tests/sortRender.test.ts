@@ -108,6 +108,28 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(3);
   });
 
+  it("подсвечивает текущий минимум прохода selection sort отдельной ролью", () => {
+    // Кадр сравнения selection sort: позиция 0 — текущий минимум (min),
+    // позиция 1 — проверяемый кандидат (compare).
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [3, 1, 2],
+          highlights: [
+            { index: 0, role: "min" },
+            { index: 1, role: "compare" },
+          ],
+          operation: "сравнение 0 1",
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.min")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.compare")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.swap")).toHaveLength(0);
+  });
+
   it("пустой массив рисуется без ячеек", () => {
     const { ok, containerEl } = renderToDOM(sortFrame({ values: [], highlights: [], operation: "" }));
 

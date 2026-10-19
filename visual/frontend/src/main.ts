@@ -13,6 +13,7 @@ import {
   buildListRunURL,
   buildQueueRunURL,
   buildRunURL,
+  buildSelectionSortRunURL,
   buildStackRunURL,
 } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
@@ -29,7 +30,16 @@ import {
 } from "./scenario";
 import type { Frame } from "./types";
 
-const ALGORITHMS = ["binary-search", "stack", "queue", "list", "linked-list", "hash-table", "bubble-sort"] as const;
+const ALGORITHMS = [
+  "binary-search",
+  "stack",
+  "queue",
+  "list",
+  "linked-list",
+  "hash-table",
+  "bubble-sort",
+  "selection-sort",
+] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -79,7 +89,8 @@ function init(): void {
     listInputsEl.hidden = algorithm !== "list";
     linkedListInputsEl.hidden = algorithm !== "linked-list";
     hashTableInputsEl.hidden = algorithm !== "hash-table";
-    sortInputsEl.hidden = algorithm !== "bubble-sort";
+    // Обе простые сортировки пользуются общим блоком ввода массива.
+    sortInputsEl.hidden = algorithm !== "bubble-sort" && algorithm !== "selection-sort";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -135,9 +146,12 @@ function init(): void {
         const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
         parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
-      } else if (algorithm === "bubble-sort") {
+      } else if (algorithm === "bubble-sort" || algorithm === "selection-sort") {
         const values = parseSortValues(sortValuesEl.value);
-        url = buildBubbleSortRunURL(values);
+        url =
+          algorithm === "bubble-sort"
+            ? buildBubbleSortRunURL(values)
+            : buildSelectionSortRunURL(values);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);
