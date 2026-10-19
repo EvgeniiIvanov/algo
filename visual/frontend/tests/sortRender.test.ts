@@ -77,6 +77,8 @@ describe("isSortFrame", () => {
     expect(isSortFrame(sortFrame({ ...base, gap: -2 }))).toBe(false); // дырка не -1 и не индекс
     expect(isSortFrame(sortFrame({ ...base, gap: "0" }))).toBe(false); // дырка не число
     expect(isSortFrame(sortFrame({ ...base, key: "5" }))).toBe(false); // ключ не число
+    expect(isSortFrame(sortFrame({ ...base, key: undefined, gap: 0 }))).toBe(false); // gap без key
+    expect(isSortFrame(sortFrame({ ...base, gap: undefined, key: 5 }))).toBe(false); // key без gap
   });
 
   it("отвергает чужие kind'ы", () => {
