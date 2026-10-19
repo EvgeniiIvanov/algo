@@ -12,7 +12,8 @@ import (
 
 // Ограничение входа Run сортировки: чем массив длиннее, тем легче теряется
 // обозримость ряда ячеек и потока кадров. Это safety bound одного визуального
-// Run — библиотечный sort.BubbleSort лимитов не имеет.
+// Run — библиотечные сортировки (sort.BubbleSort, sort.SelectionSort, ...)
+// лимитов не имеют.
 const maxSortValues = 100
 
 // handleBubbleSort — Run bubble sort: вход — массив целых чисел, на выходе
@@ -27,6 +28,20 @@ func handleBubbleSort(w http.ResponseWriter, r *http.Request) {
 
 	runStreaming(w, r, func(emit func(frame.Frame)) {
 		render.BubbleRun(values, emit)
+	})
+}
+
+// handleSelectionSort — Run selection sort: тот же вход и шаблон, что у
+// handleBubbleSort, кадры идут по событиям selection sort.
+func handleSelectionSort(w http.ResponseWriter, r *http.Request) {
+	values, err := parseSortInput(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	runStreaming(w, r, func(emit func(frame.Frame)) {
+		render.SelectionRun(values, emit)
 	})
 }
 

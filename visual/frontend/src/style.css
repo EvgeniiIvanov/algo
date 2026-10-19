@@ -449,3 +449,12 @@ code {
   color: white;
   transform: scale(1.05);
 }
+
+/* Текущий минимум прохода selection sort: кандидат, с которым сравниваются
+   остальные элементы неотсортированной части. */
+.cell.min {
+  background: var(--accent);
+  border-color: #1d4ed8;
+  color: white;
+  transform: scale(1.05);
+}

@@ -4,7 +4,7 @@
 // и лимит длины визуального Run.
 import { describe, expect, it } from "vitest";
 import { MAX_SORT_VALUES, parseSortValues } from "../src/scenario";
-import { buildBubbleSortRunURL } from "../src/sse";
+import { buildBubbleSortRunURL, buildSelectionSortRunURL } from "../src/sse";
 
 describe("parseSortValues — удачный разбор", () => {
   it("разбирает массив через запятую", () => {
@@ -64,5 +64,15 @@ describe("buildBubbleSortRunURL", () => {
 
   it("пустой массив едет как есть — сервер авторитетен", () => {
     expect(buildBubbleSortRunURL([])).toBe("/api/run/bubble-sort?values=");
+  });
+});
+
+describe("buildSelectionSortRunURL", () => {
+  it("собирает URL маршрута selection-sort с массивом значений", () => {
+    expect(buildSelectionSortRunURL([3, 1, 2])).toBe("/api/run/selection-sort?values=3%2C1%2C2");
+  });
+
+  it("пустой массив едет как есть — сервер авторитетен", () => {
+    expect(buildSelectionSortRunURL([])).toBe("/api/run/selection-sort?values=");
   });
 });

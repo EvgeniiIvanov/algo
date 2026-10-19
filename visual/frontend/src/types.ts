@@ -145,7 +145,8 @@ export interface HashTableSnapshot {
 /**
  * Подсветка одной позиции массива сортировки с ролью — что с ней случилось
  * на шаге кадра kind="sort". Роли: "compare" (позиция сравниваемой сейчас
- * пары) / "swap" (позиция обмениваемой сейчас пары).
+ * пары; у selection sort — проверяемого кандидата) / "swap" (позиция
+ * обмениваемой сейчас пары) / "min" (текущий минимум прохода selection sort).
  */
 export interface SortHighlight {
   index: number;
