@@ -32,6 +32,8 @@ function snapshot(overrides?: Partial<SortSnapshot>): SortSnapshot {
       { index: 1, role: "compare" },
     ],
     operation: "сравнение 0 1",
+    gap: -1, // шаг без состояния вставки (стартовый кадр, bubble/selection)
+    key: 0,
     ...overrides,
   };
 }
@@ -40,12 +42,18 @@ describe("isSortFrame", () => {
   it("принимает снимок с ролями compare/swap и без подсветок", () => {
     expect(isSortFrame(sortFrame(snapshot()))).toBe(true);
     expect(
-      isSortFrame(sortFrame({ values: [1, 2, 3], highlights: [], operation: "" })),
+      isSortFrame(sortFrame({ values: [1, 2, 3], highlights: [], operation: "", gap: -1, key: 0 })),
     ).toBe(true);
   });
 
+  it("принимает состояние вставки insertion sort: дырка в массиве и удерживаемый ключ", () => {
+    expect(isSortFrame(sortFrame(snapshot({ values: [3, 3, 2], gap: 0, key: 1 })))).toBe(true);
+  });
+
   it("принимает пустой массив — легальный вход сортировки", () => {
-    expect(isSortFrame(sortFrame({ values: [], highlights: [], operation: "" }))).toBe(true);
+    expect(
+      isSortFrame(sortFrame({ values: [], highlights: [], operation: "", gap: -1, key: 0 })),
+    ).toBe(true);
   });
 
   it("отвергает сломанные снимки", () => {
@@ -65,6 +73,10 @@ describe("isSortFrame", () => {
       false,
     ); // отрицательный индекс
     expect(isSortFrame(sortFrame({ ...base, operation: 5 }))).toBe(false); // operation не строка
+    expect(isSortFrame(sortFrame({ ...base, gap: 3 }))).toBe(false); // дырка вне массива
+    expect(isSortFrame(sortFrame({ ...base, gap: -2 }))).toBe(false); // дырка не -1 и не индекс
+    expect(isSortFrame(sortFrame({ ...base, gap: "0" }))).toBe(false); // дырка не число
+    expect(isSortFrame(sortFrame({ ...base, key: "5" }))).toBe(false); // ключ не число
   });
 
   it("отвергает чужие kind'ы", () => {
@@ -154,10 +166,56 @@ describe("renderFrame — kind=\"sort\"", () => {
   });
 
   it("пустой массив рисуется без ячеек", () => {
-    const { ok, containerEl } = renderToDOM(sortFrame({ values: [], highlights: [], operation: "" }));
+    const { ok, containerEl } = renderToDOM(
+      sortFrame({ values: [], highlights: [], operation: "", gap: -1, key: 0 }),
+    );
 
     expect(ok).toBe(true);
     expect(containerEl.querySelectorAll(".cell")).toHaveLength(0);
+  });
+
+  it("рисует пустую дырку вставки и чип удерживаемого ключа insertion sort", () => {
+    // Кадр сдвига insertion sort: значение уехало из позиции 0 в позицию 1,
+    // дырка на позиции 0 ждёт ключ 1 (значение массива под дыркой —
+    // устаревшая копия, она не рисуется).
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [3, 3, 2],
+          highlights: [{ index: 1, role: "shift" }],
+          operation: "сдвиг 0 → 1",
+          gap: 0,
+          key: 1,
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.gap")).toHaveLength(1);
+    const gapCell = containerEl.querySelector<HTMLElement>(".cell.gap");
+    expect(gapCell?.textContent).toBe(""); // дырка пуста: копия под ней не рисуется
+    expect(gapCell?.dataset.index).toBe("0");
+    expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(2); // только значения вне дырки
+    expect(containerEl.querySelector(".sort-key")?.textContent).toBe("Ключ вне массива: 1");
+  });
+
+  it("после вставки дырки и чипа нет — ключ уже в массиве", () => {
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [1, 3, 2],
+          highlights: [{ index: 0, role: "insert" }],
+          operation: "вставка на позицию 0",
+          gap: -1,
+          key: 0,
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.gap")).toHaveLength(0);
+    expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(3);
+    expect(containerEl.querySelector(".sort-key")).toBeNull();
   });
 
   it("некорректный снимок вызывает ошибку — ветка рендера не рисует мусор", () => {

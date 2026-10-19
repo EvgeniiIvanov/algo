@@ -37,7 +37,9 @@ func TestInsertionSortQuietMode(t *testing.T) {
 }
 
 // Сортировка на месте: указатель на первый элемент не меняется —
-// InsertionSort не выделяет новый массив, а переупорядочивает переданный.
+// InsertionSort не выделяет новый массив, а переупорядочивает переданный;
+// аллокаций на прогон нет вовсе — дополнительная память O(1), копий
+// пропорционально входу сортировка не строит.
 func TestInsertionSortInPlace(t *testing.T) {
 	nums := []int{3, 1, 2}
 	backing := &nums[0] // адрес первого элемента до сортировки
@@ -49,5 +51,22 @@ func TestInsertionSortInPlace(t *testing.T) {
 	}
 	if !reflect.DeepEqual(nums, []int{1, 2, 3}) {
 		t.Errorf("результат сортировки = %v, ожидалось [1 2 3]", nums)
+	}
+
+	// Замер аллокаций на прогон: сброс входа внутрь замера сам аллокаций
+	// не делает, обратный порядок — максимум сдвигов. Вставка на месте
+	// не аллоцирует вовсе: любое аллоцирование — регрессия контракта.
+	allocs := func(n int) float64 {
+		dst := make([]int, n)
+		return testing.AllocsPerRun(10, func() {
+			for i := range dst {
+				dst[i] = n - i
+			}
+			sort.InsertionSort(dst)
+		})
+	}
+	const big = 10000
+	if got := allocs(big); got != 0 {
+		t.Errorf("InsertionSort на входе длины %d аллоцирует в среднем %v раз на прогон — сортировка на месте не должна аллоцировать", big, got)
 	}
 }

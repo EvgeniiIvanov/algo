@@ -16,6 +16,7 @@ func (s *spyInsertionEmitter) Emit(event sort.InsertionEvent) { *s = append(*s, 
 // Известный сценарий [3,1,2]: ключ 1 вдвигается в префикс [3] (сдвиг
 // и вставка в позицию 0), ключ 2 — в префикс [1,3]: сдвиг тройки,
 // сравнение с единицей останавливает сканирование, вставка в позицию 1.
+// Каждый проход завершается вставкой, «дырка» в событиях видна явно.
 func TestInsertionSortEventsScenario(t *testing.T) {
 	nums := []int{3, 1, 2}
 	var spy spyInsertionEmitter
@@ -23,16 +24,17 @@ func TestInsertionSortEventsScenario(t *testing.T) {
 	sort.InsertionSortWithEmitter(nums, &spy)
 
 	want := []sort.InsertionEvent{
-		// Проход ключа 1: 3 больше ключа — сдвиг вправо, затем вставка в позицию 0.
-		sort.InsertionCompare{Pos: 0, PosValue: 3, Key: 1, Shifts: true},
-		sort.InsertionShift{From: 0, To: 1, Value: 3, Key: 1},
-		sort.InsertionWrite{Index: 0, Value: 1},
-		// Проход ключа 2: 3 больше ключа — сдвиг; 1 не больше — сканирование
-		// остановлено, ключ вставляется в позицию 1.
-		sort.InsertionCompare{Pos: 1, PosValue: 3, Key: 2, Shifts: true},
-		sort.InsertionShift{From: 1, To: 2, Value: 3, Key: 2},
-		sort.InsertionCompare{Pos: 0, PosValue: 1, Key: 2, Shifts: false},
-		sort.InsertionWrite{Index: 1, Value: 2},
+		// Проход ключа 1: 3 больше ключа — сдвиг вправо, затем вставка
+		// в позицию 0; сканирование стартует с дырки на месте ключа (позиция 1).
+		sort.InsertionCompare{Pos: 0, PosValue: 3, Key: 1, Gap: 1, Outcome: sort.InsertionGreater},
+		sort.InsertionShift{From: 0, To: 1, Value: 3, Key: 1, Gap: 0},
+		sort.InsertionWrite{Index: 0, Value: 1, Moved: true},
+		// Проход ключа 2: 3 больше ключа — сдвиг; 1 меньше — сканирование
+		// остановлено, ключ вставляется в дырку на позиции 1.
+		sort.InsertionCompare{Pos: 1, PosValue: 3, Key: 2, Gap: 2, Outcome: sort.InsertionGreater},
+		sort.InsertionShift{From: 1, To: 2, Value: 3, Key: 2, Gap: 1},
+		sort.InsertionCompare{Pos: 0, PosValue: 1, Key: 2, Gap: 1, Outcome: sort.InsertionLess},
+		sort.InsertionWrite{Index: 1, Value: 2, Moved: true},
 	}
 	if !reflect.DeepEqual([]sort.InsertionEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
@@ -55,15 +57,15 @@ func TestInsertionSortEventsReverse(t *testing.T) {
 
 	want := []sort.InsertionEvent{
 		// Ключ 2: 3 больше — сдвиг, вставка в позицию 0.
-		sort.InsertionCompare{Pos: 0, PosValue: 3, Key: 2, Shifts: true},
-		sort.InsertionShift{From: 0, To: 1, Value: 3, Key: 2},
-		sort.InsertionWrite{Index: 0, Value: 2},
+		sort.InsertionCompare{Pos: 0, PosValue: 3, Key: 2, Gap: 1, Outcome: sort.InsertionGreater},
+		sort.InsertionShift{From: 0, To: 1, Value: 3, Key: 2, Gap: 0},
+		sort.InsertionWrite{Index: 0, Value: 2, Moved: true},
 		// Ключ 1: 3 и 2 больше — два сдвига, вставка в позицию 0.
-		sort.InsertionCompare{Pos: 1, PosValue: 3, Key: 1, Shifts: true},
-		sort.InsertionShift{From: 1, To: 2, Value: 3, Key: 1},
-		sort.InsertionCompare{Pos: 0, PosValue: 2, Key: 1, Shifts: true},
-		sort.InsertionShift{From: 0, To: 1, Value: 2, Key: 1},
-		sort.InsertionWrite{Index: 0, Value: 1},
+		sort.InsertionCompare{Pos: 1, PosValue: 3, Key: 1, Gap: 2, Outcome: sort.InsertionGreater},
+		sort.InsertionShift{From: 1, To: 2, Value: 3, Key: 1, Gap: 1},
+		sort.InsertionCompare{Pos: 0, PosValue: 2, Key: 1, Gap: 1, Outcome: sort.InsertionGreater},
+		sort.InsertionShift{From: 0, To: 1, Value: 2, Key: 1, Gap: 0},
+		sort.InsertionWrite{Index: 0, Value: 1, Moved: true},
 	}
 	if !reflect.DeepEqual([]sort.InsertionEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
@@ -74,9 +76,9 @@ func TestInsertionSortEventsReverse(t *testing.T) {
 	}
 }
 
-// Уже упорядоченный вход: ровно n-1 сравнений, ноль сдвигов и вставок —
-// каждый ключ сразу встаёт на своё место, вставка без сдвигов события
-// не порождает.
+// Уже упорядоченный вход: ровно n-1 сравнений и n-1 безсдвиговых вставок —
+// каждый ключ сразу встаёт на своё место, и проход завершается видимым
+// событием вставки (Moved = false), а не молчанием.
 func TestInsertionSortEventsAlreadySorted(t *testing.T) {
 	nums := []int{1, 2, 3}
 	var spy spyInsertionEmitter
@@ -84,8 +86,10 @@ func TestInsertionSortEventsAlreadySorted(t *testing.T) {
 	sort.InsertionSortWithEmitter(nums, &spy)
 
 	want := []sort.InsertionEvent{
-		sort.InsertionCompare{Pos: 0, PosValue: 1, Key: 2, Shifts: false},
-		sort.InsertionCompare{Pos: 1, PosValue: 2, Key: 3, Shifts: false},
+		sort.InsertionCompare{Pos: 0, PosValue: 1, Key: 2, Gap: 1, Outcome: sort.InsertionLess},
+		sort.InsertionWrite{Index: 1, Value: 2, Moved: false},
+		sort.InsertionCompare{Pos: 1, PosValue: 2, Key: 3, Gap: 2, Outcome: sort.InsertionLess},
+		sort.InsertionWrite{Index: 2, Value: 3, Moved: false},
 	}
 	if !reflect.DeepEqual([]sort.InsertionEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
@@ -93,9 +97,9 @@ func TestInsertionSortEventsAlreadySorted(t *testing.T) {
 	}
 }
 
-// Устойчивость: элемент, равный ключу, не сдвигается — строгое «больше»
-// в сравнении; для [5,5] равный префикс порождает только сравнение,
-// сдвига и вставки нет.
+// Устойчивость: элемент, равный ключу, не сдвигается — исход сравнения
+// Equal, сдвига нет, а проход завершается безсдвиговой вставкой
+// (ключ возвращается на свою же позицию).
 func TestInsertionSortEventsDuplicates(t *testing.T) {
 	nums := []int{5, 5}
 	var spy spyInsertionEmitter
@@ -103,11 +107,15 @@ func TestInsertionSortEventsDuplicates(t *testing.T) {
 	sort.InsertionSortWithEmitter(nums, &spy)
 
 	want := []sort.InsertionEvent{
-		sort.InsertionCompare{Pos: 0, PosValue: 5, Key: 5, Shifts: false},
+		sort.InsertionCompare{Pos: 0, PosValue: 5, Key: 5, Gap: 1, Outcome: sort.InsertionEqual},
+		sort.InsertionWrite{Index: 1, Value: 5, Moved: false},
 	}
 	if !reflect.DeepEqual([]sort.InsertionEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
 			[]sort.InsertionEvent(spy), want)
+	}
+	if got := nums; !reflect.DeepEqual(got, []int{5, 5}) {
+		t.Errorf("слайс после InsertionSortWithEmitter = %v, ожидалось [5 5]", got)
 	}
 }
 

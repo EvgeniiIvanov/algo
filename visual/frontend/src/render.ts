@@ -292,6 +292,23 @@ function asSortSnapshot(data: unknown): SortSnapshot {
   if (typeof obj.operation !== "string") {
     throw new Error("снимок сортировки: поле operation должно быть строкой");
   }
+  // Состояние вставки insertion sort: «дырка» — валидный индекс массива
+  // или -1 (шага без дырки); ключ — значение, осмысленное при дырке.
+  if (
+    typeof obj.gap !== "number" ||
+    !Number.isInteger(obj.gap) ||
+    obj.gap < -1 ||
+    obj.gap >= (obj.values as number[]).length
+  ) {
+    throw new Error(
+      "снимок сортировки: поле gap должно быть индексом «дырки» вставки (-1 или позиция в массиве)",
+    );
+  }
+  if (typeof obj.key !== "number" || !Number.isInteger(obj.key)) {
+    throw new Error(
+      "снимок сортировки: поле key должно быть целым числом (значение удерживаемого ключа; игнорируется при gap = -1)",
+    );
+  }
   return obj as unknown as SortSnapshot;
 }
 
@@ -614,10 +631,14 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * проверяемый кандидат, а при сравнении, сменившем минимум, — прежний
  * минимум; у insertion sort — элемент префикса, сравниваемый с ключом),
  * "swap" — обмениваемая, "min" — текущий минимум прохода selection sort
- * (в том числе новый минимум сразу после сравнения), "shift" — сдвигаемое
- * сейчас значение и его приёмник (insertion sort), "insert" — позиция,
- * куда вставляется ключ (insertion sort). Все простые сортировки модуля
- * (bubble sort и далее) идут в эту же ветку по снимку kind="sort".
+ * (в том числе новый минимум сразу после сравнения), "shift" — позиция,
+ * в которую сейчас сдвинулось значение (insertion sort), "insert" —
+ * позиция, куда вставляется ключ (insertion sort). Временное состояние
+ * вставки insertion sort (пока ключ удерживается вне массива) рисуется
+ * из полей снимка: ячейка на позиции gap — пустая «дырка», над рядом —
+ * чип со значением удерживаемого ключа (snap.key); значение массива под
+ * дыркой — устаревшая копия, оно не рисуется. Все простые сортировки
+ * модуля (bubble sort и далее) идут в эту же ветку по снимку kind="sort".
  */
 function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -628,16 +649,30 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   caption.textContent = snap.operation === "" ? "Исходное состояние" : `Шаг: ${snap.operation}`;
   wrap.appendChild(caption);
 
+  // Удерживаемый ключ (insertion sort): чип над рядом, пока проход ищет
+  // ему место; после вставки (gap = -1) чипа нет — ключ в массиве.
+  if (snap.gap >= 0) {
+    const keyChip = document.createElement("div");
+    keyChip.className = "sort-key";
+    keyChip.textContent = `Ключ вне массива: ${snap.key}`;
+    wrap.appendChild(keyChip);
+  }
+
   const row = document.createElement("div");
   row.className = "array";
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
   for (let i = 0; i < snap.values.length; i++) {
     const cell = document.createElement("div");
-    cell.className = "cell filled";
+    cell.className = "cell";
     cell.dataset.index = String(i);
-    cell.textContent = String(snap.values[i]);
-    const role = roleByIndex.get(i);
-    if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min"
+    if (i === snap.gap) {
+      cell.classList.add("gap"); // «дырка»: значение из неё уехало, здесь ждёт ключ
+    } else {
+      cell.classList.add("filled");
+      cell.textContent = String(snap.values[i]);
+      const role = roleByIndex.get(i);
+      if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert"
+    }
     row.appendChild(cell);
   }
   wrap.appendChild(row);

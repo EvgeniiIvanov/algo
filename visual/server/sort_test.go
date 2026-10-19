@@ -580,10 +580,28 @@ func doRunInsertionSSE(t *testing.T, values string) []frame.Frame {
 	return readSSEFrames(t, resp)
 }
 
+// assertSortKeyState сверяет состояние вставки в снимке (после
+// JSON-кругосветки): индекс «дырки» и значение удерживаемого ключа.
+// Шаги без дырки — gap -1, ключ не задан (0).
+func assertSortKeyState(t *testing.T, f frame.Frame, gap, key int) {
+	t.Helper()
+
+	s, ok := f.Data.(map[string]any) // после JSON-кругосветки снимок приходит как map
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	if got := s["gap"].(float64); got != float64(gap) {
+		t.Fatalf("кадр шага %d: gap = %v, ожидалось %d\nпояснение: %s", f.Step, got, gap, f.Explanation)
+	}
+	if got := s["key"].(float64); got != float64(key) {
+		t.Fatalf("кадр шага %d: key = %v, ожидалось %d\nпояснение: %s", f.Step, got, key, f.Explanation)
+	}
+}
+
 // Сквозной сценарий теста: сортировка [3,1,2] — один стартовый кадр и по
 // кадру на каждое событие (сравнение с ключом, сдвиг, вставка). Кадр сдвига
-// показывает «дырку» — удвоенное значение уходит вправо; итог —
-// упорядоченный массив.
+// показывает пустую «дырку» и удерживаемый ключ; итог — упорядоченный
+// массив.
 func TestRunInsertionSortScenario(t *testing.T) {
 	frames := doRunInsertionSSE(t, "3,1,2")
 	if len(frames) != 8 {
@@ -595,15 +613,24 @@ func TestRunInsertionSortScenario(t *testing.T) {
 	sorted := []int{1, 2, 3}
 
 	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+	assertSortKeyState(t, frames[0], -1, 0)
 	// Ключ 1: 3 больше ключа — сдвиг, затем вставка в позицию 0.
+	// Дырка стартует на месте ключа (позиция 1) и уходит влево.
 	assertSortSnapshot(t, frames[1], start, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
-	assertSortSnapshot(t, frames[2], hole, []render.SortHighlight{{Index: 0, Role: render.RoleShift}, {Index: 1, Role: render.RoleShift}}, "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[1], 1, 1)
+	assertSortSnapshot(t, frames[2], hole, []render.SortHighlight{{Index: 1, Role: render.RoleShift}}, "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[2], 0, 1)
 	assertSortSnapshot(t, frames[3], []int{1, 3, 2}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
+	assertSortKeyState(t, frames[3], -1, 0)
 	// Ключ 2: 3 больше — сдвиг; 1 меньше — сканирование остановлено; вставка в позицию 1.
 	assertSortSnapshot(t, frames[4], []int{1, 3, 2}, []render.SortHighlight{{Index: 1, Role: render.RoleCompare}}, "сравнение 1 с ключом")
-	assertSortSnapshot(t, frames[5], []int{1, 3, 3}, []render.SortHighlight{{Index: 1, Role: render.RoleShift}, {Index: 2, Role: render.RoleShift}}, "сдвиг 1 → 2")
+	assertSortKeyState(t, frames[4], 2, 2)
+	assertSortSnapshot(t, frames[5], []int{1, 3, 3}, []render.SortHighlight{{Index: 2, Role: render.RoleShift}}, "сдвиг 1 → 2")
+	assertSortKeyState(t, frames[5], 1, 2)
 	assertSortSnapshot(t, frames[6], []int{1, 3, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
+	assertSortKeyState(t, frames[6], 1, 2)
 	assertSortSnapshot(t, frames[7], sorted, []render.SortHighlight{{Index: 1, Role: render.RoleInsert}}, "вставка на позицию 1")
+	assertSortKeyState(t, frames[7], -1, 0)
 
 	// Пояснения отражают учебные точки: больший ключа сдвигается,
 	// меньший останавливает сканирование, ключ вставляется в дырку.
@@ -626,43 +653,57 @@ func TestRunInsertionSortScenario(t *testing.T) {
 }
 
 // Обратный вход [3,2,1]: каждый ключ проходит весь префикс — цепочка
-// сдвигов до позиции 0, финальная вставка в начало.
+// сдвигов до позиции 0, финальная вставка в начало; дырка в кадрах
+// доходит до начала ряда.
 func TestRunInsertionSortReverseShiftsToStart(t *testing.T) {
 	frames := doRunInsertionSSE(t, "3,2,1")
 	if len(frames) != 9 {
 		t.Fatalf("кадров = %d, ожидалось 9:\n%v", len(frames), frames)
 	}
 
-	shiftPair := func(a, b int) []render.SortHighlight {
-		return []render.SortHighlight{{Index: a, Role: render.RoleShift}, {Index: b, Role: render.RoleShift}}
-	}
-
 	assertSortSnapshot(t, frames[0], []int{3, 2, 1}, nil, "")
 	// Ключ 2: сдвиг 0 → 1, вставка в позицию 0.
 	assertSortSnapshot(t, frames[1], []int{3, 2, 1}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
-	assertSortSnapshot(t, frames[2], []int{3, 3, 1}, shiftPair(0, 1), "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[1], 1, 2)
+	assertSortSnapshot(t, frames[2], []int{3, 3, 1}, []render.SortHighlight{{Index: 1, Role: render.RoleShift}}, "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[2], 0, 2)
 	assertSortSnapshot(t, frames[3], []int{2, 3, 1}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
 	// Ключ 1: два сдвига (дырка доходит до позиции 0), вставка в начало.
 	assertSortSnapshot(t, frames[4], []int{2, 3, 1}, []render.SortHighlight{{Index: 1, Role: render.RoleCompare}}, "сравнение 1 с ключом")
-	assertSortSnapshot(t, frames[5], []int{2, 3, 3}, shiftPair(1, 2), "сдвиг 1 → 2")
+	assertSortKeyState(t, frames[4], 2, 1)
+	assertSortSnapshot(t, frames[5], []int{2, 3, 3}, []render.SortHighlight{{Index: 2, Role: render.RoleShift}}, "сдвиг 1 → 2")
+	assertSortKeyState(t, frames[5], 1, 1)
 	assertSortSnapshot(t, frames[6], []int{2, 3, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleCompare}}, "сравнение 0 с ключом")
-	assertSortSnapshot(t, frames[7], []int{2, 2, 3}, shiftPair(0, 1), "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[6], 1, 1)
+	assertSortSnapshot(t, frames[7], []int{2, 2, 3}, []render.SortHighlight{{Index: 1, Role: render.RoleShift}}, "сдвиг 0 → 1")
+	assertSortKeyState(t, frames[7], 0, 1)
 	assertSortSnapshot(t, frames[8], []int{1, 2, 3}, []render.SortHighlight{{Index: 0, Role: render.RoleInsert}}, "вставка на позицию 0")
+	assertSortKeyState(t, frames[8], -1, 0)
 }
 
 // Устойчивость (учебная точка): элемент, равный ключу, не сдвигается —
-// для [5,5] кадр сравнения с равным остаётся единственным шагом.
+// для [5,5] проход завершается видимым безсдвиговым кадром вставки
+// «ключ уже на месте».
 func TestRunInsertionSortEqualKeyDoesNotShift(t *testing.T) {
 	frames := doRunInsertionSSE(t, "5,5")
-	if len(frames) != 2 {
-		t.Fatalf("кадров = %d, ожидалось 2 (сдвига и вставки нет):\n%v", len(frames), frames)
+	if len(frames) != 3 {
+		t.Fatalf("кадров = %d, ожидалось 3 (сравнение + безсдвиговая вставка):\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{5, 5}, nil, "")
 	assertSortSnapshot(t, frames[1], []int{5, 5},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}},
 		"сравнение 0 с ключом")
+	assertSortKeyState(t, frames[1], 1, 5)
 	if !strings.Contains(frames[1].Explanation, "порядок равных сохраняется") {
 		t.Errorf("пояснение сравнения равных = %q, ожидается устойчивость", frames[1].Explanation)
+	}
+	// Безсдвиговый проход завершается явным кадром: ключ на своём месте.
+	assertSortSnapshot(t, frames[2], []int{5, 5},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleInsert}},
+		"вставка на позицию 1")
+	assertSortKeyState(t, frames[2], -1, 0)
+	if !strings.Contains(frames[2].Explanation, "уже на месте") {
+		t.Errorf("пояснение безсдвиговой вставки = %q, ожидается «уже на месте»", frames[2].Explanation)
 	}
 }
 
@@ -674,6 +715,7 @@ func TestRunInsertionSortEmptyInput(t *testing.T) {
 		t.Fatalf("кадров = %d, ожидался 1 (пустой массив сортировать не надо):\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{}, nil, "")
+	assertSortKeyState(t, frames[0], -1, 0)
 
 	// Одноэлементный вход: кадр исходного состояния без сравнений.
 	frames = doRunInsertionSSE(t, "-7")
@@ -681,6 +723,7 @@ func TestRunInsertionSortEmptyInput(t *testing.T) {
 		t.Fatalf("кадров = %d, ожидался 1 (один элемент отсортирован):\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{-7}, nil, "")
+	assertSortKeyState(t, frames[0], -1, 0)
 }
 
 func TestRunInsertionSortValidation(t *testing.T) {
@@ -716,8 +759,8 @@ func TestRunInsertionSortValidation(t *testing.T) {
 func TestRunInsertionSortLengthLimit(t *testing.T) {
 	input := func(n int) string {
 		// Уже отсортированные данные: каждый ключ сразу встаёт на своё
-		// место — ровно n-1 сравнений без сдвигов, поток короткий,
-		// а граница всё равно честная.
+		// место — n-1 сравнений и n-1 безсдвиговых вставок, поток
+		// конечный, а граница всё равно честная.
 		parts := make([]string, n)
 		for i := range parts {
 			parts[i] = fmt.Sprintf("%d", i)
@@ -726,12 +769,18 @@ func TestRunInsertionSortLengthLimit(t *testing.T) {
 	}
 
 	frames := doRunInsertionSSE(t, input(100))
-	if want := 100; len(frames) != want {
+	if want := 1 + 99 + 99; len(frames) != want {
 		t.Fatalf("кадров = %d, ожидалось %d", len(frames), want)
 	}
-	assertSortSnapshot(t, frames[len(frames)-1], mustInts(t, input(100)),
-		[]render.SortHighlight{{Index: 98, Role: render.RoleCompare}},
-		"сравнение 98 с ключом")
+	// Последний кадр — безсдвиговая вставка последнего ключа.
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, mustInts(t, input(100)),
+		[]render.SortHighlight{{Index: 99, Role: render.RoleInsert}},
+		"вставка на позицию 99")
+	assertSortKeyState(t, last, -1, 0)
+	if !strings.Contains(last.Explanation, "уже на месте") {
+		t.Errorf("пояснение безсдвиговой вставки = %q, ожидается «уже на месте»", last.Explanation)
+	}
 
 	resp := doRunInsertion(t, input(101))
 	if resp.Code != http.StatusBadRequest {
@@ -747,19 +796,26 @@ func TestRunInsertionSortLengthLimit(t *testing.T) {
 }
 
 // Отрицательные значения и дубликаты сортируются на месте и читаются
-// в кадрах: вход уже упорядочен — сравнения без сдвигов и вставок.
+// в кадрах: вход уже упорядочен — сравнения равных и меньших, затем
+// безсдвиговые вставки.
 func TestRunInsertionSortNegativesAndDuplicates(t *testing.T) {
 	frames := doRunInsertionSSE(t, "-1,-1,0")
-	if len(frames) != 3 {
-		t.Fatalf("кадров = %d, ожидалось 3:\n%v", len(frames), frames)
+	if len(frames) != 5 {
+		t.Fatalf("кадров = %d, ожидалось 5:\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{-1, -1, 0}, nil, "")
+	// Отрицательный ключ — легальное значение удерживаемого ключа.
+	assertSortSnapshot(t, frames[1], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}},
+		"сравнение 0 с ключом")
+	assertSortKeyState(t, frames[1], 1, -1)
 	last := frames[len(frames)-1]
 	assertSortSnapshot(t, last, []int{-1, -1, 0},
-		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}},
-		"сравнение 1 с ключом")
-	if !strings.Contains(last.Explanation, "меньше ключа") {
-		t.Errorf("пояснение сравнения = %q, ожидается остановка сканирования", last.Explanation)
+		[]render.SortHighlight{{Index: 2, Role: render.RoleInsert}},
+		"вставка на позицию 2")
+	assertSortKeyState(t, last, -1, 0)
+	if !strings.Contains(last.Explanation, "уже на месте") {
+		t.Errorf("пояснение безсдвиговой вставки = %q, ожидается «уже на месте»", last.Explanation)
 	}
 }
 
@@ -781,4 +837,15 @@ func TestRunInsertionSortMatchesDirectRenderer(t *testing.T) {
 			t.Errorf("кадр %d отличается:\nэндпоинт %s\nрендерер %s", i, aw, bw)
 		}
 	}
+}
+
+// Сортировки без удерживаемого ключа не несут состояния вставки: кадры
+// bubble sort имеют пустые gap/key — контракт снимка общий, семантика
+// прежних визуализаций не меняется.
+func TestRunBubbleSortFramesHaveNoInsertionState(t *testing.T) {
+	frames := doRunBubbleSSE(t, "3,1,2")
+	if len(frames) == 0 {
+		t.Fatal("кадров нет")
+	}
+	assertSortKeyState(t, frames[0], -1, 0)
 }
