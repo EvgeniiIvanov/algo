@@ -9,10 +9,11 @@ import "github.com/EvgeniiIvanov/algo/algorithms"
 type SelectionEvent interface{ isSelectionEvent() }
 
 // SelectionCompare — сравнение проверяемого элемента Scanned с текущим
-// минимумом прохода Min (Min < Scanned). MinValue/ScanValue — значения
-// на момент сравнения (до него); NewMin/NewMinValue — минимум прохода
-// после сравнения: строгий «меньше» переводит минимум на Scanned, иначе
-// минимум остаётся на Min. Рендерер строит кадр из события как есть —
+// минимумом прохода Min (Min и Scanned — индексы, Min < Scanned: минимум
+// прохода всегда стоит левее проверяемого элемента). MinValue/ScanValue —
+// значения на момент сравнения (до него); NewMin/NewMinValue — минимум
+// прохода после сравнения: строгий «меньше» переводит минимум на Scanned,
+// иначе минимум остаётся на Min. Рендерер строит кадр из события как есть —
 // без повторного вывода результата сравнения из значений.
 type SelectionCompare struct {
 	Pass        int // индекс первой неотсортированной позиции (начало прохода)

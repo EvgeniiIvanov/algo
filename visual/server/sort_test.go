@@ -388,6 +388,55 @@ func TestRunSelectionSortCompareFrameShowsNewMinimum(t *testing.T) {
 		"обмен 0 1")
 }
 
+// Минимум вдали от начала прохода ([5,4,3,1]): кадры сравнения, сменившего
+// минимум, подсвечивают прежний минимум ролью "compare" и новый — ролью
+// "min" на его позиции; финальный обмен прохода перемещает новый минимум
+// на первую неотсортированную позицию (0 ↔ 3, не соседние).
+func TestRunSelectionSortNonAdjacentMinimum(t *testing.T) {
+	frames := doRunSelectionSSE(t, "5,4,3,1")
+	if len(frames) != 9 {
+		t.Fatalf("кадров = %d, ожидалось 9:\n%v", len(frames), frames)
+	}
+
+	start := []int{5, 4, 3, 1}
+	compareMove := func(oldMin, newMin int) []render.SortHighlight {
+		return []render.SortHighlight{
+			{Index: oldMin, Role: render.RoleCompare},
+			{Index: newMin, Role: render.RoleMin},
+		}
+	}
+	swapPair := func(a, b int) []render.SortHighlight {
+		return []render.SortHighlight{
+			{Index: a, Role: render.RoleSwapped},
+			{Index: b, Role: render.RoleSwapped},
+		}
+	}
+
+	// Проход 0: минимум последовательно уходит вправо — 4, затем 3,
+	// затем 1; каждый кадр сравнения показывает новый минимум на его
+	// позиции и прежний минимум участником сравнения.
+	assertSortSnapshot(t, frames[0], start, nil, "")
+	assertSortSnapshot(t, frames[1], start, compareMove(0, 1), "сравнение 0 1")
+	assertSortSnapshot(t, frames[2], start, compareMove(1, 2), "сравнение 1 2")
+	assertSortSnapshot(t, frames[3], start, compareMove(2, 3), "сравнение 2 3")
+	// Пояснение сравнения несёт значение нового минимума из события.
+	if !strings.Contains(frames[1].Explanation, "минимум переходит на позицию 1 (значение 4)") {
+		t.Errorf("пояснение смены минимума = %q, ожидается переход минимума со значением", frames[1].Explanation)
+	}
+	// Финальный обмен прохода: минимум 1 с позиции 3 уходит на позицию 0.
+	assertSortSnapshot(t, frames[4], []int{1, 4, 3, 5}, swapPair(0, 3), "обмен 0 3")
+
+	// Конец сортировки: последний кадр — сравнение без смены минимума
+	// на уже упорядоченном массиве.
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, []int{1, 3, 4, 5},
+		[]render.SortHighlight{
+			{Index: 2, Role: render.RoleMin},
+			{Index: 3, Role: render.RoleCompare},
+		},
+		"сравнение 2 3")
+}
+
 // Пустой массив — легальный вход: SSE-поток состоит из одного стартового
 // кадра с пустым рядом и завершается.
 func TestRunSelectionSortEmptyInput(t *testing.T) {

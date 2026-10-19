@@ -161,15 +161,15 @@ func (r *selectionFrames) Emit(ev sort.SelectionEvent) {
 				{Index: e.Min, Role: RoleCompare},
 				{Index: e.NewMin, Role: RoleMin},
 			}
-			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d меньше — минимум переходит на позицию %d.",
-				e.Scanned, e.Min, e.ScanValue, e.NewMin))
+			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d меньше — минимум переходит на позицию %d (значение %d).",
+				e.Scanned, e.Min, e.ScanValue, e.NewMin, e.NewMinValue))
 		} else {
 			r.highlights = []SortHighlight{
 				{Index: e.NewMin, Role: RoleMin},
 				{Index: e.Scanned, Role: RoleCompare},
 			}
-			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d не меньше %d — минимум остаётся на позиции %d.",
-				e.Scanned, e.Min, e.ScanValue, e.MinValue, e.NewMin))
+			r.frame(fmt.Sprintf("Сравниваем позицию %d с текущим минимумом на позиции %d: %d не меньше %d — минимум остаётся на позиции %d (значение %d).",
+				e.Scanned, e.Min, e.ScanValue, e.MinValue, e.NewMin, e.NewMinValue))
 		}
 
 	case sort.SelectionSwap:

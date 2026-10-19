@@ -610,10 +610,12 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
 /**
  * Ветка kind="sort": ряд ячеек всего массива (кадр самодостаточен —
  * пересоздаётся целиком, состояние не копится) с ролями подсветки:
- * "compare" — сравниваемая сейчас пара (у selection sort — проверяемый
- * кандидат), "swap" — обмениваемая, "min" — текущий минимум прохода
- * selection sort. Все простые сортировки модуля (bubble sort и далее)
- * идут в эту же ветку по снимку kind="sort".
+ * "compare" — сравниваемая сейчас пара (у selection sort — обычно
+ * проверяемый кандидат, а при сравнении, сменившем минимум, — прежний
+ * минимум), "swap" — обмениваемая, "min" — текущий минимум прохода
+ * selection sort (в том числе новый минимум сразу после сравнения).
+ * Все простые сортировки модуля (bubble sort и далее) идут в эту же ветку
+ * по снимку kind="sort".
  */
 function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
