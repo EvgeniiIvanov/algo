@@ -169,3 +169,40 @@ func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
 		}
 	}
 }
+
+// Тест порядка модулей block-1 (тикет 22): модуль simple-sorts стоит
+// в блоке сразу после hash-tables.
+func TestEmbeddedBankBlock1SimpleSortsAfterHashTables(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	var block1 *Block
+	for i := range bank.Blocks {
+		if bank.Blocks[i].ID == "block-1" {
+			block1 = &bank.Blocks[i]
+			break
+		}
+	}
+	if block1 == nil {
+		t.Fatal("в банке нет блока block-1")
+	}
+	hashIdx, simpleSortsIdx := -1, -1
+	for i, m := range block1.Modules {
+		switch m.ID {
+		case "hash-tables":
+			hashIdx = i
+		case "simple-sorts":
+			simpleSortsIdx = i
+		}
+	}
+	if hashIdx == -1 {
+		t.Fatal("в block-1 нет модуля hash-tables")
+	}
+	if simpleSortsIdx == -1 {
+		t.Fatal("в block-1 нет модуля simple-sorts")
+	}
+	if simpleSortsIdx != hashIdx+1 {
+		t.Errorf("модуль simple-sorts (индекс %d) должен стоять сразу после hash-tables (индекс %d)", simpleSortsIdx, hashIdx)
+	}
+}
