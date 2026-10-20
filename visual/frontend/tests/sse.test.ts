@@ -53,7 +53,8 @@ describe("isSortAlgorithm", () => {
 
   it("отвергает прочие алгоритмы и неизвестные значения", () => {
     expect(isSortAlgorithm("binary-search")).toBe(false);
-    expect(isSortAlgorithm("quick-sort")).toBe(false);
+    expect(isSortAlgorithm("stack")).toBe(false);
+    expect(isSortAlgorithm("unknown-sort")).toBe(false);
     expect(isSortAlgorithm("")).toBe(false);
   });
 });
