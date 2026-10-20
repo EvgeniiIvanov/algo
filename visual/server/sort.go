@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/EvgeniiIvanov/algo/visual/frame"
-	"github.com/EvgeniiIvanov/algo/visual/render"
 )
 
 // Ограничение входа Run сортировки: чем массив длиннее, тем легче теряется
@@ -16,48 +15,23 @@ import (
 // лимитов не имеют.
 const maxSortValues = 100
 
-// handleBubbleSort — Run bubble sort: вход — массив целых чисел, на выходе
-// SSE-поток кадров до конца сортировки. Тонкий обработчик по шаблону
-// handleList: парсинг → валидация → runStreaming.
-func handleBubbleSort(w http.ResponseWriter, r *http.Request) {
-	values, err := parseSortInput(r)
-	if err != nil {
-		writeError(w, err)
-		return
+// handleSort — Run простой сортировки: вход общий (массив целых чисел),
+// шаблон тонкого обработчика тоже — парсинг → валидация → runStreaming.
+// Различается только Frame Renderer алгоритма (run), он же задаёт маршрут
+// при регистрации; сопоставление «событие → кадр» и пояснения живут
+// в visual/render/sort.go.
+func handleSort(run func(values []int, emit func(frame.Frame))) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		values, err := parseSortInput(r)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		runStreaming(w, r, func(emit func(frame.Frame)) {
+			run(values, emit)
+		})
 	}
-
-	runStreaming(w, r, func(emit func(frame.Frame)) {
-		render.BubbleRun(values, emit)
-	})
-}
-
-// handleSelectionSort — Run selection sort: тот же вход и шаблон, что у
-// handleBubbleSort, кадры идут по событиям selection sort.
-func handleSelectionSort(w http.ResponseWriter, r *http.Request) {
-	values, err := parseSortInput(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-
-	runStreaming(w, r, func(emit func(frame.Frame)) {
-		render.SelectionRun(values, emit)
-	})
-}
-
-// handleInsertionSort — Run insertion sort: тот же вход и шаблон, что у
-// handleBubbleSort, кадры идут по событиям insertion sort (сравнения
-// с ключом, сдвиги, вставка).
-func handleInsertionSort(w http.ResponseWriter, r *http.Request) {
-	values, err := parseSortInput(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-
-	runStreaming(w, r, func(emit func(frame.Frame)) {
-		render.InsertionRun(values, emit)
-	})
 }
 
 // parseSortInput разбирает параметр values — целые числа через запятую,

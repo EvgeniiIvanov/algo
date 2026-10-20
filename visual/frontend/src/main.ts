@@ -7,14 +7,12 @@ import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
 import {
-  buildBubbleSortRunURL,
   buildHashTableRunURL,
-  buildInsertionSortRunURL,
   buildLinkedListRunURL,
   buildListRunURL,
   buildQueueRunURL,
   buildRunURL,
-  buildSelectionSortRunURL,
+  buildSortRunURL,
   buildStackRunURL,
 } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
@@ -153,13 +151,7 @@ function init(): void {
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
       } else if (algorithm === "bubble-sort" || algorithm === "selection-sort" || algorithm === "insertion-sort") {
         const values = parseSortValues(sortValuesEl.value);
-        if (algorithm === "bubble-sort") {
-          url = buildBubbleSortRunURL(values);
-        } else if (algorithm === "selection-sort") {
-          url = buildSelectionSortRunURL(values);
-        } else {
-          url = buildInsertionSortRunURL(values);
-        }
+        url = buildSortRunURL(algorithm, values);
       } else {
         const values = parseValues(valuesEl.value);
         const target = parseTarget(targetEl.value);

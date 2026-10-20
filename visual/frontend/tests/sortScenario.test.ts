@@ -4,7 +4,7 @@
 // и лимит длины визуального Run.
 import { describe, expect, it } from "vitest";
 import { MAX_SORT_VALUES, parseSortValues } from "../src/scenario";
-import { buildBubbleSortRunURL, buildInsertionSortRunURL, buildSelectionSortRunURL } from "../src/sse";
+import { buildSortRunURL, type SortAlgorithm } from "../src/sse";
 
 describe("parseSortValues — удачный разбор", () => {
   it("разбирает массив через запятую", () => {
@@ -57,32 +57,15 @@ describe("parseSortValues — ошибки до Run", () => {
   });
 });
 
-describe("buildBubbleSortRunURL", () => {
-  it("собирает URL маршрута bubble-sort с массивом значений", () => {
-    expect(buildBubbleSortRunURL([3, 1, 2])).toBe("/api/run/bubble-sort?values=3%2C1%2C2");
-  });
+describe.each(["bubble-sort", "selection-sort", "insertion-sort"] as const)(
+  "buildSortRunURL — %s",
+  (algorithm: SortAlgorithm) => {
+    it("собирает URL маршрута сортировки с массивом значений", () => {
+      expect(buildSortRunURL(algorithm, [3, 1, 2])).toBe(`/api/run/${algorithm}?values=3%2C1%2C2`);
+    });
 
-  it("пустой массив едет как есть — сервер авторитетен", () => {
-    expect(buildBubbleSortRunURL([])).toBe("/api/run/bubble-sort?values=");
-  });
-});
-
-describe("buildSelectionSortRunURL", () => {
-  it("собирает URL маршрута selection-sort с массивом значений", () => {
-    expect(buildSelectionSortRunURL([3, 1, 2])).toBe("/api/run/selection-sort?values=3%2C1%2C2");
-  });
-
-  it("пустой массив едет как есть — сервер авторитетен", () => {
-    expect(buildSelectionSortRunURL([])).toBe("/api/run/selection-sort?values=");
-  });
-});
-
-describe("buildInsertionSortRunURL", () => {
-  it("собирает URL маршрута insertion-sort с массивом значений", () => {
-    expect(buildInsertionSortRunURL([3, 1, 2])).toBe("/api/run/insertion-sort?values=3%2C1%2C2");
-  });
-
-  it("пустой массив едет как есть — сервер авторитетен", () => {
-    expect(buildInsertionSortRunURL([])).toBe("/api/run/insertion-sort?values=");
-  });
-});
+    it("пустой массив едет как есть — сервер авторитетен", () => {
+      expect(buildSortRunURL(algorithm, [])).toBe(`/api/run/${algorithm}?values=`);
+    });
+  },
+);
