@@ -122,8 +122,22 @@ export function buildHashTableRunURL(buckets: number, script: string): string {
   return `/api/run/hash-table?${params.toString()}`;
 }
 
-/** Маршруты простых сортировок: общий вход `values`, различается только путь. */
-export type SortAlgorithm = "bubble-sort" | "selection-sort" | "insertion-sort";
+/** Канонический список маршрутов простых сортировок: единый источник имён
+ * для URL-билдера ниже и для выбора алгоритма в main.ts (ALGORITHMS,
+ * блок ввода, диспетчер Run). Общий вход `values`, различается только путь. */
+export const SORT_ALGORITHMS = [
+  "bubble-sort",
+  "selection-sort",
+  "insertion-sort",
+] as const;
+
+/** Маршрут простой сортировки — элемент канонического списка. */
+export type SortAlgorithm = (typeof SORT_ALGORITHMS)[number];
+
+/** Страж типа: выбран ли маршрут простой сортировки. */
+export function isSortAlgorithm(value: string): value is SortAlgorithm {
+  return (SORT_ALGORITHMS as readonly string[]).includes(value);
+}
 
 /**
  * Построить URL запуска Run простой сортировки: массив целых чисел через

@@ -4,7 +4,7 @@
 // и лимит длины визуального Run.
 import { describe, expect, it } from "vitest";
 import { MAX_SORT_VALUES, parseSortValues } from "../src/scenario";
-import { buildSortRunURL, type SortAlgorithm } from "../src/sse";
+import { buildSortRunURL } from "../src/sse";
 
 describe("parseSortValues — удачный разбор", () => {
   it("разбирает массив через запятую", () => {
@@ -57,15 +57,18 @@ describe("parseSortValues — ошибки до Run", () => {
   });
 });
 
-describe.each(["bubble-sort", "selection-sort", "insertion-sort"] as const)(
-  "buildSortRunURL — %s",
-  (algorithm: SortAlgorithm) => {
-    it("собирает URL маршрута сортировки с массивом значений", () => {
-      expect(buildSortRunURL(algorithm, [3, 1, 2])).toBe(`/api/run/${algorithm}?values=3%2C1%2C2`);
-    });
+// Ожидаемый маршрут — литералом в таблице, а не интерполяцией входа
+// билдера: тест сверяет URL с независимым ожиданием.
+describe.each([
+  { algorithm: "bubble-sort", route: "/api/run/bubble-sort" },
+  { algorithm: "selection-sort", route: "/api/run/selection-sort" },
+  { algorithm: "insertion-sort", route: "/api/run/insertion-sort" },
+] as const)("buildSortRunURL — $route", ({ algorithm, route }) => {
+  it("собирает URL маршрута сортировки с массивом значений", () => {
+    expect(buildSortRunURL(algorithm, [3, 1, 2])).toBe(`${route}?values=3%2C1%2C2`);
+  });
 
-    it("пустой массив едет как есть — сервер авторитетен", () => {
-      expect(buildSortRunURL(algorithm, [])).toBe(`/api/run/${algorithm}?values=`);
-    });
-  },
-);
+  it("пустой массив едет как есть — сервер авторитетен", () => {
+    expect(buildSortRunURL(algorithm, [])).toBe(`${route}?values=`);
+  });
+});

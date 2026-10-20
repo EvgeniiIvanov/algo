@@ -14,6 +14,8 @@ import {
   buildRunURL,
   buildSortRunURL,
   buildStackRunURL,
+  isSortAlgorithm,
+  SORT_ALGORITHMS,
 } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
 import {
@@ -36,9 +38,8 @@ const ALGORITHMS = [
   "list",
   "linked-list",
   "hash-table",
-  "bubble-sort",
-  "selection-sort",
-  "insertion-sort",
+  // Маршруты простых сортировок — канонический список из sse.ts.
+  ...SORT_ALGORITHMS,
 ] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
 
@@ -90,10 +91,7 @@ function init(): void {
     linkedListInputsEl.hidden = algorithm !== "linked-list";
     hashTableInputsEl.hidden = algorithm !== "hash-table";
     // Простые сортировки пользуются общим блоком ввода массива.
-    sortInputsEl.hidden =
-      algorithm !== "bubble-sort" &&
-      algorithm !== "selection-sort" &&
-      algorithm !== "insertion-sort";
+    sortInputsEl.hidden = !isSortAlgorithm(algorithm);
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -149,7 +147,7 @@ function init(): void {
         const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
         parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
-      } else if (algorithm === "bubble-sort" || algorithm === "selection-sort" || algorithm === "insertion-sort") {
+      } else if (isSortAlgorithm(algorithm)) {
         const values = parseSortValues(sortValuesEl.value);
         url = buildSortRunURL(algorithm, values);
       } else {

@@ -94,11 +94,11 @@ func TestRunBubbleSortValidation(t *testing.T)    { assertSortValidation(t, "bub
 func TestRunSelectionSortValidation(t *testing.T) { assertSortValidation(t, "selection-sort") }
 func TestRunInsertionSortValidation(t *testing.T) { assertSortValidation(t, "insertion-sort") }
 
-// assertSortTrivialInputs — пустой и одноэлементный массивы — легальные
-// входы: SSE-поток из одного стартового кадра без сравнений. Возвращает
-// кадры обоих потоков ([пустой вход, одноэлементный]) для проверок
-// конкретной сортировки.
-func assertSortTrivialInputs(t *testing.T, route string) [][]frame.Frame {
+// runSortTrivialInputs — прогон тривиальных входов: пустой и одноэлементный
+// массивы — легальные входы, SSE-поток из одного стартового кадра без
+// сравнений. Возвращает кадры обоих потоков ([пустой вход, одноэлементный])
+// для дополнительных проверок конкретной сортировки.
+func runSortTrivialInputs(t *testing.T, route string) [][]frame.Frame {
 	t.Helper()
 
 	var runs [][]frame.Frame
@@ -260,7 +260,7 @@ func TestRunBubbleSortScenario(t *testing.T) {
 // Пустой массив — легальный вход: SSE-поток состоит из одного стартового
 // кадра с пустым рядом и завершается; одноэлементный вход — кадр исходного
 // состояния без сравнений.
-func TestRunBubbleSortEmptyInput(t *testing.T) { assertSortTrivialInputs(t, "bubble-sort") }
+func TestRunBubbleSortEmptyInput(t *testing.T) { runSortTrivialInputs(t, "bubble-sort") }
 
 // Граница лимита длины: 100 элементов принимаются (SSE-поток завершён),
 // 101-й элемент отвергается до начала потока. Вход уже отсортирован:
@@ -453,7 +453,7 @@ func TestRunSelectionSortNonAdjacentMinimum(t *testing.T) {
 // Пустой массив — легальный вход: SSE-поток состоит из одного стартового
 // кадра с пустым рядом и завершается; одноэлементный вход — кадр исходного
 // состояния без сравнений.
-func TestRunSelectionSortEmptyInput(t *testing.T) { assertSortTrivialInputs(t, "selection-sort") }
+func TestRunSelectionSortEmptyInput(t *testing.T) { runSortTrivialInputs(t, "selection-sort") }
 
 // Граница лимита длины: 100 элементов принимаются (SSE-поток завершён),
 // 101-й элемент отвергается до начала потока. Вход уже отсортирован:
@@ -633,7 +633,7 @@ func TestRunInsertionSortEqualKeyDoesNotShift(t *testing.T) {
 // состояния без сравнений. Вставки на тривиальных входах нет: дырки нет,
 // ключа нет.
 func TestRunInsertionSortEmptyInput(t *testing.T) {
-	runs := assertSortTrivialInputs(t, "insertion-sort")
+	runs := runSortTrivialInputs(t, "insertion-sort")
 	for _, frames := range runs {
 		assertSortKeyState(t, frames[0], -1, 0)
 	}
