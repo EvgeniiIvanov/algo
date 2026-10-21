@@ -12,4 +12,3 @@
 
 ## Записи
 
-- Quiz (тесты порядка модулей в quiz/bank_test.go) → повторяющийся поиск блока block-1 по id и поиск индексов модулей перебором их id вынести в общие тестовые хелперы → TestEmbeddedBankBlock1HashTablesOrder и TestEmbeddedBankBlock1SimpleSortsAfterHashTables дублируют обе логики; следующий тест порядка модулей скопирует их ещё раз.
