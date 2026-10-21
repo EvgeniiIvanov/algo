@@ -125,6 +125,30 @@ func TestParseBankMalformedJSON(t *testing.T) {
 	}
 }
 
+// findBlock1 возвращает указатель на блок block-1 встроенного банка
+// или завершает тест, если такого блока нет.
+func findBlock1(t *testing.T, bank *Bank) *Block {
+	t.Helper()
+	for i := range bank.Blocks {
+		if bank.Blocks[i].ID == "block-1" {
+			return &bank.Blocks[i]
+		}
+	}
+	t.Fatal("в банке нет блока block-1")
+	return nil
+}
+
+// moduleIndexByID возвращает индекс модуля с данным id или -1, если
+// модуля нет. Дубликаты id исключены валидацией банка.
+func moduleIndexByID(modules []Module, id string) int {
+	for i, m := range modules {
+		if m.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 // Тест порядка модулей block-1 (тикет 16): hash-tables стоит после
 // structures и до модулей сортировок, если они уже добавлены.
 func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
@@ -132,25 +156,9 @@ func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
-	var block1 *Block
-	for i := range bank.Blocks {
-		if bank.Blocks[i].ID == "block-1" {
-			block1 = &bank.Blocks[i]
-			break
-		}
-	}
-	if block1 == nil {
-		t.Fatal("в банке нет блока block-1")
-	}
-	structuresIdx, hashIdx := -1, -1
-	for i, m := range block1.Modules {
-		switch m.ID {
-		case "structures":
-			structuresIdx = i
-		case "hash-tables":
-			hashIdx = i
-		}
-	}
+	block1 := findBlock1(t, bank)
+	structuresIdx := moduleIndexByID(block1.Modules, "structures")
+	hashIdx := moduleIndexByID(block1.Modules, "hash-tables")
 	if structuresIdx == -1 {
 		t.Fatal("в block-1 нет модуля structures")
 	}
@@ -177,25 +185,9 @@ func TestEmbeddedBankBlock1SimpleSortsAfterHashTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
-	var block1 *Block
-	for i := range bank.Blocks {
-		if bank.Blocks[i].ID == "block-1" {
-			block1 = &bank.Blocks[i]
-			break
-		}
-	}
-	if block1 == nil {
-		t.Fatal("в банке нет блока block-1")
-	}
-	hashIdx, simpleSortsIdx := -1, -1
-	for i, m := range block1.Modules {
-		switch m.ID {
-		case "hash-tables":
-			hashIdx = i
-		case "simple-sorts":
-			simpleSortsIdx = i
-		}
-	}
+	block1 := findBlock1(t, bank)
+	hashIdx := moduleIndexByID(block1.Modules, "hash-tables")
+	simpleSortsIdx := moduleIndexByID(block1.Modules, "simple-sorts")
 	if hashIdx == -1 {
 		t.Fatal("в block-1 нет модуля hash-tables")
 	}
