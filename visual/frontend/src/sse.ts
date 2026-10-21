@@ -122,33 +122,31 @@ export function buildHashTableRunURL(buckets: number, script: string): string {
   return `/api/run/hash-table?${params.toString()}`;
 }
 
-/**
- * Построить URL запуска Run bubble sort: массив целых чисел через запятую.
- * Пустой массив едет как есть — сервер авторитетен и считает его валидным.
- */
-export function buildBubbleSortRunURL(values: number[]): string {
-  const params = new URLSearchParams({ values: values.join(",") });
-  return `/api/run/bubble-sort?${params.toString()}`;
+/** Канонический список маршрутов простых сортировок: единый источник имён
+ * для URL-билдера ниже и для выбора алгоритма в main.ts (ALGORITHMS,
+ * блок ввода, диспетчер Run). Общий вход `values`, различается только путь. */
+export const SORT_ALGORITHMS = [
+  "bubble-sort",
+  "selection-sort",
+  "insertion-sort",
+] as const;
+
+/** Маршрут простой сортировки — элемент канонического списка. */
+export type SortAlgorithm = (typeof SORT_ALGORITHMS)[number];
+
+/** Страж типа: выбран ли маршрут простой сортировки. */
+export function isSortAlgorithm(value: string): value is SortAlgorithm {
+  return (SORT_ALGORITHMS as readonly string[]).includes(value);
 }
 
 /**
- * Построить URL запуска Run selection sort: тот же вход сортировки —
- * массив целых чисел через запятую. Пустой массив едет как есть —
+ * Построить URL запуска Run простой сортировки: массив целых чисел через
+ * запятую на маршруте выбранной сортировки. Пустой массив едет как есть —
  * сервер авторитетен и считает его валидным.
  */
-export function buildSelectionSortRunURL(values: number[]): string {
+export function buildSortRunURL(algorithm: SortAlgorithm, values: number[]): string {
   const params = new URLSearchParams({ values: values.join(",") });
-  return `/api/run/selection-sort?${params.toString()}`;
-}
-
-/**
- * Построить URL запуска Run insertion sort: тот же вход сортировки —
- * массив целых чисел через запятую. Пустой массив едет как есть —
- * сервер авторитетен и считает его валидным.
- */
-export function buildInsertionSortRunURL(values: number[]): string {
-  const params = new URLSearchParams({ values: values.join(",") });
-  return `/api/run/insertion-sort?${params.toString()}`;
+  return `/api/run/${algorithm}?${params.toString()}`;
 }
 
 /**

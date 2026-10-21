@@ -24,9 +24,9 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/run/list", handleList)
 	mux.HandleFunc("GET /api/run/linked-list", handleLinkedList)
 	mux.HandleFunc("GET /api/run/hash-table", handleHashTable)
-	mux.HandleFunc("GET /api/run/bubble-sort", handleBubbleSort)
-	mux.HandleFunc("GET /api/run/selection-sort", handleSelectionSort)
-	mux.HandleFunc("GET /api/run/insertion-sort", handleInsertionSort)
+	mux.HandleFunc("GET /api/run/bubble-sort", handleSort(render.BubbleRun))
+	mux.HandleFunc("GET /api/run/selection-sort", handleSort(render.SelectionRun))
+	mux.HandleFunc("GET /api/run/insertion-sort", handleSort(render.InsertionRun))
 	return mux
 }
 

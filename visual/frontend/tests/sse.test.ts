@@ -3,7 +3,7 @@
 // Тест читает сырой поток и сверяет разобранные кадры с ожидаемыми.
 // Это шов, не опускаемся ниже — внутрь fetch не заглядываем.
 import { describe, expect, it } from "vitest";
-import { parseFrame } from "../src/sse";
+import { isSortAlgorithm, parseFrame } from "../src/sse";
 
 describe("parseFrame", () => {
   it("разбирает одно событие data в кадр", () => {
@@ -41,5 +41,20 @@ describe("parseFrame", () => {
   it("бросает ошибку на JSON без обязательного поля step", () => {
     const wire = 'data: {"kind":"array","explanation":"без шага","data":{}}\n\n';
     expect(() => parseFrame(wire)).toThrow(/step/i);
+  });
+});
+
+describe("isSortAlgorithm", () => {
+  it("распознаёт маршруты простых сортировок", () => {
+    expect(isSortAlgorithm("bubble-sort")).toBe(true);
+    expect(isSortAlgorithm("selection-sort")).toBe(true);
+    expect(isSortAlgorithm("insertion-sort")).toBe(true);
+  });
+
+  it("отвергает прочие алгоритмы и неизвестные значения", () => {
+    expect(isSortAlgorithm("binary-search")).toBe(false);
+    expect(isSortAlgorithm("stack")).toBe(false);
+    expect(isSortAlgorithm("unknown-sort")).toBe(false);
+    expect(isSortAlgorithm("")).toBe(false);
   });
 });

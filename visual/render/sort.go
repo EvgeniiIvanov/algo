@@ -64,11 +64,18 @@ func BubbleRun(values []int, emit func(frame.Frame)) {
 	sort.BubbleSortWithEmitter(values, r)
 }
 
+// collectSortFrames — общий каркас XFrames-хелперов сортировок (других
+// рендереров не покрывает): прогон Run со сбором кадров без стриминга
+// (удобно для тестов).
+func collectSortFrames(run func([]int, func(frame.Frame)), values []int) []frame.Frame {
+	var frames []frame.Frame
+	run(values, func(f frame.Frame) { frames = append(frames, f) })
+	return frames
+}
+
 // BubbleFrames — все кадры сортировки сразу (удобно для тестов).
 func BubbleFrames(values []int) []frame.Frame {
-	var frames []frame.Frame
-	BubbleRun(values, func(f frame.Frame) { frames = append(frames, f) })
-	return frames
+	return collectSortFrames(BubbleRun, values)
 }
 
 // SelectionRun — Frame Renderer selection sort: запускает сортировку в режиме
@@ -85,9 +92,7 @@ func SelectionRun(values []int, emit func(frame.Frame)) {
 
 // SelectionFrames — все кадры сортировки сразу (удобно для тестов).
 func SelectionFrames(values []int) []frame.Frame {
-	var frames []frame.Frame
-	SelectionRun(values, func(f frame.Frame) { frames = append(frames, f) })
-	return frames
+	return collectSortFrames(SelectionRun, values)
 }
 
 // InsertionRun — Frame Renderer insertion sort: запускает сортировку в режиме
@@ -103,9 +108,7 @@ func InsertionRun(values []int, emit func(frame.Frame)) {
 
 // InsertionFrames — все кадры сортировки сразу (удобно для тестов).
 func InsertionFrames(values []int) []frame.Frame {
-	var frames []frame.Frame
-	InsertionRun(values, func(f frame.Frame) { frames = append(frames, f) })
-	return frames
+	return collectSortFrames(InsertionRun, values)
 }
 
 // sortFrames — общая основа рендереров сортировок: зеркало массива,
