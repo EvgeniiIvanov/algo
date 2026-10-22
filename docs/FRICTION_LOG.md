@@ -1,6 +1,6 @@
 # FRICTION_LOG.md — лог трения процесса
 
-Короткий список повторяющихся неудобств agent-workflow (OpenCode: orchestrator/implementor/reviewer/tester, permissions, git-workflow, чекпойнты). Заметил — добавил строку; разобрали (поправили правило/инструкцию или осознанно отклонили) — пометили статусом.
+Короткий список повторяющихся неудобств agent-workflow (OpenCode: orchestrator/implementor/reviewer/tester, permissions, git-workflow, чекпойнты). Заметил — добавил строку и сразу триажил по правилам `docs/WORKFLOWS.md` → «Friction-лог»; разобрали (поправили правило/инструкцию или осознанно отклонили) — пометили статусом.
 
 Правила:
 
@@ -9,8 +9,8 @@
 - Без привязки к конкретному тикету: это сырьё про сам процесс, не про задачу.
 - Это сырьё для будущего отдельного репозитория со стандартами (см. `AGENTS.md` → «Переносимость и friction-лог»). Экстракция стандарта — решение пользователя, не раньше второго реального проекта.
 
-Статусы записи: `открыто` (ждёт решения) / `исправлено` (правило или инструкция обновлены, ссылка на коммит/файл) / `отклонено` (осознанно, с причиной).
+Статусы записи: `open` (ждёт решения) / `fixed` (правило или инструкция обновлены, ссылка на коммит/файл или тикет) / `rejected` (осознанно, с причиной). Идентификаторы статусов не переводятся.
 
 ## Записи
 
-- 2026-10-22 — `opencode.json` / `.opencode/agents/implementor.md` → частые ручные подтверждения (`ask`) на рутинные go fmt/vet/lint/test/build и frontend pnpm-команды → расширен allowlist имплементора на все команды `Makefile` и `package.json` scripts. Статус: **исправлено**.
+- 2026-10-22 — `opencode.json` / `.opencode/agents/implementor.md` → частые ручные подтверждения (`ask`) на рутинные go fmt/vet/lint/test/build и frontend pnpm-команды → allowlist имплементора расширен точными проверочными целями `Makefile` (`check`, `lint`, `test`, `build`, `gofmt-check`, `go-build`, `go-vet`, `go-test`, `go-lint`, `frontend-install`, `frontend-lint`, `frontend-test`, `frontend-build`) и только frontend-скриптами `lint` / `test` / `build` (плюс `pnpm install --frozen-lockfile`); runtime-цели (`make run-*`) и скрипты `pnpm dev` / `preview` / `test:watch` под allow не подпадают — авторитетный список в профиле имплементора (см. тикеты 17, 18). Статус: **fixed**.
