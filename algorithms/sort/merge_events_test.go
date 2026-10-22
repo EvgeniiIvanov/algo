@@ -19,6 +19,8 @@ func (s *spyMergeEmitter) Emit(event sort.MergeEvent) { *s = append(*s, event) }
 // в массив — один MergeWrite в порядке позиций.
 func TestMergeSortEventsScenario(t *testing.T) {
 	nums := []int{3, 1, 2}
+	r := sort.MergeRange{Lo: 1, Mid: 2, Hi: 3} // слияние пары позиций 1–2
+	full := sort.MergeRange{Lo: 0, Mid: 1, Hi: 3}
 	var spy spyMergeEmitter
 
 	sort.MergeSortWithEmitter(nums, &spy)
@@ -26,26 +28,26 @@ func TestMergeSortEventsScenario(t *testing.T) {
 	want := []sort.MergeEvent{
 		// Деление [0,3) — рекурсия сверху вниз, кадр деления до спуска
 		// в половины.
-		sort.MergeSplit{Lo: 0, Mid: 1, Hi: 3},
+		sort.MergeSplit{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 3}},
 		// Слияние [1,3): сравнение 1 и 2 — левая половина не больше, берём
 		// её; победитель уходит на позицию слияния 1.
-		sort.MergeSplit{Lo: 1, Mid: 2, Hi: 3},
-		sort.MergeCompare{Lo: 1, Mid: 2, Hi: 3, Left: 1, LeftValue: 1,
+		sort.MergeSplit{MergeRange: r},
+		sort.MergeCompare{MergeRange: r, Left: 1, LeftValue: 1,
 			Right: 2, RightValue: 2, Dest: 1, LeftChosen: true},
-		sort.MergeWrite{Lo: 1, Mid: 2, Hi: 3, Index: 1, Value: 1, FromLeft: true},
+		sort.MergeWrite{MergeRange: r, Index: 1, Value: 1, FromLeft: true},
 		// Хвост правой половины — только запись.
-		sort.MergeWrite{Lo: 1, Mid: 2, Hi: 3, Index: 2, Value: 2, FromLeft: false},
+		sort.MergeWrite{MergeRange: r, Index: 2, Value: 2, FromLeft: false},
 		// Слияние [0,3): 3 больше 1 — берём правую; 3 больше 2 — снова правая;
 		// 3 — хвост левой половины. Сравнения идут до переносимого
 		// обратно в массив результата — на них массив ещё исходный,
 		// записи же — след целиком за двумя сравнениями.
-		sort.MergeCompare{Lo: 0, Mid: 1, Hi: 3, Left: 0, LeftValue: 3,
+		sort.MergeCompare{MergeRange: full, Left: 0, LeftValue: 3,
 			Right: 1, RightValue: 1, Dest: 0, LeftChosen: false},
-		sort.MergeCompare{Lo: 0, Mid: 1, Hi: 3, Left: 0, LeftValue: 3,
+		sort.MergeCompare{MergeRange: full, Left: 0, LeftValue: 3,
 			Right: 2, RightValue: 2, Dest: 1, LeftChosen: false},
-		sort.MergeWrite{Lo: 0, Mid: 1, Hi: 3, Index: 0, Value: 1, FromLeft: false},
-		sort.MergeWrite{Lo: 0, Mid: 1, Hi: 3, Index: 1, Value: 2, FromLeft: false},
-		sort.MergeWrite{Lo: 0, Mid: 1, Hi: 3, Index: 2, Value: 3, FromLeft: true},
+		sort.MergeWrite{MergeRange: full, Index: 0, Value: 1, FromLeft: false},
+		sort.MergeWrite{MergeRange: full, Index: 1, Value: 2, FromLeft: false},
+		sort.MergeWrite{MergeRange: full, Index: 2, Value: 3, FromLeft: true},
 	}
 	if !reflect.DeepEqual([]sort.MergeEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
@@ -66,11 +68,13 @@ func TestMergeSortEventsStability(t *testing.T) {
 	sort.MergeSortWithEmitter(nums, &spy)
 
 	want := []sort.MergeEvent{
-		sort.MergeSplit{Lo: 0, Mid: 1, Hi: 2},
-		sort.MergeCompare{Lo: 0, Mid: 1, Hi: 2, Left: 0, LeftValue: 5,
-			Right: 1, RightValue: 5, Dest: 0, LeftChosen: true},
-		sort.MergeWrite{Lo: 0, Mid: 1, Hi: 2, Index: 0, Value: 5, FromLeft: true},
-		sort.MergeWrite{Lo: 0, Mid: 1, Hi: 2, Index: 1, Value: 5, FromLeft: false},
+		sort.MergeSplit{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 2}},
+		sort.MergeCompare{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 2},
+			Left: 0, LeftValue: 5, Right: 1, RightValue: 5, Dest: 0, LeftChosen: true},
+		sort.MergeWrite{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 2},
+			Index: 0, Value: 5, FromLeft: true},
+		sort.MergeWrite{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 2},
+			Index: 1, Value: 5, FromLeft: false},
 	}
 	if !reflect.DeepEqual([]sort.MergeEvent(spy), want) {
 		t.Fatalf("последовательность событий:\n получено %v\n ожидалось %v",
@@ -124,10 +128,10 @@ func TestMergeSortEventsSplitBeforeChildren(t *testing.T) {
 
 	// Порядок split'ов (прямой обход рекурсии) для длины 5.
 	wantSplits := []sort.MergeSplit{
-		{Lo: 0, Mid: 2, Hi: 5},
-		{Lo: 0, Mid: 1, Hi: 2},
-		{Lo: 2, Mid: 3, Hi: 5},
-		{Lo: 3, Mid: 4, Hi: 5},
+		{MergeRange: sort.MergeRange{Lo: 0, Mid: 2, Hi: 5}},
+		{MergeRange: sort.MergeRange{Lo: 0, Mid: 1, Hi: 2}},
+		{MergeRange: sort.MergeRange{Lo: 2, Mid: 3, Hi: 5}},
+		{MergeRange: sort.MergeRange{Lo: 3, Mid: 4, Hi: 5}},
 	}
 	var gotSplits []sort.MergeSplit
 	var firstEventIndex = map[int]int{} // позиция первого события диапазона

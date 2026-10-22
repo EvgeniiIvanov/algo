@@ -7,17 +7,21 @@ import "github.com/EvgeniiIvanov/algo/algorithms"
 // по образцу Bubble*, Selection* и Insertion*.
 type MergeEvent interface{ isMergeEvent() }
 
+type MergeRange struct {
+	Lo  int // начало диапазона
+	Mid int // граница половин: левая [Lo, Mid), правая [Mid, Hi)
+	Hi  int // исключительная граница диапазона
+}
+
 // MergeCompare — сравнение голов двух отсортированных частей при слиянии:
-// кандидаты стоят на позициях Left (левая половина [Lo, Mid)) и Right
-// (правая половина [Mid, Hi)), всегда Left < Right. Исход сравнения несёт
+// кандидаты стоят на позициях Left (левая половина [Range.Lo, Range.Mid)) и
+// Right (правая половина [Range.Mid, Range.Hi)), всегда Left < Right. Исход сравнения несёт
 // само событие: LeftChosen — true, когда берётся значение левой половины
 // (в том числе при равенстве — доказательство устойчивого слияния),
 // false — правой. Значения кандидатов — на момент сравнения; их достаточно,
 // чтобы построить кадр без знания внутренностей алгоритма.
 type MergeCompare struct {
-	Lo         int  // начало сливаемого диапазона
-	Mid        int  // граница половин: левая [Lo, Mid), правая [Mid, Hi)
-	Hi         int  // исключительная граница сливаемого диапазона
+	MergeRange      // сливаемый диапазон [Lo, Mid, Hi)
 	Left       int  // индекс кандидата левой половины
 	LeftValue  int  // значение кандидата левой половины
 	Right      int  // индекс кандидата правой половины (Right > Left)
@@ -32,9 +36,7 @@ type MergeCompare struct {
 // разбит, ещё не изменяя их. Cache пустых диапазонов нет: деление
 // срабатывает один раз на каждый рекурсивный диапазон, сверху вниз.
 type MergeSplit struct {
-	Lo  int // начало делимого диапазона
-	Mid int // граница половин: левая [Lo, Mid), правая [Mid, Hi)
-	Hi  int // исключительная граница делимого диапазона
+	MergeRange // делимый диапазон с его границей половин
 }
 
 // MergeWrite — значение вставлено на позицию Index при слиянии
@@ -45,12 +47,10 @@ type MergeSplit struct {
 // половины взято значение: при равных кандидатах свидетельство устойчивости —
 // левая половина даёт значение первой.
 type MergeWrite struct {
-	Lo       int  // начало сливаемого диапазона
-	Mid      int  // граница половин
-	Hi       int  // исключительная граница сливаемого диапазона
-	Index    int  // позиция записи в массиве (та же, что и в буфере)
-	Value    int  // записанное значение
-	FromLeft bool // значение взято из левой половины слияния
+	MergeRange      // сливаемый диапазон с его границей половин
+	Index      int  // позиция записи в массиве (та же, что и в буфере)
+	Value      int  // записанное значение
+	FromLeft   bool // значение взято из левой половины слияния
 }
 
 func (MergeCompare) isMergeEvent() {}
@@ -84,38 +84,30 @@ func MergeSortWithEmitter(nums []int, em algorithms.Emitter[MergeEvent]) {
 		origins = make([]bool, n)
 	}
 
-	mergeSortRange(nums, buf, origins, mergeBounds{0, n / 2, n}, em)
-}
-
-// mergeBounds — границы одного рекурсивного диапазона merge sort: [Lo, Mid)
-// — левая половина, [Mid, Hi) — правая. Именованная форма сырой тройки
-// lo/mid/hi вместо повторения трёх индексов через весь стек вызовов:
-// событиям свои структуры, а внутренний перенос — только этой парой полей.
-type mergeBounds struct {
-	Lo, Mid, Hi int
+	mergeSortRange(nums, buf, origins, MergeRange{0, n / 2, n}, em)
 }
 
 // mergeSortRange — рекурсивный спуск (top-down): диапазон делится пополам,
 // половины сортируются, затем сливаются. Деление диапазона — отдельное
 // событие MergeSplit: кадр деления виден до спуска в его половины.
-func mergeSortRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Emitter[MergeEvent]) {
-	if b.Hi-b.Lo <= 1 {
+func mergeSortRange(nums, buf []int, origins []bool, r MergeRange, em algorithms.Emitter[MergeEvent]) {
+	if r.Hi-r.Lo <= 1 {
 		return
 	}
 	if em != nil {
-		em.Emit(MergeSplit(b)) // у MergeSplit те же поля границ — conversion правомерен
+		em.Emit(MergeSplit{r}) // MergeSplit — только диапазон, conversion правомерен
 	}
-	mergeSortRange(nums, buf, origins, mergeBounds{b.Lo, (b.Lo + b.Mid) / 2, b.Mid}, em)
-	mergeSortRange(nums, buf, origins, mergeBounds{b.Mid, (b.Mid + b.Hi) / 2, b.Hi}, em)
-	mergeRange(nums, buf, origins, b, em)
+	mergeSortRange(nums, buf, origins, MergeRange{r.Lo, (r.Lo + r.Mid) / 2, r.Mid}, em)
+	mergeSortRange(nums, buf, origins, MergeRange{r.Mid, (r.Mid + r.Hi) / 2, r.Hi}, em)
+	mergeRange(nums, buf, origins, r, em)
 }
 
 // mergeRange — слияние отсортированных половин диапазона в буфер и перенос
 // результата обратно в nums. Форма «буфер + происхождение + позиция»
 // выделена в take: четыре ветки записи (основной цикл и хвосты двух
 // половин) не повторяют её по отдельности.
-func mergeRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Emitter[MergeEvent]) {
-	i, j, k := b.Lo, b.Mid, b.Lo
+func mergeRange(nums, buf []int, origins []bool, r MergeRange, em algorithms.Emitter[MergeEvent]) {
+	i, j, k := r.Lo, r.Mid, r.Lo
 	// take — перенос значения кандидата src в буфер на текущую позицию k
 	// с пометкой происхождения и сдвигом соответствующей головы половины.
 	take := func(src int, fromLeft bool) {
@@ -130,12 +122,12 @@ func mergeRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Em
 		}
 		k++
 	}
-	for i < b.Mid && j < b.Hi {
+	for i < r.Mid && j < r.Hi {
 		fromLeft := nums[i] <= nums[j] // равенство — берём левую половину
 		if em != nil {
 			em.Emit(MergeCompare{
-				Lo: b.Lo, Mid: b.Mid, Hi: b.Hi,
-				Left: i, LeftValue: nums[i],
+				MergeRange: r,
+				Left:       i, LeftValue: nums[i],
 				Right: j, RightValue: nums[j],
 				Dest:       k,
 				LeftChosen: fromLeft,
@@ -147,22 +139,22 @@ func mergeRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Em
 			take(j, false)
 		}
 	}
-	for i < b.Mid { // хвост левой половины
+	for i < r.Mid { // хвост левой половины
 		take(i, true)
 	}
-	for j < b.Hi { // хвост правой половины
+	for j < r.Hi { // хвост правой половины
 		take(j, false)
 	}
 	// Перенос результата слияния в массив — по элементу, чтобы запись
 	// каждой позиции была видимым шагом.
-	for k := b.Lo; k < b.Hi; k++ {
+	for k := r.Lo; k < r.Hi; k++ {
 		nums[k] = buf[k]
 		if em != nil {
 			em.Emit(MergeWrite{
-				Lo: b.Lo, Mid: b.Mid, Hi: b.Hi,
-				Index:    k,
-				Value:    nums[k],
-				FromLeft: origins[k],
+				MergeRange: r,
+				Index:      k,
+				Value:      nums[k],
+				FromLeft:   origins[k],
 			})
 		}
 	}

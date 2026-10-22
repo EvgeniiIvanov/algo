@@ -271,13 +271,13 @@ func MergeFrames(values []int) []frame.Frame {
 // mergeFrames — обёртка-эмиттер событий merge sort над общей основой.
 type mergeFrames struct{ sortFrames }
 
-// mergeActiveRange — разметка активного диапазона слияния [lo, hi) с
-// границей половин mid для снимка: одна именованная конструкция тройки
-// lo/mid/hi вместо её повторения в каждой ветке рендерера. Ставится
+// mergeActiveRange — разметка активного диапазона слияния из события алгоритма
+// для снимка: одна именованная конструкция тройки lo/mid/hi вместо её
+// повторения в каждой ветке рендерера. Ставится
 // на кадрах, показывающих источник — половины слияния (деление,
 // сравнение); кадр записи его не несёт — он рисует приёмник.
-func mergeActiveRange(lo, mid, hi int) []SortRange {
-	return []SortRange{{Lo: lo, Mid: mid, Hi: hi}}
+func mergeActiveRange(r sort.MergeRange) []SortRange {
+	return []SortRange{{Lo: r.Lo, Mid: r.Mid, Hi: r.Hi}}
 }
 
 // Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
@@ -295,14 +295,14 @@ func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 		// Кадр деления: зеркало не меняется — половины ещё не сортированы.
 		// Обе половины видны как левая/правая разметка одного активного
 		// диапазона: ячейки [Lo, Mid) получают in-left, [Mid, Hi) — in-right.
-		r.ranges = mergeActiveRange(e.Lo, e.Mid, e.Hi)
+		r.ranges = mergeActiveRange(e.MergeRange)
 		r.highlights = nil
 		r.operation = fmt.Sprintf("деление %d..%d", e.Lo, e.Hi-1)
 		r.frame(fmt.Sprintf("Делим диапазон [%d, %d) пополам: левая половина [%d, %d), правая [%d, %d). Каждую половину алгоритм отсортирует той же рекурсией, затем отсортированные половины будут слиты в порядке возрастания.",
 			e.Lo, e.Hi, e.Lo, e.Mid, e.Mid, e.Hi))
 
 	case sort.MergeCompare:
-		r.ranges = mergeActiveRange(e.Lo, e.Mid, e.Hi)
+		r.ranges = mergeActiveRange(e.MergeRange)
 		r.highlights = []SortHighlight{
 			{Index: e.Left, Role: RoleCompare},
 			{Index: e.Right, Role: RoleCompare},
