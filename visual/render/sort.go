@@ -271,26 +271,38 @@ func MergeFrames(values []int) []frame.Frame {
 // mergeFrames — обёртка-эмиттер событий merge sort над общей основой.
 type mergeFrames struct{ sortFrames }
 
+// mergeActiveRange — разметка активного диапазона слияния [lo, hi) с
+// границей половин mid для снимка: одна именованная конструкция тройки
+// lo/mid/hi вместо её повторения в каждой ветке рендерера. Ставится
+// на кадрах, показывающих источник — половины слияния (деление,
+// сравнение); кадр записи его не несёт — он рисует приёмник.
+func mergeActiveRange(lo, mid, hi int) []SortRange {
+	return []SortRange{{Lo: lo, Mid: mid, Hi: hi}}
+}
+
 // Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
 // только по событиям записи (MergeWrite): деление и сравнения читают ещё
 // не перестроенные половины. Активный диапазон слияния — в поле ranges
 // снимка; кадр деления показывает обе половины диапазона разметкой
-// in-left/in-right; сравнение подсвечивает обе сравниваемые позиции,
-// запись — позицию, в которой значение появилось в массиве.
+// in-left/in-right; сравнение подсвечивает обе сравниваемые позиции;
+// запись подсвечивает позицию, в которой значение появилось в массиве,
+// и не размечает половины: выход слияния — приёмник, а не диапазон-источник,
+// и метки левой/правой половины ввели бы в заблуждение (FromLeft объясняет
+// источник текстом пошагового пояснения).
 func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 	switch e := ev.(type) {
 	case sort.MergeSplit:
 		// Кадр деления: зеркало не меняется — половины ещё не сортированы.
 		// Обе половины видны как левая/правая разметка одного активного
 		// диапазона: ячейки [Lo, Mid) получают in-left, [Mid, Hi) — in-right.
-		r.ranges = []SortRange{{Lo: e.Lo, Mid: e.Mid, Hi: e.Hi}}
+		r.ranges = mergeActiveRange(e.Lo, e.Mid, e.Hi)
 		r.highlights = nil
 		r.operation = fmt.Sprintf("деление %d..%d", e.Lo, e.Hi-1)
 		r.frame(fmt.Sprintf("Делим диапазон [%d, %d) пополам: левая половина [%d, %d), правая [%d, %d). Каждую половину алгоритм отсортирует той же рекурсией, затем отсортированные половины будут слиты в порядке возрастания.",
 			e.Lo, e.Hi, e.Lo, e.Mid, e.Mid, e.Hi))
 
 	case sort.MergeCompare:
-		r.ranges = []SortRange{{Lo: e.Lo, Mid: e.Mid, Hi: e.Hi}}
+		r.ranges = mergeActiveRange(e.Lo, e.Mid, e.Hi)
 		r.highlights = []SortHighlight{
 			{Index: e.Left, Role: RoleCompare},
 			{Index: e.Right, Role: RoleCompare},
@@ -309,7 +321,9 @@ func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 
 	case sort.MergeWrite:
 		r.mirror[e.Index] = e.Value
-		r.ranges = []SortRange{{Lo: e.Lo, Mid: e.Mid, Hi: e.Hi}}
+		// Разметка половин не ставится: позиция записи — приёмник слияния,
+		// а не левая/правая половина источника (см. комментарий Emit выше).
+		r.ranges = nil
 		r.highlights = []SortHighlight{{Index: e.Index, Role: RoleWrite}}
 		r.operation = fmt.Sprintf("запись %d", e.Index)
 		side := "правой"

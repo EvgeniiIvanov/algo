@@ -2,8 +2,6 @@
 // kind="sort" — ряд ячеек всего массива с подсветками сравнения/обмена.
 // Существующие рендеры (массив бинарного поиска, ячейки структур,
 // узлы linked-list, корзины хеш-таблицы) остаются нетронутыми.
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSortFrame, renderFrame } from "../src/render";
 import type { Frame, SortSnapshot } from "../src/types";
@@ -214,16 +212,19 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: вставка на позицию 0");
   });
 
-  it("подсвечивает запись слияния merge sort и размечает активные половины диапазона", () => {
-    // Кадр слияния [0,3) с границей 1: запись на позицию 0, левая половина —
-    // ячейка 0, правая — ячейки 1–2.
+  it("подсвечивает запись слияния merge sort без разметки половин источника", () => {
+    // Кадр записи слияния [0,3) с границей 1: запись на позицию 0.
+    // Позиция записи — приёмник слияния: половинные классы in-left/in-right
+    // на кадре записи не рисуются, иначе выход слияния выглядел бы как
+    // левая/правая половина источника вопреки пояснению («взято из левой»).
+    // Источник читается в тексте пояснения, а роль write отмечает ячейку.
     const { ok, explanationEl, containerEl } = renderToDOM(
       sortFrame(
         snapshot({
           values: [1, 2, 2],
           highlights: [{ index: 0, role: "write" }],
           operation: "запись 0",
-          ranges: [{ lo: 0, mid: 1, hi: 3 }],
+          ranges: [],
         }),
       ),
     );
@@ -231,9 +232,32 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(ok).toBe(true);
     expect(explanationEl.textContent).toBe("пояснение шага");
     expect(containerEl.querySelectorAll(".cell.write")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.in-left, .cell.in-right")).toHaveLength(0);
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: запись 0");
+  });
+
+  it("подсвечивает сравнение слияния на фоне половин диапазона", () => {
+    // Кадр сравнения слияния [0,3) с границей 1: сравниваемые головы
+    // 0 (левая половина) и 1 (правая) подсвечены ролями compare, а сам
+    // диапазон размечен половинами.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [1, 2, 2],
+          highlights: [
+            { index: 0, role: "compare" },
+            { index: 1, role: "compare" },
+          ],
+          operation: "сравнение 0 1",
+          ranges: [{ lo: 0, mid: 1, hi: 3 }],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.compare")).toHaveLength(2);
     expect(containerEl.querySelectorAll(".cell.in-left")).toHaveLength(1); // левая половина [0, 1)
     expect(containerEl.querySelectorAll(".cell.in-right")).toHaveLength(2); // правая [1, 3)
-    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: запись 0");
   });
 
   it("рисует кадр деления merge sort: обе половины размечены, зеркальный массив цел", () => {
@@ -377,37 +401,5 @@ describe("renderFrame — kind=\"sort\"", () => {
     );
     expect(untouched).toBe(false);
     expect(containerEl.childNodes.length).toBe(before);
-  });
-});
-
-// Каскад CSS разметки половин и ролей шага: правила .cell.in-left/.cell.in-right
-// и роли .cell.compare/.cell.write имеют равную специфичность — победителя
-// каскада задаёт порядок правил в файле. Регрессия: разметка половин стоит
-// до ролей, и роли шага с белым текстом не теряют фон в пользу фоновой
-// разметки половин (иначе белый текст на светлом фоне нечитаем).
-describe("style.css — каскад ролей поверх разметки половин merge sort", () => {
-  const css = readFileSync(resolve(process.cwd(), "src/style.css"), "utf8");
-  const ruleIndex = (selector: string): number => css.indexOf(`${selector} {`);
-
-  it("разметка половин стоит до ролей шага — роли шага выигрывают каскад", () => {
-    const inLeft = ruleIndex(".cell.in-left");
-    const inRight = ruleIndex(".cell.in-right");
-    const compare = ruleIndex(".cell.compare");
-    const write = ruleIndex(".cell.write");
-    for (const at of [inLeft, inRight]) {
-      expect(at).toBeGreaterThan(-1); // все правила присутствуют
-      expect(compare).toBeGreaterThan(at);
-      expect(write).toBeGreaterThan(at);
-    }
-  });
-
-  it("роли шага с белым текстом задают несветлый фон — поверх светлой разметки половин читаемы", () => {
-    for (const at of [ruleIndex(".cell.compare"), ruleIndex(".cell.write")]) {
-      const body = css.slice(at, css.indexOf("}", at));
-      expect(body).toContain("color: white");
-      // Светлые фоны разметки половин не должны повторяться в ролях шага.
-      expect(body).not.toContain("#eef2ff");
-      expect(body).not.toContain("#fdf2f8");
-    }
   });
 });

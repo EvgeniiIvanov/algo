@@ -777,6 +777,9 @@ func TestRunMergeSortScenario(t *testing.T) {
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
 	assertSortSnapshot(t, frames[5], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
+	// Кадры записи — приёмник слияния: разметки половин источника на них нет.
+	assertSortRanges(t, frames[4], nil)
+	assertSortRanges(t, frames[5], nil)
 
 	// Слияние [0,3): два сравнения по неизменному префиксу и три записи.
 	assertSortSnapshot(t, frames[6], []int{3, 1, 2},
@@ -792,6 +795,7 @@ func TestRunMergeSortScenario(t *testing.T) {
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
 	assertSortSnapshot(t, frames[10], sorted,
 		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
+	assertSortRanges(t, frames[10], nil)
 
 	// Пояснения отражают учебные точки: выбор из левой половины, из правой
 	// и итоговую запись слияния.
@@ -851,7 +855,8 @@ func TestRunMergeSortLengthLimit(t *testing.T) {
 	last := frames[len(frames)-1]
 	assertSortSnapshot(t, last, mustInts(t, sortedInput(100)),
 		[]render.SortHighlight{{Index: 99, Role: render.RoleWrite}}, "запись 99")
-	assertSortRanges(t, last, []render.SortRange{{Lo: 0, Mid: 50, Hi: 100}})
+	// Кадр записи — приёмник слияния: разметки половин источника на нём нет.
+	assertSortRanges(t, last, nil)
 
 	resp := doRunSort(t, "merge-sort", sortedInput(101))
 	if resp.Code != http.StatusBadRequest {
