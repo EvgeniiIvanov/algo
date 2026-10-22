@@ -739,15 +739,17 @@ func assertSortRanges(t *testing.T, f frame.Frame, ranges []render.SortRange) {
 	}
 }
 
-// Сквозной сценарий теста: сортировка [3,1,2] — один стартовый кадр и по
-// кадру на каждое событие. Рекурсия делит [0,3) как [0,1) и [1,3), поэтому
-// сначала сливается пара 1–2, затем весь диапазон; сравнения идут до
-// записей (результат слияния живёт в буфере до переноса), кадр каждой
-// записи показывает обновлённую позицию; итог — упорядоченный массив.
+// Сквозной сценарий теста: сортировка [3,1,2] — один стартовый кадр, кадры
+// делений рекурсивных диапазонов и по кадру на каждое сравнение/запись.
+// Рекурсия делит [0,3) как [0,1) и [1,3), поэтому сначала делится [0,3),
+// затем [1,3); после сортировки половин сначала сливается пара 1–2, затем
+// весь диапазон; сравнения идут до записей (результат слияния живёт
+// в буфере до переноса), кадр каждой записи показывает обновлённую
+// позицию; итог — упорядоченный массив.
 func TestRunMergeSortScenario(t *testing.T) {
 	frames := doRunSortSSE(t, "merge-sort", "3,1,2")
-	if len(frames) != 9 {
-		t.Fatalf("кадров = %d, ожидалось 9:\n%v", len(frames), frames)
+	if len(frames) != 11 {
+		t.Fatalf("кадров = %d, ожидалось 11:\n%v", len(frames), frames)
 	}
 
 	start := []int{3, 1, 2}
@@ -756,41 +758,51 @@ func TestRunMergeSortScenario(t *testing.T) {
 	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
 	assertSortRanges(t, frames[0], nil)
 
+	// Деление рекурсивных диапазонов до спуска в их половины; зеркальное
+	// состояние делений не меняется — меняется только разметка диапазона.
+	assertSortSnapshot(t, frames[1], start, nil, "деление 0..2")
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
+	assertSortSnapshot(t, frames[2], start, nil, "деление 1..2")
+	assertSortRanges(t, frames[2], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
+	if !strings.Contains(frames[1].Explanation, "Делим диапазон [0, 3)") {
+		t.Errorf("пояснение деления = %q, ожидается деление [0, 3) пополам", frames[1].Explanation)
+	}
+
 	// Слияние [1,3): сравнение голов, потом две записи в порядке позиций.
-	assertSortSnapshot(t, frames[1], start,
+	assertSortSnapshot(t, frames[3], start,
 		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
 		"сравнение 1 2")
-	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
-	assertSortSnapshot(t, frames[2], []int{3, 1, 2},
+	assertSortRanges(t, frames[3], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
+	assertSortSnapshot(t, frames[4], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
-	assertSortSnapshot(t, frames[3], []int{3, 1, 2},
+	assertSortSnapshot(t, frames[5], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
 
 	// Слияние [0,3): два сравнения по неизменному префиксу и три записи.
-	assertSortSnapshot(t, frames[4], []int{3, 1, 2},
+	assertSortSnapshot(t, frames[6], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
 		"сравнение 0 1")
-	assertSortRanges(t, frames[4], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
-	assertSortSnapshot(t, frames[5], []int{3, 1, 2},
+	assertSortRanges(t, frames[6], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
+	assertSortSnapshot(t, frames[7], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
 		"сравнение 0 2")
-	assertSortSnapshot(t, frames[6], []int{1, 1, 2},
+	assertSortSnapshot(t, frames[8], []int{1, 1, 2},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleWrite}}, "запись 0")
-	assertSortSnapshot(t, frames[7], []int{1, 2, 2},
+	assertSortSnapshot(t, frames[9], []int{1, 2, 2},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
-	assertSortSnapshot(t, frames[8], sorted,
+	assertSortSnapshot(t, frames[10], sorted,
 		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
 
 	// Пояснения отражают учебные точки: выбор из левой половины, из правой
 	// и итоговую запись слияния.
-	if !strings.Contains(frames[1].Explanation, "берём значение из левой половины") {
-		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[1].Explanation)
+	if !strings.Contains(frames[3].Explanation, "берём значение из левой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[3].Explanation)
 	}
-	if !strings.Contains(frames[4].Explanation, "из правой половины") {
-		t.Errorf("пояснение сравнения = %q, ожидается выбор правой половины", frames[4].Explanation)
+	if !strings.Contains(frames[6].Explanation, "из правой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор правой половины", frames[6].Explanation)
 	}
-	if !strings.Contains(frames[8].Explanation, "из левой половины") {
-		t.Errorf("пояснение записи = %q, ожидается упоминание источника", frames[8].Explanation)
+	if !strings.Contains(frames[10].Explanation, "из левой половины") {
+		t.Errorf("пояснение записи = %q, ожидается упоминание источника", frames[10].Explanation)
 	}
 
 	assertStepsInOrder(t, frames)
@@ -801,20 +813,22 @@ func TestRunMergeSortScenario(t *testing.T) {
 // Для [5,5] обе половины длины 1.
 func TestRunMergeSortEqualTakesLeft(t *testing.T) {
 	frames := doRunSortSSE(t, "merge-sort", "5,5")
-	if len(frames) != 4 {
-		t.Fatalf("кадров = %d, ожидалось 4 (сравнение + две записи):\n%v", len(frames), frames)
+	if len(frames) != 5 {
+		t.Fatalf("кадров = %d, ожидалось 5 (деление, сравнение, две записи):\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{5, 5}, nil, "")
-	assertSortSnapshot(t, frames[1], []int{5, 5},
+	assertSortSnapshot(t, frames[1], []int{5, 5}, nil, "деление 0..1")
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: 1, Hi: 2}})
+	assertSortSnapshot(t, frames[2], []int{5, 5},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
 		"сравнение 0 1")
-	if !strings.Contains(frames[1].Explanation, "равны") {
-		t.Errorf("пояснение сравнения равных = %q, ожидается упоминание равенства", frames[1].Explanation)
+	if !strings.Contains(frames[2].Explanation, "равны") {
+		t.Errorf("пояснение сравнения равных = %q, ожидается упоминание равенства", frames[2].Explanation)
 	}
-	if !strings.Contains(frames[2].Explanation, "из левой половины") {
-		t.Errorf("пояснение записи = %q, ожидается первое значение из левой половины", frames[2].Explanation)
+	if !strings.Contains(frames[3].Explanation, "из левой половины") {
+		t.Errorf("пояснение записи = %q, ожидается первое значение из левой половины", frames[3].Explanation)
 	}
-	assertSortSnapshot(t, frames[3], []int{5, 5},
+	assertSortSnapshot(t, frames[4], []int{5, 5},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
 }
 
@@ -852,17 +866,19 @@ func TestRunMergeSortLengthLimit(t *testing.T) {
 	}
 }
 
-// mergeSortedEvents — независимая формула для числа событий merge sort
-// на уже отсортированном входе длины n (сравнения C и записи W):
-// C(n) = C(nL) + C(nR) + nL (левая половина сливается, выигрывая каждый
-// раз с первым сравнением), W(n) = W(nL) + W(nR) + n (записываются все
-// элементы диапазона), C(1) = W(1) = 0. nL = n/2 — как в рекурсии.
+// mergeSortedEvents — независимая формула для числа кадров merge sort
+// минус стартовый на уже отсортированном входе длины n: каждый рекурсивный
+// диапазон добавляет один кадр деления (только для n > 1), длина левой
+// половины — кадры сравнений (левая сливается, выигрывая каждый раз с
+// первым сравнением), длина диапазона — кадры записей (записываются все
+// элементы): E(n) = E(nL) + E(nR) + 1 + nL + n, E(1) = 0. nL = n/2 — как
+// в рекурсии.
 func mergeSortedEvents(n int) int {
 	if n <= 1 {
 		return 0
 	}
 	l := n / 2
-	return mergeSortedEvents(l) + mergeSortedEvents(n-l) + l + n
+	return mergeSortedEvents(l) + mergeSortedEvents(n-l) + 1 + l + n
 }
 
 // Отрицательные значения и дубликаты сортируются на месте и читаются
@@ -870,23 +886,26 @@ func mergeSortedEvents(n int) int {
 // упорядочен.
 func TestRunMergeSortNegativesAndDuplicates(t *testing.T) {
 	frames := doRunSortSSE(t, "merge-sort", "-1,-1,0")
-	if len(frames) != 8 {
-		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	if len(frames) != 10 {
+		t.Fatalf("кадров = %d, ожидалось 10:\n%v", len(frames), frames)
 	}
 	assertSortSnapshot(t, frames[0], []int{-1, -1, 0}, nil, "")
+	// Деления рекурсивных диапазонов: [0,3), затем [1,3).
+	assertSortSnapshot(t, frames[1], []int{-1, -1, 0}, nil, "деление 0..2")
+	assertSortSnapshot(t, frames[2], []int{-1, -1, 0}, nil, "деление 1..2")
 	// Слияние [1,3): сравнение -1 и 0 — берём левую.
-	assertSortSnapshot(t, frames[1], []int{-1, -1, 0},
+	assertSortSnapshot(t, frames[3], []int{-1, -1, 0},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
 		"сравнение 1 2")
-	if !strings.Contains(frames[1].Explanation, "берём значение из левой половины") {
-		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[1].Explanation)
+	if !strings.Contains(frames[3].Explanation, "берём значение из левой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[3].Explanation)
 	}
 	// Слияние [0,3): сравнение одинаковых -1 — равные, берём левую.
-	assertSortSnapshot(t, frames[4], []int{-1, -1, 0},
+	assertSortSnapshot(t, frames[6], []int{-1, -1, 0},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
 		"сравнение 0 1")
-	if !strings.Contains(frames[4].Explanation, "равны") {
-		t.Errorf("пояснение сравнения дубликатов = %q, ожидается равенство кандидатов", frames[4].Explanation)
+	if !strings.Contains(frames[6].Explanation, "равны") {
+		t.Errorf("пояснение сравнения дубликатов = %q, ожидается равенство кандидатов", frames[6].Explanation)
 	}
 	last := frames[len(frames)-1]
 	assertSortSnapshot(t, last, []int{-1, -1, 0},

@@ -2,6 +2,8 @@
 // kind="sort" — ряд ячеек всего массива с подсветками сравнения/обмена.
 // Существующие рендеры (массив бинарного поиска, ячейки структур,
 // узлы linked-list, корзины хеш-таблицы) остаются нетронутыми.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSortFrame, renderFrame } from "../src/render";
 import type { Frame, SortSnapshot } from "../src/types";
@@ -122,6 +124,10 @@ describe("isSortFrame", () => {
     expect(isSortFrame(oldFrame)).toBe(true);
   });
 
+  it("некорректный снимок вызывает ошибку — ветка рендера не рисует мусор", () => {
+    expect(() => renderToDOM(sortFrame({ values: "целиком не массив" }))).toThrow();
+  });
+
   it("отвергает чужие kind'ы", () => {
     const f = { step: 1, kind: "array", explanation: "x", data: snapshot() } as unknown as Frame;
     expect(isSortFrame(f)).toBe(false);
@@ -228,6 +234,28 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.in-left")).toHaveLength(1); // левая половина [0, 1)
     expect(containerEl.querySelectorAll(".cell.in-right")).toHaveLength(2); // правая [1, 3)
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: запись 0");
+  });
+
+  it("рисует кадр деления merge sort: обе половины размечены, зеркальный массив цел", () => {
+    // Кадр split-события диапазона [0,3) с границей 1: деления без подсветок
+    // ролей, левая половина [0,1) и правая [1,3) видны разметкой половин.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [3, 1, 2],
+          highlights: [],
+          operation: "деление 0..2",
+          ranges: [{ lo: 0, mid: 1, hi: 3 }],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(3); // деление не меняет массив
+    expect(containerEl.querySelectorAll(".cell.in-left")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.in-right")).toHaveLength(2);
+    expect(containerEl.querySelectorAll(".cell.compare, .cell.write")).toHaveLength(0);
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: деление 0..2");
   });
 
   it("старый снимок без ranges остаётся валидным и рисуется без разметки половин", () => {
@@ -349,5 +377,37 @@ describe("renderFrame — kind=\"sort\"", () => {
     );
     expect(untouched).toBe(false);
     expect(containerEl.childNodes.length).toBe(before);
+  });
+});
+
+// Каскад CSS разметки половин и ролей шага: правила .cell.in-left/.cell.in-right
+// и роли .cell.compare/.cell.write имеют равную специфичность — победителя
+// каскада задаёт порядок правил в файле. Регрессия: разметка половин стоит
+// до ролей, и роли шага с белым текстом не теряют фон в пользу фоновой
+// разметки половин (иначе белый текст на светлом фоне нечитаем).
+describe("style.css — каскад ролей поверх разметки половин merge sort", () => {
+  const css = readFileSync(resolve(process.cwd(), "src/style.css"), "utf8");
+  const ruleIndex = (selector: string): number => css.indexOf(`${selector} {`);
+
+  it("разметка половин стоит до ролей шага — роли шага выигрывают каскад", () => {
+    const inLeft = ruleIndex(".cell.in-left");
+    const inRight = ruleIndex(".cell.in-right");
+    const compare = ruleIndex(".cell.compare");
+    const write = ruleIndex(".cell.write");
+    for (const at of [inLeft, inRight]) {
+      expect(at).toBeGreaterThan(-1); // все правила присутствуют
+      expect(compare).toBeGreaterThan(at);
+      expect(write).toBeGreaterThan(at);
+    }
+  });
+
+  it("роли шага с белым текстом задают несветлый фон — поверх светлой разметки половин читаемы", () => {
+    for (const at of [ruleIndex(".cell.compare"), ruleIndex(".cell.write")]) {
+      const body = css.slice(at, css.indexOf("}", at));
+      expect(body).toContain("color: white");
+      // Светлые фоны разметки половин не должны повторяться в ролях шага.
+      expect(body).not.toContain("#eef2ff");
+      expect(body).not.toContain("#fdf2f8");
+    }
   });
 });

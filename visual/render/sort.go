@@ -272,12 +272,23 @@ func MergeFrames(values []int) []frame.Frame {
 type mergeFrames struct{ sortFrames }
 
 // Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
-// только по событиям записи (MergeWrite): сравнения читают ещё не
-// перестроенные половины. Активный диапазон слияния — в поле ranges
-// снимка; сравнение подсвечивает обе сравниваемые позиции, запись —
-// позицию, в которой значение появилось в массиве.
+// только по событиям записи (MergeWrite): деление и сравнения читают ещё
+// не перестроенные половины. Активный диапазон слияния — в поле ranges
+// снимка; кадр деления показывает обе половины диапазона разметкой
+// in-left/in-right; сравнение подсвечивает обе сравниваемые позиции,
+// запись — позицию, в которой значение появилось в массиве.
 func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 	switch e := ev.(type) {
+	case sort.MergeSplit:
+		// Кадр деления: зеркало не меняется — половины ещё не сортированы.
+		// Обе половины видны как левая/правая разметка одного активного
+		// диапазона: ячейки [Lo, Mid) получают in-left, [Mid, Hi) — in-right.
+		r.ranges = []SortRange{{Lo: e.Lo, Mid: e.Mid, Hi: e.Hi}}
+		r.highlights = nil
+		r.operation = fmt.Sprintf("деление %d..%d", e.Lo, e.Hi-1)
+		r.frame(fmt.Sprintf("Делим диапазон [%d, %d) пополам: левая половина [%d, %d), правая [%d, %d). Каждую половину алгоритм отсортирует той же рекурсией, затем отсортированные половины будут слиты в порядке возрастания.",
+			e.Lo, e.Hi, e.Lo, e.Mid, e.Mid, e.Hi))
+
 	case sort.MergeCompare:
 		r.ranges = []SortRange{{Lo: e.Lo, Mid: e.Mid, Hi: e.Hi}}
 		r.highlights = []SortHighlight{
@@ -287,13 +298,13 @@ func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 		r.operation = fmt.Sprintf("сравнение %d %d", e.Left, e.Right)
 		if e.LeftChosen && e.LeftValue == e.RightValue {
 			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d и %d на позиции %d равны — берём значение из левой половины, порядок равных сохраняется (устойчивость); оно пойдёт на позицию %d.",
-				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Left+e.Right-e.Mid))
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
 		} else if e.LeftChosen {
 			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d не больше %d на позиции %d — берём значение из левой половины, оно пойдёт на позицию %d.",
-				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Left+e.Right-e.Mid))
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
 		} else {
 			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d больше %d на позиции %d — берём значение из правой половины, оно пойдёт на позицию %d.",
-				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Left+e.Right-e.Mid))
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
 		}
 
 	case sort.MergeWrite:

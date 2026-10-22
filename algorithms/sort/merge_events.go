@@ -22,7 +22,19 @@ type MergeCompare struct {
 	LeftValue  int  // значение кандидата левой половины
 	Right      int  // индекс кандидата правой половины (Right > Left)
 	RightValue int  // значение кандидата правой половины
+	Dest       int  // позиция слияния, куда пойдёт выигравший кандидат
 	LeftChosen bool // исход сравнения: true — берём левого кандидата
+}
+
+// MergeSplit — рекурсивное деление диапазона [Lo, Hi) пополам границей
+// Mid (левая половина [Lo, Mid), правая [Mid, Hi)). Событие стреляет до
+// сортировки половин: кадр деления показывает, на какие части массив
+// разбит, ещё не изменяя их. Cache пустых диапазонов нет: деление
+// срабатывает один раз на каждый рекурсивный диапазон, сверху вниз.
+type MergeSplit struct {
+	Lo  int // начало делимого диапазона
+	Mid int // граница половин: левая [Lo, Mid), правая [Mid, Hi)
+	Hi  int // исключительная граница делимого диапазона
 }
 
 // MergeWrite — значение вставлено на позицию Index при слиянии
@@ -43,13 +55,14 @@ type MergeWrite struct {
 
 func (MergeCompare) isMergeEvent() {}
 func (MergeWrite) isMergeEvent()   {}
+func (MergeSplit) isMergeEvent()   {}
 
 // MergeSortWithEmitter — MergeSort в режиме наблюдения: каждый шаг
 // сопровождается событием в em (ADR-0001). Результат тот же, что у тихого
 // MergeSort — сортировка по возрастанию на месте с точки зрения
-// вызывающего кода. На каждое сравнение голов половин стреляет один
-// MergeCompare (с исходом LeftChosen); каждая запись значения в массив —
-// MergeWrite.
+// вызывающего кода. Каждое рекурсивное деление диапазона — MergeSplit,
+// на каждое сравнение голов половин — MergeCompare (с исходом LeftChosen
+// и позицией Dest), каждая запись значения в массив — MergeWrite.
 //
 // Идея (учебный черновик пользователя, Ч2.5): рекурсивные половины
 // сортируются сверху вниз, затем сливаются через один общий буфер.
@@ -71,73 +84,82 @@ func MergeSortWithEmitter(nums []int, em algorithms.Emitter[MergeEvent]) {
 		origins = make([]bool, n)
 	}
 
-	mergeSortRange(nums, buf, origins, 0, n, em)
+	mergeSortRange(nums, buf, origins, mergeBounds{0, n / 2, n}, em)
 }
 
-// mergeSortRange — рекурсивный спуск (top-down): сортируем половины,
-// потом сливаем. hi — исключительная граница, как в черновике пользователя.
-func mergeSortRange(nums, buf []int, origins []bool, lo, hi int, em algorithms.Emitter[MergeEvent]) {
-	if hi-lo <= 1 {
+// mergeBounds — границы одного рекурсивного диапазона merge sort: [Lo, Mid)
+// — левая половина, [Mid, Hi) — правая. Именованная форма сырой тройки
+// lo/mid/hi вместо повторения трёх индексов через весь стек вызовов:
+// событиям свои структуры, а внутренний перенос — только этой парой полей.
+type mergeBounds struct {
+	Lo, Mid, Hi int
+}
+
+// mergeSortRange — рекурсивный спуск (top-down): диапазон делится пополам,
+// половины сортируются, затем сливаются. Деление диапазона — отдельное
+// событие MergeSplit: кадр деления виден до спуска в его половины.
+func mergeSortRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Emitter[MergeEvent]) {
+	if b.Hi-b.Lo <= 1 {
 		return
 	}
-	mid := (lo + hi) / 2
-	mergeSortRange(nums, buf, origins, lo, mid, em)
-	mergeSortRange(nums, buf, origins, mid, hi, em)
-	mergeRange(nums, buf, origins, lo, mid, hi, em)
+	if em != nil {
+		em.Emit(MergeSplit(b)) // у MergeSplit те же поля границ — conversion правомерен
+	}
+	mergeSortRange(nums, buf, origins, mergeBounds{b.Lo, (b.Lo + b.Mid) / 2, b.Mid}, em)
+	mergeSortRange(nums, buf, origins, mergeBounds{b.Mid, (b.Mid + b.Hi) / 2, b.Hi}, em)
+	mergeRange(nums, buf, origins, b, em)
 }
 
-// mergeRange — слияние отсортированных половин [Lo, Mid) и [Mid, Hi) в буфер
-// и перенос результата обратно в nums.
-func mergeRange(nums, buf []int, origins []bool, lo, mid, hi int, em algorithms.Emitter[MergeEvent]) {
-	i, j, k := lo, mid, lo
-	for i < mid && j < hi {
-		fromLeft := nums[i] <= nums[j] // равенство — берём левую половину
-		if em != nil {
-			em.Emit(MergeCompare{
-				Lo: lo, Mid: mid, Hi: hi,
-				Left: i, LeftValue: nums[i],
-				Right: j, RightValue: nums[j],
-				LeftChosen: fromLeft,
-			})
+// mergeRange — слияние отсортированных половин диапазона в буфер и перенос
+// результата обратно в nums. Форма «буфер + происхождение + позиция»
+// выделена в take: четыре ветки записи (основной цикл и хвосты двух
+// половин) не повторяют её по отдельности.
+func mergeRange(nums, buf []int, origins []bool, b mergeBounds, em algorithms.Emitter[MergeEvent]) {
+	i, j, k := b.Lo, b.Mid, b.Lo
+	// take — перенос значения кандидата src в буфер на текущую позицию k
+	// с пометкой происхождения и сдвигом соответствующей головы половины.
+	take := func(src int, fromLeft bool) {
+		buf[k] = nums[src]
+		if origins != nil {
+			origins[k] = fromLeft
 		}
 		if fromLeft {
-			buf[k] = nums[i]
-			if origins != nil {
-				origins[k] = true
-			}
 			i++
 		} else {
-			buf[k] = nums[j]
-			if origins != nil {
-				origins[k] = false
-			}
 			j++
 		}
 		k++
 	}
-	for i < mid { // хвост левой половины
-		buf[k] = nums[i]
-		if origins != nil {
-			origins[k] = true
+	for i < b.Mid && j < b.Hi {
+		fromLeft := nums[i] <= nums[j] // равенство — берём левую половину
+		if em != nil {
+			em.Emit(MergeCompare{
+				Lo: b.Lo, Mid: b.Mid, Hi: b.Hi,
+				Left: i, LeftValue: nums[i],
+				Right: j, RightValue: nums[j],
+				Dest:       k,
+				LeftChosen: fromLeft,
+			})
 		}
-		i++
-		k++
+		if fromLeft {
+			take(i, true)
+		} else {
+			take(j, false)
+		}
 	}
-	for j < hi { // хвост правой половины
-		buf[k] = nums[j]
-		if origins != nil {
-			origins[k] = false
-		}
-		j++
-		k++
+	for i < b.Mid { // хвост левой половины
+		take(i, true)
+	}
+	for j < b.Hi { // хвост правой половины
+		take(j, false)
 	}
 	// Перенос результата слияния в массив — по элементу, чтобы запись
 	// каждой позиции была видимым шагом.
-	for k := lo; k < hi; k++ {
+	for k := b.Lo; k < b.Hi; k++ {
 		nums[k] = buf[k]
 		if em != nil {
 			em.Emit(MergeWrite{
-				Lo: lo, Mid: mid, Hi: hi,
+				Lo: b.Lo, Mid: b.Mid, Hi: b.Hi,
 				Index:    k,
 				Value:    nums[k],
 				FromLeft: origins[k],
