@@ -63,6 +63,7 @@ describe.each([
   { algorithm: "bubble-sort", route: "/api/run/bubble-sort" },
   { algorithm: "selection-sort", route: "/api/run/selection-sort" },
   { algorithm: "insertion-sort", route: "/api/run/insertion-sort" },
+  { algorithm: "merge-sort", route: "/api/run/merge-sort" },
 ] as const)("buildSortRunURL — $route", ({ algorithm, route }) => {
   it("собирает URL маршрута сортировки с массивом значений", () => {
     expect(buildSortRunURL(algorithm, [3, 1, 2])).toBe(`${route}?values=3%2C1%2C2`);

@@ -93,6 +93,7 @@ func assertSortValidation(t *testing.T, route string) {
 func TestRunBubbleSortValidation(t *testing.T)    { assertSortValidation(t, "bubble-sort") }
 func TestRunSelectionSortValidation(t *testing.T) { assertSortValidation(t, "selection-sort") }
 func TestRunInsertionSortValidation(t *testing.T) { assertSortValidation(t, "insertion-sort") }
+func TestRunMergeSortValidation(t *testing.T)     { assertSortValidation(t, "merge-sort") }
 
 // runSortTrivialInputs — прогон тривиальных входов: пустой и одноэлементный
 // массивы — легальные входы, SSE-поток из одного стартового кадра без
@@ -710,4 +711,190 @@ func TestRunBubbleSortFramesHaveNoInsertionState(t *testing.T) {
 		t.Fatal("кадров нет")
 	}
 	assertSortKeyState(t, frames[0], -1, 0)
+}
+
+// assertSortRanges сверяет активные диапазоны шага в снимке (после
+// JSON-кругосветки); у шагов без активного диапазона — пустой список.
+func assertSortRanges(t *testing.T, f frame.Frame, ranges []render.SortRange) {
+	t.Helper()
+
+	s, ok := f.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	gotRaw, ok := s["ranges"].([]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: ranges не список: %v", f.Step, s["ranges"])
+	}
+	if len(gotRaw) != len(ranges) {
+		t.Fatalf("кадр шага %d: диапазонов %d, ожидалось %d", f.Step, len(gotRaw), len(ranges))
+	}
+	for i, want := range ranges {
+		rg := gotRaw[i].(map[string]any)
+		got := fmt.Sprintf("lo=%v mid=%v hi=%v", rg["lo"], rg["mid"], rg["hi"])
+		expr := fmt.Sprintf("lo=%d mid=%d hi=%d", want.Lo, want.Mid, want.Hi)
+		if got != expr {
+			t.Fatalf("кадр шага %d: диапазон %d = %s, ожидалось %s", f.Step, i, got, expr)
+		}
+	}
+}
+
+// Сквозной сценарий теста: сортировка [3,1,2] — один стартовый кадр и по
+// кадру на каждое событие. Рекурсия делит [0,3) как [0,1) и [1,3), поэтому
+// сначала сливается пара 1–2, затем весь диапазон; сравнения идут до
+// записей (результат слияния живёт в буфере до переноса), кадр каждой
+// записи показывает обновлённую позицию; итог — упорядоченный массив.
+func TestRunMergeSortScenario(t *testing.T) {
+	frames := doRunSortSSE(t, "merge-sort", "3,1,2")
+	if len(frames) != 9 {
+		t.Fatalf("кадров = %d, ожидалось 9:\n%v", len(frames), frames)
+	}
+
+	start := []int{3, 1, 2}
+	sorted := []int{1, 2, 3}
+
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+	assertSortRanges(t, frames[0], nil)
+
+	// Слияние [1,3): сравнение голов, потом две записи в порядке позиций.
+	assertSortSnapshot(t, frames[1], start,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
+		"сравнение 1 2")
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
+	assertSortSnapshot(t, frames[2], []int{3, 1, 2},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
+	assertSortSnapshot(t, frames[3], []int{3, 1, 2},
+		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
+
+	// Слияние [0,3): два сравнения по неизменному префиксу и три записи.
+	assertSortSnapshot(t, frames[4], []int{3, 1, 2},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
+		"сравнение 0 1")
+	assertSortRanges(t, frames[4], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
+	assertSortSnapshot(t, frames[5], []int{3, 1, 2},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
+		"сравнение 0 2")
+	assertSortSnapshot(t, frames[6], []int{1, 1, 2},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleWrite}}, "запись 0")
+	assertSortSnapshot(t, frames[7], []int{1, 2, 2},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
+	assertSortSnapshot(t, frames[8], sorted,
+		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
+
+	// Пояснения отражают учебные точки: выбор из левой половины, из правой
+	// и итоговую запись слияния.
+	if !strings.Contains(frames[1].Explanation, "берём значение из левой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[4].Explanation, "из правой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор правой половины", frames[4].Explanation)
+	}
+	if !strings.Contains(frames[8].Explanation, "из левой половины") {
+		t.Errorf("пояснение записи = %q, ожидается упоминание источника", frames[8].Explanation)
+	}
+
+	assertStepsInOrder(t, frames)
+}
+
+// Устойчивость (учебная точка): при равных кандидатах берётся значение
+// из левой половины — первым сравнением и первой записью диапазона.
+// Для [5,5] обе половины длины 1.
+func TestRunMergeSortEqualTakesLeft(t *testing.T) {
+	frames := doRunSortSSE(t, "merge-sort", "5,5")
+	if len(frames) != 4 {
+		t.Fatalf("кадров = %d, ожидалось 4 (сравнение + две записи):\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{5, 5}, nil, "")
+	assertSortSnapshot(t, frames[1], []int{5, 5},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
+		"сравнение 0 1")
+	if !strings.Contains(frames[1].Explanation, "равны") {
+		t.Errorf("пояснение сравнения равных = %q, ожидается упоминание равенства", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[2].Explanation, "из левой половины") {
+		t.Errorf("пояснение записи = %q, ожидается первое значение из левой половины", frames[2].Explanation)
+	}
+	assertSortSnapshot(t, frames[3], []int{5, 5},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
+}
+
+// Пустой массив — легальный вход: SSE-поток состоит из одного стартового
+// кадра с пустым рядом и завершается; одноэлементный вход — кадр исходного
+// состояния без сравнений.
+func TestRunMergeSortEmptyInput(t *testing.T) { runSortTrivialInputs(t, "merge-sort") }
+
+// Граница лимита длины: 100 элементов принимаются (SSE-поток завершён),
+// 101-й элемент отвергается до начала потока. Вход уже отсортирован, кадры
+// считаются независимой формулой: каждый элемент левой половины слива
+// выигрывает первым же сравнением, поэтому сравнений — длина левой части
+// каждой слия; записей — длина каждой слия целиком.
+func TestRunMergeSortLengthLimit(t *testing.T) {
+	frames := doRunSortSSE(t, "merge-sort", sortedInput(100))
+	if len(frames) != 1+mergeSortedEvents(100) {
+		t.Fatalf("кадров = %d, ожидалось %d", len(frames), 1+mergeSortedEvents(100))
+	}
+	// Последний кадр — запись последнего элемента рекурсивного диапазона.
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, mustInts(t, sortedInput(100)),
+		[]render.SortHighlight{{Index: 99, Role: render.RoleWrite}}, "запись 99")
+	assertSortRanges(t, last, []render.SortRange{{Lo: 0, Mid: 50, Hi: 100}})
+
+	resp := doRunSort(t, "merge-sort", sortedInput(101))
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("статус = %d, ожидается 400: лимит превышен на 101-м элементе", resp.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
+	}
+	if !strings.Contains(got["error"], "максимум 100") {
+		t.Errorf("ошибка = %q, ожидается упоминание максимума 100", got["error"])
+	}
+}
+
+// mergeSortedEvents — независимая формула для числа событий merge sort
+// на уже отсортированном входе длины n (сравнения C и записи W):
+// C(n) = C(nL) + C(nR) + nL (левая половина сливается, выигрывая каждый
+// раз с первым сравнением), W(n) = W(nL) + W(nR) + n (записываются все
+// элементы диапазона), C(1) = W(1) = 0. nL = n/2 — как в рекурсии.
+func mergeSortedEvents(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	l := n / 2
+	return mergeSortedEvents(l) + mergeSortedEvents(n-l) + l + n
+}
+
+// Отрицательные значения и дубликаты сортируются на месте и читаются
+// в кадрах: сравнения равных идут в начале слияний, итоговый массив
+// упорядочен.
+func TestRunMergeSortNegativesAndDuplicates(t *testing.T) {
+	frames := doRunSortSSE(t, "merge-sort", "-1,-1,0")
+	if len(frames) != 8 {
+		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	}
+	assertSortSnapshot(t, frames[0], []int{-1, -1, 0}, nil, "")
+	// Слияние [1,3): сравнение -1 и 0 — берём левую.
+	assertSortSnapshot(t, frames[1], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
+		"сравнение 1 2")
+	if !strings.Contains(frames[1].Explanation, "берём значение из левой половины") {
+		t.Errorf("пояснение сравнения = %q, ожидается выбор левой половины", frames[1].Explanation)
+	}
+	// Слияние [0,3): сравнение одинаковых -1 — равные, берём левую.
+	assertSortSnapshot(t, frames[4], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
+		"сравнение 0 1")
+	if !strings.Contains(frames[4].Explanation, "равны") {
+		t.Errorf("пояснение сравнения дубликатов = %q, ожидается равенство кандидатов", frames[4].Explanation)
+	}
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 2, Role: render.RoleWrite}}, "запись 2")
+}
+
+// Рендерер и транспорт не должны расходиться: кадры из эндпоинта совпадают
+// с кадрами, собранными напрямую у рендерера.
+func TestRunMergeSortMatchesDirectRenderer(t *testing.T) {
+	assertSortMatchesDirectRenderer(t, "merge-sort", "3,1,2", render.MergeFrames)
 }
