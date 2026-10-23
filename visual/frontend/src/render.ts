@@ -5,7 +5,7 @@
 // Поддерживаем kind="array" (бинарный поиск), kind="structure"
 // (стек "stack", очередь "queue", список "list", односвязный список
 // "linked-list" — узлы со стрелками next), kind="hash-table"
-// (корзины с цепочками записей) и kind="sort" (простые сортировки,
+// (корзины с цепочками записей) и kind="sort" (маршруты сортировок —
 // bubble sort и далее). Новые kind'ы — новая ветка без правок
 // существующих.
 
@@ -332,7 +332,7 @@ function asSortSnapshot(data: unknown): SortSnapshot {
   }
   // Нормализованный снимок: gap/key заданы явно — рендер не различает
   // старые и новые кадры.
-  // Активные диапазоны merge sort: старый снимок без поля читается как
+  // Активные диапазоны сортировок: старый снимок без поля читается как
   // пустой список; кривые значения — ошибка.
   let ranges: SortRange[] = [];
   if (obj.ranges !== undefined) {
@@ -341,10 +341,10 @@ function asSortSnapshot(data: unknown): SortSnapshot {
     }
     ranges = (obj.ranges as unknown[]).map((r) => {
       if (r === null || typeof r !== "object") {
-        throw new Error("снимок сортировки: активный диапазон должен быть объектом {lo, mid, hi}");
+        throw new Error("снимок сортировки: активный диапазон должен быть объектом {lo, hi, mid?}");
       }
       const rg = r as Record<string, unknown>;
-      for (const field of ["lo", "mid", "hi"] as const) {
+      for (const field of ["lo", "hi"] as const) {
         if (typeof rg[field] !== "number" || !Number.isInteger(rg[field])) {
           throw new Error(`снимок сортировки: поле ${field} активного диапазона должно быть целым числом`);
         }
@@ -355,10 +355,20 @@ function asSortSnapshot(data: unknown): SortSnapshot {
           "снимок сортировки: активный диапазон должен быть непустым отрезком внутри массива",
         );
       }
-      if (range.mid <= range.lo || range.mid >= range.hi) {
-        throw new Error(
-          "снимок сортировки: граница половин mid должна делить активный диапазон на непустые части",
-        );
+      // Граница половин mid несёт только merge sort; у partition quicksort
+      // её нет — поле отсутствует. Если mid задан, он обязан делить
+      // диапазон на непустые части.
+      if (range.mid !== undefined) {
+        if (typeof range.mid !== "number" || !Number.isInteger(range.mid)) {
+          throw new Error(
+            "снимок сортировки: поле mid активного диапазона должно быть целым числом",
+          );
+        }
+        if (range.mid <= range.lo || range.mid >= range.hi) {
+          throw new Error(
+            "снимок сортировки: граница половин mid должна делить активный диапазон на непустые части",
+          );
+        }
       }
       return range;
     });
@@ -683,22 +693,30 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * пересоздаётся целиком, состояние не копится) с ролями подсветки:
  * "compare" — сравниваемая сейчас пара (у selection sort — обычно
  * проверяемый кандидат, а при сравнении, сменившем минимум, — прежний
- * минимум; у insertion sort — элемент префикса, сравниваемый с ключом),
+ * минимум; у insertion sort — элемент префикса, сравниваемый с ключом;
+ * у quicksort — текущий элемент, сравниваемый с pivot),
  * "swap" — обмениваемая, "min" — текущий минимум прохода selection sort
  * (в том числе новый минимум сразу после сравнения), "shift" — позиция,
  * в которую сейчас сдвинулось значение (insertion sort), "insert" —
  * позиция, куда вставляется ключ (insertion sort), "write" — позиция,
- * в которую сейчас записано значение при слиянии (merge sort). Активные
- * диапазоны merge sort (snap.ranges) размечают ряд: ячейки левой половины
- * получают класс in-left, правой — in-right; кадры записи диапазоны не несут
- * (позиция записи — приёмник слияния, а не половина источника), поэтому
- * разметки половин на них нет. Временное состояние
+ * в которую сейчас записано значение при слиянии (merge sort), "pivot" —
+ * позиция pivot: выбранного для partition и занимаемой финальной позиции
+ * (quicksort), "boundary" — позиция границы i, конца блока строго меньших
+ * значений partition (quicksort). Активные диапазоны (snap.ranges)
+ * размечают ряд: у merge sort ячейки левой половины получают класс
+ * in-left, правой — in-right; кадры записи диапазоны не несут (позиция
+ * записи — приёмник слияния, а не половина источника), поэтому разметки
+ * половин на них нет. Диапазоны partition quicksort идут без границы
+ * половин (mid): их ячейки [lo, hi) получают фоновую разметку
+ * in-partition, а границы шага несут роли pivot/boundary; кадр размещения
+ * pivot диапазона не несёт — завершённая partition разметки не рисует.
+ * Временное состояние
  * вставки insertion sort (пока ключ удерживается вне массива) рисуется
  * из полей снимка — видимое состояние задают gap и key вместе: ячейка
  * на позиции gap — пустая «дырка» (значение массива под ней — исходное
  * значение ключа до сдвигов или устаревшая копия после них — не
  * рисуется), над рядом — чип со значением удерживаемого
- * ключа (snap.key). Все простые сортировки
+ * ключа (snap.key). Все сортировки
  * модуля (bubble sort и далее) идут в эту же ветку по снимку kind="sort".
  */
 function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
@@ -724,8 +742,15 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
   // Активные диапазоны merge sort: левая/правая половины слияния получают
   // фоновую разметку — видно, какие части массива сейчас в работе.
+  // Диапазоны без границы половин — partition quicksort: их ячейки
+  // получают разметку in-partition, границы шага несут роли pivot/boundary.
   const sideByIndex = new Map<number, "in-left" | "in-right">();
+  const partitionIndices = new Set<number>();
   for (const range of snap.ranges) {
+    if (range.mid === undefined) {
+      for (let i = range.lo; i < range.hi; i++) partitionIndices.add(i);
+      continue;
+    }
     for (let i = range.lo; i < range.hi; i++) {
       sideByIndex.set(i, i < range.mid ? "in-left" : "in-right");
     }
@@ -743,6 +768,7 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
       if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert" / "write"
       const side = sideByIndex.get(i);
       if (side !== undefined) cell.classList.add(side); // активные половины слияния merge sort
+      if (partitionIndices.has(i)) cell.classList.add("in-partition"); // активный диапазон partition quicksort
     }
     row.appendChild(cell);
   }
