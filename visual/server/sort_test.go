@@ -20,8 +20,8 @@ import (
 	"github.com/EvgeniiIvanov/algo/visual/render"
 )
 
-// doRunSort — запрос Run простой сортировки по её маршруту
-// ("bubble-sort", "selection-sort", "insertion-sort").
+// doRunSort — запрос Run сортировки по её маршруту
+// (например, "bubble-sort", "selection-sort", "insertion-sort", "merge-sort", "quicksort").
 func doRunSort(t *testing.T, route, values string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -36,7 +36,7 @@ func doRunSort(t *testing.T, route, values string) *httptest.ResponseRecorder {
 	return resp
 }
 
-// doRunSortSSE — успешный Run простой сортировки: базовые проверки
+// doRunSortSSE — успешный Run сортировки: базовые проверки
 // SSE-ответа + кадры.
 func doRunSortSSE(t *testing.T, route, values string) []frame.Frame {
 	t.Helper()

@@ -43,7 +43,8 @@ const (
 // SortHighlight — подсветка одной позиции с ролью (что с ней случилось на шаге).
 type SortHighlight struct {
 	Index int    `json:"index"` // индекс затронутой позиции массива
-	Role  string `json:"role"`  // роль: RoleCompare / RoleSwapped / RoleMin / RoleShift / RoleInsert
+	Role  string `json:"role"`  // роль подсветки: RoleCompare / RoleSwapped / RoleMin / RoleShift / RoleInsert / RoleWrite / RolePivot / RoleBoundary
+
 }
 
 // SortSnapshot — снимок массива сортировки: Data кадра kind="sort".
@@ -56,9 +57,8 @@ type SortSnapshot struct {
 	Operation  string          `json:"operation"`  // имя шага ("сравнение 0 1", "обмен 1 2", "сдвиг 0 → 1"); пусто — стартовый кадр
 	// Ranges — активные диапазоны шага (merge sort: сливаемый отрезок
 	// [Lo, Hi) с границей половин Mid; quicksort: активный диапазон
-	// partition [Lo, Hi) без Mid); у других сортировок — bubble,
-	// selection, insertion — и на шаге без активного диапазона
-	// пустой список. Поле обратно совместимо:
+	// partition [Lo, Hi) без Mid); у сортировок без активного диапазона
+	// — пустой список. Поле обратно совместимо:
 	// прежние снимки без ranges читаются фронтом как пустые.
 	Ranges []SortRange `json:"ranges"`
 	// Gap — индекс «дырки»: пустой позиции, ожидающей удерживаемый ключ
