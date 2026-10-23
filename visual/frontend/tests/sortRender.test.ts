@@ -309,10 +309,11 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: деление 0..2");
   });
 
-  it("подсвечивает pivot и сравнение с ним, не размечая половин partition", () => {
+  it("подсвечивает pivot, сравнение и границу на фоне разметки partition", () => {
     // Кадр сравнения quicksort: элемент на позиции 1 сравнивается с pivot
     // на позиции 3, граница блока строго меньших — позиция 0. Диапазон
-    // partition [0, 4) идёт без mid: разметки половин на нём не рисуется.
+    // partition [0, 4) идёт без mid: разметки половин на нём нет, а ячейки
+    // диапазона получают фоновую разметку in-partition.
     const { ok, containerEl } = renderToDOM(
       sortFrame(
         snapshot({
@@ -332,8 +333,37 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.pivot")).toHaveLength(1);
     expect(containerEl.querySelectorAll(".cell.boundary")).toHaveLength(1);
     expect(containerEl.querySelectorAll(".cell.compare")).toHaveLength(1);
+    // Разметка половин (merge sort) на partition-диапазоне не рисуется.
     expect(containerEl.querySelectorAll(".cell.in-left, .cell.in-right")).toHaveLength(0);
+    // Активный диапазон partition: все четыре ячейки размечены in-partition.
+    const partitionCells = containerEl.querySelectorAll<HTMLElement>(".cell.in-partition");
+    expect(partitionCells).toHaveLength(4);
+    expect(partitionCells[0]?.dataset.index).toBe("0");
+    expect(partitionCells[3]?.dataset.index).toBe("3");
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: сравнение 1 с pivot");
+  });
+
+  it("разметка partition покрывает диапазон кадра обмена, не расползаясь за его границы", () => {
+    // Кадр обмена внутри partition [1, 4): диапазон уже сжался — в разметку
+    // попадают ровно ячейки [1, 4), а не весь массив.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [2, 1, 4, 3],
+          highlights: [
+            { index: 1, role: "boundary" },
+            { index: 2, role: "swap" },
+            { index: 3, role: "pivot" },
+          ],
+          operation: "обмен 1 2",
+          ranges: [{ lo: 1, hi: 4 }],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.in-partition")).toHaveLength(3);
+    expect(containerEl.querySelector(".cell[data-index='0']")?.className).not.toContain("in-partition");
   });
 
   it("подсвечивает обмен и границы блока меньших на фоне pivot", () => {
@@ -358,7 +388,40 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.swap")).toHaveLength(1);
     expect(containerEl.querySelectorAll(".cell.boundary")).toHaveLength(1);
     expect(containerEl.querySelectorAll(".cell.pivot")).toHaveLength(1);
+    // Обмен идёт внутри активной partition — весь её диапазон размечен.
+    expect(containerEl.querySelectorAll(".cell.in-partition")).toHaveLength(4);
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: обмен 1 2");
+  });
+
+  it("очищает разметку partition на кадре размещения pivot", () => {
+    const explanationEl = document.createElement("div");
+    const containerEl = document.createElement("div");
+
+    // Сначала кадр partition с разметкой диапазона [0, 4).
+    const partitionFrame = sortFrame(
+      snapshot({
+        values: [2, 1, 4, 3],
+        highlights: [{ index: 3, role: "pivot" }],
+        operation: "pivot 3",
+        ranges: [{ lo: 0, hi: 4 }],
+      }),
+    );
+    expect(renderFrame(partitionFrame, explanationEl, containerEl)).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.in-partition")).toHaveLength(4);
+
+    // Затем кадр QuickPlaced: диапазона partition больше нет — разметка
+    // не должна остаться от предыдущего кадра.
+    const placedFrame = sortFrame(
+      snapshot({
+        values: [2, 1, 3, 4],
+        highlights: [{ index: 2, role: "pivot" }],
+        operation: "pivot на позиции 2",
+        ranges: [],
+      }),
+    );
+    expect(renderFrame(placedFrame, explanationEl, containerEl)).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.in-partition")).toHaveLength(0);
+    expect(containerEl.querySelectorAll(".cell.pivot")).toHaveLength(1);
   });
 
   it("рисует финальную позицию pivot без диапазона partition", () => {

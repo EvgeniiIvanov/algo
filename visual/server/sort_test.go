@@ -936,35 +936,6 @@ func TestRunMergeSortMatchesDirectRenderer(t *testing.T) {
 	assertSortMatchesDirectRenderer(t, "merge-sort", "3,1,2", render.MergeFrames)
 }
 
-// assertPartitionRange сверяет активный диапазон partition quicksort
-// в снимке (после JSON-кругосветки): границы lo..hi включительно,
-// границы половин mid у partition нет.
-func assertPartitionRange(t *testing.T, f frame.Frame, lo, hi int) {
-	t.Helper()
-
-	s, ok := f.Data.(map[string]any)
-	if !ok {
-		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
-	}
-	gotRaw, ok := s["ranges"].([]any)
-	if !ok {
-		t.Fatalf("кадр шага %d: ranges не список: %v", f.Step, s["ranges"])
-	}
-	if len(gotRaw) != 1 {
-		t.Fatalf("кадр шага %d: диапазонов %d, ожидался 1", f.Step, len(gotRaw))
-	}
-	rg := gotRaw[0].(map[string]any)
-	if got := rg["lo"].(float64); got != float64(lo) {
-		t.Fatalf("кадр шага %d: lo диапазона = %v, ожидалось %d", f.Step, got, lo)
-	}
-	if got := rg["hi"].(float64); got != float64(hi+1) {
-		t.Fatalf("кадр шага %d: hi диапазона = %v, ожидалось %d (включительный hi partition)", f.Step, got, hi+1)
-	}
-	if _, present := rg["mid"]; present {
-		t.Fatalf("кадр шага %d: у диапазона partition не может быть границы половин mid", f.Step)
-	}
-}
-
 func TestRunQuickSortValidation(t *testing.T) { assertSortValidation(t, "quick-sort") }
 
 // Сквозной сценарий теста: сортировка [2,4,1,3] — один стартовый кадр и по
@@ -986,7 +957,9 @@ func TestRunQuickSortScenario(t *testing.T) {
 	// Partition [0..3] вокруг pivot 3 (последний элемент диапазона).
 	assertSortSnapshot(t, frames[1], start,
 		[]render.SortHighlight{{Index: 3, Role: render.RolePivot}}, "pivot 3")
-	assertPartitionRange(t, frames[1], 0, 3)
+	// Диапазон partition [0..3] включительно — SortRange хранит исключительную
+	// границу hi, и у partition нет границы половин mid.
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Hi: 4}})
 	if !strings.Contains(frames[1].Explanation, "последний элемент") {
 		t.Errorf("пояснение выбора pivot = %q, ожидается «последний элемент»", frames[1].Explanation)
 	}
@@ -995,7 +968,7 @@ func TestRunQuickSortScenario(t *testing.T) {
 	assertSortSnapshot(t, frames[2], start,
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 3, Role: render.RolePivot}},
 		"сравнение 0 с pivot")
-	assertPartitionRange(t, frames[2], 0, 3)
+	assertSortRanges(t, frames[2], []render.SortRange{{Lo: 0, Hi: 4}})
 	if !strings.Contains(frames[2].Explanation, "строго меньше") {
 		t.Errorf("пояснение сравнения с меньшим = %q, ожидается «строго меньше»", frames[2].Explanation)
 	}
@@ -1027,11 +1000,11 @@ func TestRunQuickSortScenario(t *testing.T) {
 	// Рекурсия слева partition [0..1] вокруг pivot 1.
 	assertSortSnapshot(t, frames[7], []int{2, 1, 3, 4},
 		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot 1")
-	assertPartitionRange(t, frames[7], 0, 1)
+	assertSortRanges(t, frames[7], []render.SortRange{{Lo: 0, Hi: 2}})
 	assertSortSnapshot(t, frames[8], []int{2, 1, 3, 4},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RolePivot}},
 		"сравнение 0 с pivot")
-	assertPartitionRange(t, frames[8], 0, 1)
+	assertSortRanges(t, frames[8], []render.SortRange{{Lo: 0, Hi: 2}})
 
 	// Pivot 1 занимает финальную позицию 0; правые рекурсии ([2..2] и [3..3])
 	// одноэлементны — partition'ов и событий на них нет.
@@ -1040,6 +1013,165 @@ func TestRunQuickSortScenario(t *testing.T) {
 	if !strings.Contains(frames[9].Explanation, "финальную позицию") {
 		t.Errorf("пояснение размещения pivot = %q, ожидается финальная позиция", frames[9].Explanation)
 	}
+
+	assertStepsInOrder(t, frames)
+}
+
+// Сквозной сценарий обратного входа [3,2,1]: pivot — минимум диапазона,
+// ни один элемент строго меньше него, поток состоит из pivot/сравнения/
+// размещения без единого обмена; рекурсия уходит только в правую часть.
+// Итог — упорядоченный массив.
+func TestRunQuickSortReverseInput(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", "3,2,1")
+	if len(frames) != 8 {
+		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	}
+
+	start := []int{3, 2, 1}
+	sorted := []int{1, 2, 3}
+
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+	assertSortRanges(t, frames[0], nil)
+
+	// Partition [0..2] вокруг pivot 1 — ни один элемент строго меньше него.
+	assertSortSnapshot(t, frames[1], start,
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot 2")
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Hi: 3}})
+	assertSortSnapshot(t, frames[2], start,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertSortRanges(t, frames[2], []render.SortRange{{Lo: 0, Hi: 3}})
+	if !strings.Contains(frames[2].Explanation, "не меньше pivot") {
+		t.Errorf("пояснение сравнения 3 = %q, ожидается «не меньше pivot»", frames[2].Explanation)
+	}
+	assertSortSnapshot(t, frames[3], start,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}},
+		"сравнение 1 с pivot")
+	assertSortRanges(t, frames[3], []render.SortRange{{Lo: 0, Hi: 3}})
+
+	// Pivot 1 занимает финальную позицию 0: массив сразу упорядочен —
+	// с этого кадра значения [1,2,3] не меняются.
+	assertSortSnapshot(t, frames[4], sorted,
+		[]render.SortHighlight{{Index: 0, Role: render.RolePivot}}, "pivot на позиции 0")
+	assertSortRanges(t, frames[4], nil)
+	if !strings.Contains(frames[4].Explanation, "финальную позицию") {
+		t.Errorf("пояснение размещения = %q, ожидается финальная позиция", frames[4].Explanation)
+	}
+	// Рекурсия в правую часть [1..2] вокруг pivot 3: единственное сравнение —
+	// 2 строго меньше 3, самообмен не эмитится; pivot 3 уже на финальной позиции.
+	assertSortSnapshot(t, frames[5], sorted,
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot 2")
+	assertSortRanges(t, frames[5], []render.SortRange{{Lo: 1, Hi: 3}})
+	assertSortSnapshot(t, frames[6], sorted,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}},
+		"сравнение 1 с pivot")
+	assertSortRanges(t, frames[6], []render.SortRange{{Lo: 1, Hi: 3}})
+	assertSortSnapshot(t, frames[7], sorted,
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot на позиции 2")
+	assertSortRanges(t, frames[7], nil)
+
+	// Обменов на обратном входе нет вообще.
+	for _, f := range frames {
+		s, ok := f.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+		}
+		if op, ok := s["operation"].(string); ok && strings.HasPrefix(op, "обмен") {
+			t.Errorf("на обратном входе обмена не ожидается: кадр %d, операция %q", f.Step, op)
+		}
+	}
+
+	assertStepsInOrder(t, frames)
+}
+
+// Сквозной сценарий с реальными обменами [5,1,4,2,3]: pivot 3, два обмена
+// строго меньших значений влево до размещения pivot, затем рекурсия в обе
+// части; промежуточные зеркала кадр за кадром и финальный отсортированный
+// массив.
+func TestRunQuickSortSwapsBeforePlacement(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", "5,1,4,2,3")
+	if len(frames) != 15 {
+		t.Fatalf("кадров = %d, ожидалось 15:\n%v", len(frames), frames)
+	}
+
+	start := []int{5, 1, 4, 2, 3}
+	afterSwap01 := []int{1, 5, 4, 2, 3}
+	afterSwap13 := []int{1, 2, 4, 5, 3}
+	afterPlacement := []int{1, 2, 3, 5, 4}
+	sorted := []int{1, 2, 3, 4, 5}
+
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+
+	// Partition [0..4] вокруг pivot 3.
+	assertSortSnapshot(t, frames[1], start,
+		[]render.SortHighlight{{Index: 4, Role: render.RolePivot}}, "pivot 4")
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Hi: 5}})
+	// 5 не меньше 3; блока меньших ещё нет (boundary не подсвечен).
+	assertSortSnapshot(t, frames[2], start,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 4, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	// 1 < 3 — по кадру сравнения; блока меньших ещё нет (i = Lo-1).
+	assertSortSnapshot(t, frames[3], start,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 4, Role: render.RolePivot}},
+		"сравнение 1 с pivot")
+	if !strings.Contains(frames[3].Explanation, "строго меньше") {
+		t.Errorf("пояснение сравнения с меньшим = %q, ожидается «строго меньше»", frames[3].Explanation)
+	}
+
+	// Первый обмен 0 1: строго меньшее 1 уходит на границу 0.
+	assertSortSnapshot(t, frames[4], afterSwap01,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleBoundary}, {Index: 1, Role: render.RoleSwapped}, {Index: 4, Role: render.RolePivot}},
+		"обмен 0 1")
+	// 4 не меньше 3; блок меньших — позиция 0, граница подсвечена.
+	assertSortSnapshot(t, frames[5], afterSwap01,
+		[]render.SortHighlight{{Index: 2, Role: render.RoleCompare}, {Index: 4, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 2 с pivot")
+	// 2 < 3 — кадр сравнения с текущей границей.
+	assertSortSnapshot(t, frames[6], afterSwap01,
+		[]render.SortHighlight{{Index: 3, Role: render.RoleCompare}, {Index: 4, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 3 с pivot")
+	// Второй обмен 1 3: строго меньшее 2 уходит на выросшую границу 1.
+	assertSortSnapshot(t, frames[7], afterSwap13,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleBoundary}, {Index: 3, Role: render.RoleSwapped}, {Index: 4, Role: render.RolePivot}},
+		"обмен 1 3")
+	if !strings.Contains(frames[7].Explanation, "блок меньших вырос") {
+		t.Errorf("пояснение обмена 1 3 = %q, ожидается рост блока меньших", frames[7].Explanation)
+	}
+
+	// Pivot 3 занимает финальную позицию 2: 4 переезжает в конец диапазона.
+	assertSortSnapshot(t, frames[8], afterPlacement,
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot на позиции 2")
+	// Кадр размещения — диапазон partition не несёт.
+	assertSortRanges(t, frames[8], nil)
+
+	// Рекурсия слева: partition [0..1] вокруг pivot 2 — одно строго меньшее
+	// сравнение, самообмен не эмитится, pivot уже на финальной позиции.
+	assertSortSnapshot(t, frames[9], afterPlacement,
+		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot 1")
+	assertSortRanges(t, frames[9], []render.SortRange{{Lo: 0, Hi: 2}})
+	assertSortSnapshot(t, frames[10], afterPlacement,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	// Размещение на финальную позицию 1 — обмен не потребовался.
+	assertSortSnapshot(t, frames[11], afterPlacement,
+		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot на позиции 1")
+	assertSortRanges(t, frames[11], nil)
+	if !strings.Contains(frames[11].Explanation, "обмена не потребовалось") {
+		t.Errorf("пояснение размещения без обмена = %q, ожидается «обмена не потребовалось»", frames[11].Explanation)
+	}
+
+	// Рекурсия справа: partition [3..4] вокруг pivot 4.
+	assertSortSnapshot(t, frames[12], afterPlacement,
+		[]render.SortHighlight{{Index: 4, Role: render.RolePivot}}, "pivot 4")
+	assertSortRanges(t, frames[12], []render.SortRange{{Lo: 3, Hi: 5}})
+	assertSortSnapshot(t, frames[13], afterPlacement,
+		[]render.SortHighlight{{Index: 3, Role: render.RoleCompare}, {Index: 4, Role: render.RolePivot}},
+		"сравнение 3 с pivot")
+
+	// Размещение pivot 4 переводит массив в отсортированный итог.
+	assertSortSnapshot(t, frames[14], sorted,
+		[]render.SortHighlight{{Index: 3, Role: render.RolePivot}}, "pivot на позиции 3")
+	assertSortRanges(t, frames[14], nil)
 
 	assertStepsInOrder(t, frames)
 }
@@ -1088,12 +1220,44 @@ func TestRunQuickSortDuplicates(t *testing.T) {
 
 // Вырожденный вход — уже упорядоченный массив: каждый pivot — максимум
 // диапазона, строго меньшие стоят подряд (самообмен пропускается),
-// обменов в потоке нет совсем.
+// и каждый pivot уже стоит на финальной позиции. Кадры сверяются
+// по шагам: зеркало массива не меняется весь поток и финальный кадр
+// несёт отсортированный массив, а не только «обменов нет».
 func TestRunQuickSortSortedDegenerate(t *testing.T) {
 	frames := doRunSortSSE(t, "quick-sort", "1,2,3")
 	if len(frames) != 8 {
 		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
 	}
+
+	start := []int{1, 2, 3}
+	// Каждое зеркало потока: массив не меняется ни на одном шаге —
+	// и остаётся отсортированным.
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт
+	assertSortSnapshot(t, frames[1], start, []render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot 2")
+	assertSortSnapshot(t, frames[2], start,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertSortSnapshot(t, frames[3], start,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 1 с pivot")
+	// Pivot 2 сразу на финальной позиции 2 — обмена не потребовалось.
+	assertSortSnapshot(t, frames[4], start, []render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot на позиции 2")
+	assertSortRanges(t, frames[4], nil)
+	if !strings.Contains(frames[4].Explanation, "обмена не потребовалось") {
+		t.Errorf("пояснение размещения = %q, ожидается «обмена не потребовалось»", frames[4].Explanation)
+	}
+	// Partition [0..1] вокруг pivot 1.
+	assertSortSnapshot(t, frames[5], start, []render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot 1")
+	assertSortSnapshot(t, frames[6], start,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertSortSnapshot(t, frames[7], start, []render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot на позиции 1")
+	if !strings.Contains(frames[7].Explanation, "обмена не потребовалось") {
+		t.Errorf("пояснение размещения последнего pivot = %q, ожидается «обмена не потребовалось»", frames[7].Explanation)
+	}
+
+	// Обменов в потоке нет совсем — зеркало стартового массива и есть
+	// финальный отсортированный результат.
 	for _, f := range frames {
 		s, ok := f.Data.(map[string]any)
 		if !ok {
@@ -1103,6 +1267,7 @@ func TestRunQuickSortSortedDegenerate(t *testing.T) {
 			t.Errorf("на упорядоченном входе обменов не ожидается: кадр %d, операция %q", f.Step, op)
 		}
 	}
+	assertStepsInOrder(t, frames)
 }
 
 // Пустой массив — легальный вход: SSE-поток состоит из одного стартового

@@ -707,8 +707,10 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * in-left, правой — in-right; кадры записи диапазоны не несут (позиция
  * записи — приёмник слияния, а не половина источника), поэтому разметки
  * половин на них нет. Диапазоны partition quicksort идут без границы
- * половин (mid): у partition нет границы половин, границы шага несут
- * роли pivot/boundary. Временное состояние
+ * половин (mid): их ячейки [lo, hi) получают фоновую разметку
+ * in-partition, а границы шага несут роли pivot/boundary; кадр размещения
+ * pivot диапазона не несёт — завершённая partition разметки не рисует.
+ * Временное состояние
  * вставки insertion sort (пока ключ удерживается вне массива) рисуется
  * из полей снимка — видимое состояние задают gap и key вместе: ячейка
  * на позиции gap — пустая «дырка» (значение массива под ней — исходное
@@ -740,11 +742,15 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
   // Активные диапазоны merge sort: левая/правая половины слияния получают
   // фоновую разметку — видно, какие части массива сейчас в работе.
-  // Диапазоны без границы половин (partition quicksort) разметку половин
-  // не рисуют: границы шага несут роли pivot/boundary.
+  // Диапазоны без границы половин — partition quicksort: их ячейки
+  // получают разметку in-partition, границы шага несут роли pivot/boundary.
   const sideByIndex = new Map<number, "in-left" | "in-right">();
+  const partitionIndices = new Set<number>();
   for (const range of snap.ranges) {
-    if (range.mid === undefined) continue;
+    if (range.mid === undefined) {
+      for (let i = range.lo; i < range.hi; i++) partitionIndices.add(i);
+      continue;
+    }
     for (let i = range.lo; i < range.hi; i++) {
       sideByIndex.set(i, i < range.mid ? "in-left" : "in-right");
     }
@@ -762,6 +768,7 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
       if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert" / "write"
       const side = sideByIndex.get(i);
       if (side !== undefined) cell.classList.add(side); // активные половины слияния merge sort
+      if (partitionIndices.has(i)) cell.classList.add("in-partition"); // активный диапазон partition quicksort
     }
     row.appendChild(cell);
   }

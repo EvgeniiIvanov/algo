@@ -122,7 +122,7 @@ export function buildHashTableRunURL(buckets: number, script: string): string {
   return `/api/run/hash-table?${params.toString()}`;
 }
 
-/** Канонический список маршрутов простых сортировок: единый источник имён
+/** Канонический список маршрутов сортировок визуального Run: единый источник имён
  * для URL-билдера ниже и для выбора алгоритма в main.ts (ALGORITHMS,
  * блок ввода, диспетчер Run). Общий вход `values`, различается только путь. */
 export const SORT_ALGORITHMS = [
@@ -133,16 +133,17 @@ export const SORT_ALGORITHMS = [
   "quick-sort",
 ] as const;
 
-/** Маршрут простой сортировки — элемент канонического списка. */
+/** Маршрут сортировки — элемент канонического списка. */
 export type SortAlgorithm = (typeof SORT_ALGORITHMS)[number];
 
-/** Страж типа: выбран ли маршрут простой сортировки. */
+/** Страж типа: выбран ли маршрут сортировки. */
 export function isSortAlgorithm(value: string): value is SortAlgorithm {
   return (SORT_ALGORITHMS as readonly string[]).includes(value);
 }
 
 /**
- * Построить URL запуска Run простой сортировки: массив целых чисел через
+ * Построить URL запуска Run сортировки (bubble, selection, insertion,
+ * merge или quick): массив целых чисел через
  * запятую на маршруте выбранной сортировки. Пустой массив едет как есть —
  * сервер авторитетен и считает его валидным.
  */
