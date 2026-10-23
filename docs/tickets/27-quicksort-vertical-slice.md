@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start after user-authored draft and CH2.5)
 
-**Status:** ready-for-agent
+**Status:** done
 
 `автор-черновик: человек` — до реализации пользователь пишет и подтверждает черновик quicksort на Ч2.5.
 
