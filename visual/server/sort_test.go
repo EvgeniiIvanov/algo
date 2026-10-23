@@ -21,7 +21,7 @@ import (
 )
 
 // doRunSort — запрос Run сортировки по её маршруту
-// (например, "bubble-sort", "selection-sort", "insertion-sort", "merge-sort", "quicksort").
+// (например, "bubble-sort", "selection-sort", "insertion-sort", "merge-sort", "quick-sort").
 func doRunSort(t *testing.T, route, values string) *httptest.ResponseRecorder {
 	t.Helper()
 
