@@ -9,21 +9,25 @@ import (
 
 // Роли подсветки затронутых позиций в SortSnapshot.
 const (
-	RoleCompare = "compare" // позиция сравниваемой сейчас пары (или элемента, сравниваемого с ключом)
-	RoleSwapped = "swap"    // позиция обмениваемой сейчас пары
-	RoleMin     = "min"     // позиция текущего минимума прохода (selection sort)
-	RoleShift   = "shift"   // позиция, в которую сейчас сдвинулось значение (insertion sort)
-	RoleInsert  = "insert"  // позиция, куда вставляется ключ (insertion sort)
-	RoleWrite   = "write"   // позиция, в которую сейчас записано значение при слиянии (merge sort)
+	RoleCompare  = "compare"  // позиция сравниваемой сейчас пары (или элемента, сравниваемого с ключом/pivot)
+	RoleSwapped  = "swap"     // позиция обмениваемой сейчас пары
+	RoleMin      = "min"      // позиция текущего минимума прохода (selection sort)
+	RoleShift    = "shift"    // позиция, в которую сейчас сдвинулось значение (insertion sort)
+	RoleInsert   = "insert"   // позиция, куда вставляется ключ (insertion sort)
+	RoleWrite    = "write"    // позиция, в которую сейчас записано значение при слиянии (merge sort)
+	RolePivot    = "pivot"    // позиция pivot: выбранного на partition и занимаемой финальной позиции (quicksort)
+	RoleBoundary = "boundary" // позиция границы i — конца блока строго меньших значений (quicksort)
 )
 
-// SortRange — активный диапазон merge sort: [Lo, Hi) сейчас используется
-// слиянием или участвует в нём, Mid — граница между его отсортированными
-// половинами. Другие сортировки активных диапазонов не несут.
+// SortRange — активный диапазон шага сортировки: [Lo, Hi) сейчас
+// используется алгоритмом. Merge sort несёт Mid — границу половин
+// слияния; quicksort несёт диапазоны partition [Lo, Hi) без Mid
+// (у partition нет границы половин — nil). Другие сортировки активных
+// диапазонов не несут.
 type SortRange struct {
-	Lo  int `json:"lo"`  // начало активного диапазона
-	Mid int `json:"mid"` // граница половин слияния
-	Hi  int `json:"hi"`  // исключительная граница активного диапазона
+	Lo  int  `json:"lo"`            // начало активного диапазона
+	Mid *int `json:"mid,omitempty"` // граница половин слияния (merge sort); nil — у partition границы половин нет (quicksort)
+	Hi  int  `json:"hi"`            // исключительная граница активного диапазона
 }
 
 // Сентинелы состояния вставки в SortSnapshot: шаг без удерживаемого ключа
@@ -138,7 +142,7 @@ type sortFrames struct {
 	emit       func(frame.Frame)
 	key        int         // значение удерживаемого ключа (insertion sort); осмыслен при gap >= 0
 	gap        int         // индекс «дырки» вставки (insertion sort); -1 — дырки нет
-	ranges     []SortRange // активный диапазон шага (merge sort); у остальных пустой
+	ranges     []SortRange // активный диапазон шага (merge sort — слияние, quicksort — partition); у остальных пустой
 }
 
 // newSortFrames — основа по исходному массиву: кадры не зависят
@@ -277,7 +281,8 @@ type mergeFrames struct{ sortFrames }
 // на кадрах, показывающих источник — половины слияния (деление,
 // сравнение); кадр записи его не несёт — он рисует приёмник.
 func mergeActiveRange(r sort.MergeRange) []SortRange {
-	return []SortRange{{Lo: r.Lo, Mid: r.Mid, Hi: r.Hi}}
+	mid := r.Mid
+	return []SortRange{{Lo: r.Lo, Mid: &mid, Hi: r.Hi}}
 }
 
 // Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
@@ -332,6 +337,105 @@ func (r *mergeFrames) Emit(ev sort.MergeEvent) {
 		}
 		r.frame(fmt.Sprintf("Записываем %d на позицию %d: значение взято из %s половины слияния [%d, %d) — сливаемые половины отсортированы, их значения идут в массив в порядке очерёдности.",
 			e.Value, e.Index, side, e.Lo, e.Hi))
+	}
+}
+
+// QuickSortRun — Frame Renderer quicksort: запускает сортировку в режиме
+// наблюдения и на каждое событие отдаёт кадр в emit. Вход уже валидирован
+// маршрутом (лимит длины, целые числа), ошибок здесь нет.
+func QuickSortRun(values []int, emit func(frame.Frame)) {
+	r := &quickFrames{sortFrames: *newSortFrames(values, emit)}
+
+	r.frame(fmt.Sprintf("Начинаем быструю сортировку: массив из %d элементов упорядочивается по возрастанию — рекурсия работает по включительным диапазонам lo..hi, выбирает в каждом pivot (последний элемент диапазона) и раскладывает значения относительно него (partition по схеме Lomuto): строго меньшие уходят влево, затем pivot встаёт на финальную позицию между частями. Строгое сравнение с pivot делает сортировку неустойчивой; среднее время O(n log n), худшее — O(n²), в частности на уже упорядоченных входах.",
+		len(values)))
+
+	sort.QuickSortWithEmitter(values, r)
+}
+
+// QuickFrames — все кадры сортировки сразу (удобно для тестов).
+func QuickFrames(values []int) []frame.Frame {
+	return collectSortFrames(QuickSortRun, values)
+}
+
+// quickFrames — обёртка-эмиттер событий quicksort над общей основой.
+type quickFrames struct{ sortFrames }
+
+// quickActiveRange — разметка активного диапазона partition [lo..hi]
+// включительно из события quicksort для снимка: SortRange хранит
+// исключительную верхнюю границу, поэтому hi переводится в hi+1.
+// Границы половин (Mid) у partition нет — поле остаётся nil.
+func quickActiveRange(r sort.QuickRange) []SortRange {
+	return []SortRange{{Lo: r.Lo, Hi: r.Hi + 1}}
+}
+
+// Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
+// по детерминированным индексам событий Swap/Placed: pivot за сканирование
+// не двигается, строго меньшие значения уходят влево. Активный диапазон
+// partition — в поле ranges снимка (без границы половин); pivot подсвечен
+// на всех кадрах partition, граница блока строго меньших — на кадрах
+// сравнения и обмена; кадр размещения pivot диапазона не несёт:
+// финальная позиция pivot — граница уже завершённой partition.
+func (r *quickFrames) Emit(ev sort.QuickEvent) {
+	switch e := ev.(type) {
+	case sort.QuickPivot:
+		// Кадр выбора pivot: зеркало не меняется — сканирование ещё не шло.
+		r.ranges = quickActiveRange(e.QuickRange)
+		r.highlights = []SortHighlight{{Index: e.Hi, Role: RolePivot}}
+		r.operation = fmt.Sprintf("pivot %d", e.Hi)
+		r.frame(fmt.Sprintf("Выбираем pivot для partition [%d..%d]: значение %d на позиции %d — последний элемент диапазона. Строго меньшие значения соберутся слева, не меньшие — справа.",
+			e.Lo, e.Hi, e.PivotValue, e.Hi))
+
+	case sort.QuickCompare:
+		// Кадр сравнения: элемент j против pivot; если блок строго меньших
+		// уже начался, видна и текущая граница i.
+		r.ranges = quickActiveRange(e.QuickRange)
+		r.highlights = []SortHighlight{
+			{Index: e.J, Role: RoleCompare},
+			{Index: e.Hi, Role: RolePivot},
+		}
+		if e.Boundary >= e.Lo {
+			r.highlights = append(r.highlights, SortHighlight{Index: e.Boundary, Role: RoleBoundary})
+		}
+		r.operation = fmt.Sprintf("сравнение %d с pivot", e.J)
+		if e.JValue < e.PivotValue {
+			r.frame(fmt.Sprintf("Сравниваем позицию %d (%d) с pivot %d: значение строго меньше — оно окажется в левой части partition [%d..%d], следом перенос в блок меньших.",
+				e.J, e.JValue, e.PivotValue, e.Lo, e.Hi))
+		} else {
+			r.frame(fmt.Sprintf("Сравниваем позицию %d (%d) с pivot %d: значение не меньше pivot — оно остаётся в правой части partition [%d..%d] (строгое сравнение: равные pivot значения уходят вправо).",
+				e.J, e.JValue, e.PivotValue, e.Lo, e.Hi))
+		}
+
+	case sort.QuickSwap:
+		// Кадр обмена: строго меньшее значение с позиции j встаёт на
+		// границу i, прежнее значение i уходит на j.
+		r.mirror[e.Left], r.mirror[e.Right] = e.RightValue, e.LeftValue
+		r.ranges = quickActiveRange(e.QuickRange)
+		r.highlights = []SortHighlight{
+			{Index: e.Left, Role: RoleBoundary},
+			{Index: e.Right, Role: RoleSwapped},
+			{Index: e.Hi, Role: RolePivot},
+		}
+		r.operation = fmt.Sprintf("обмен %d %d", e.Left, e.Right)
+		r.frame(fmt.Sprintf("Обмен при partition [%d..%d]: строго меньшее %d уходит на позицию %d — блок меньших вырос до неё, а %d переезжает на позицию %d.",
+			e.Lo, e.Hi, e.RightValue, e.Left, e.LeftValue, e.Right))
+
+	case sort.QuickPlaced:
+		// Кадр размещения pivot на финальной позиции Index: значение,
+		// стоявшее там до обмена, переезжает на позицию pivot (Hi);
+		// при Index == Hi обмена нет — pivot уже на месте, зеркало цело.
+		displaced := r.mirror[e.Index]
+		r.mirror[e.Index] = e.Value
+		r.mirror[e.Hi] = displaced
+		r.ranges = nil
+		r.highlights = []SortHighlight{{Index: e.Index, Role: RolePivot}}
+		r.operation = fmt.Sprintf("pivot на позиции %d", e.Index)
+		if e.Index == e.Hi {
+			r.frame(fmt.Sprintf("Partition [%d..%d] завершена: pivot %d уже на финальной позиции %d — слева все значения строго меньше его, справа — не меньше; обмена не потребовалось.",
+				e.Lo, e.Hi, e.Value, e.Index))
+		} else {
+			r.frame(fmt.Sprintf("Partition [%d..%d] завершена: pivot %d занимает финальную позицию %d — слева все значения строго меньше его, справа — не меньше.",
+				e.Lo, e.Hi, e.Value, e.Index))
+		}
 	}
 }
 

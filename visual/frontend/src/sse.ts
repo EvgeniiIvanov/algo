@@ -130,6 +130,7 @@ export const SORT_ALGORITHMS = [
   "selection-sort",
   "insertion-sort",
   "merge-sort",
+  "quick-sort",
 ] as const;
 
 /** Маршрут простой сортировки — элемент канонического списка. */

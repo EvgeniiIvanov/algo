@@ -713,6 +713,10 @@ func TestRunBubbleSortFramesHaveNoInsertionState(t *testing.T) {
 	assertSortKeyState(t, frames[0], -1, 0)
 }
 
+// midPtr — указатель на значение границы половин для ожидаемых диапазонов
+// merge sort в assertSortRanges.
+func midPtr(v int) *int { return &v }
+
 // assertSortRanges сверяет активные диапазоны шага в снимке (после
 // JSON-кругосветки); у шагов без активного диапазона — пустой список.
 func assertSortRanges(t *testing.T, f frame.Frame, ranges []render.SortRange) {
@@ -731,8 +735,17 @@ func assertSortRanges(t *testing.T, f frame.Frame, ranges []render.SortRange) {
 	}
 	for i, want := range ranges {
 		rg := gotRaw[i].(map[string]any)
-		got := fmt.Sprintf("lo=%v mid=%v hi=%v", rg["lo"], rg["mid"], rg["hi"])
-		expr := fmt.Sprintf("lo=%d mid=%d hi=%d", want.Lo, want.Mid, want.Hi)
+		got := fmt.Sprintf("lo=%v hi=%v", rg["lo"], rg["hi"])
+		expr := fmt.Sprintf("lo=%d hi=%d", want.Lo, want.Hi)
+		switch {
+		case want.Mid != nil:
+			got += fmt.Sprintf(" mid=%v", rg["mid"])
+			expr += fmt.Sprintf(" mid=%d", *want.Mid)
+		default:
+			if _, present := rg["mid"]; present {
+				t.Fatalf("кадр шага %d: диапазон %d не должен нести mid", f.Step, i)
+			}
+		}
 		if got != expr {
 			t.Fatalf("кадр шага %d: диапазон %d = %s, ожидалось %s", f.Step, i, got, expr)
 		}
@@ -761,9 +774,9 @@ func TestRunMergeSortScenario(t *testing.T) {
 	// Деление рекурсивных диапазонов до спуска в их половины; зеркальное
 	// состояние делений не меняется — меняется только разметка диапазона.
 	assertSortSnapshot(t, frames[1], start, nil, "деление 0..2")
-	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: midPtr(1), Hi: 3}})
 	assertSortSnapshot(t, frames[2], start, nil, "деление 1..2")
-	assertSortRanges(t, frames[2], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
+	assertSortRanges(t, frames[2], []render.SortRange{{Lo: 1, Mid: midPtr(2), Hi: 3}})
 	if !strings.Contains(frames[1].Explanation, "Делим диапазон [0, 3)") {
 		t.Errorf("пояснение деления = %q, ожидается деление [0, 3) пополам", frames[1].Explanation)
 	}
@@ -772,7 +785,7 @@ func TestRunMergeSortScenario(t *testing.T) {
 	assertSortSnapshot(t, frames[3], start,
 		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
 		"сравнение 1 2")
-	assertSortRanges(t, frames[3], []render.SortRange{{Lo: 1, Mid: 2, Hi: 3}})
+	assertSortRanges(t, frames[3], []render.SortRange{{Lo: 1, Mid: midPtr(2), Hi: 3}})
 	assertSortSnapshot(t, frames[4], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 1, Role: render.RoleWrite}}, "запись 1")
 	assertSortSnapshot(t, frames[5], []int{3, 1, 2},
@@ -785,7 +798,7 @@ func TestRunMergeSortScenario(t *testing.T) {
 	assertSortSnapshot(t, frames[6], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
 		"сравнение 0 1")
-	assertSortRanges(t, frames[6], []render.SortRange{{Lo: 0, Mid: 1, Hi: 3}})
+	assertSortRanges(t, frames[6], []render.SortRange{{Lo: 0, Mid: midPtr(1), Hi: 3}})
 	assertSortSnapshot(t, frames[7], []int{3, 1, 2},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RoleCompare}},
 		"сравнение 0 2")
@@ -822,7 +835,7 @@ func TestRunMergeSortEqualTakesLeft(t *testing.T) {
 	}
 	assertSortSnapshot(t, frames[0], []int{5, 5}, nil, "")
 	assertSortSnapshot(t, frames[1], []int{5, 5}, nil, "деление 0..1")
-	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: 1, Hi: 2}})
+	assertSortRanges(t, frames[1], []render.SortRange{{Lo: 0, Mid: midPtr(1), Hi: 2}})
 	assertSortSnapshot(t, frames[2], []int{5, 5},
 		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RoleCompare}},
 		"сравнение 0 1")
@@ -921,4 +934,230 @@ func TestRunMergeSortNegativesAndDuplicates(t *testing.T) {
 // с кадрами, собранными напрямую у рендерера.
 func TestRunMergeSortMatchesDirectRenderer(t *testing.T) {
 	assertSortMatchesDirectRenderer(t, "merge-sort", "3,1,2", render.MergeFrames)
+}
+
+// assertPartitionRange сверяет активный диапазон partition quicksort
+// в снимке (после JSON-кругосветки): границы lo..hi включительно,
+// границы половин mid у partition нет.
+func assertPartitionRange(t *testing.T, f frame.Frame, lo, hi int) {
+	t.Helper()
+
+	s, ok := f.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	gotRaw, ok := s["ranges"].([]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: ranges не список: %v", f.Step, s["ranges"])
+	}
+	if len(gotRaw) != 1 {
+		t.Fatalf("кадр шага %d: диапазонов %d, ожидался 1", f.Step, len(gotRaw))
+	}
+	rg := gotRaw[0].(map[string]any)
+	if got := rg["lo"].(float64); got != float64(lo) {
+		t.Fatalf("кадр шага %d: lo диапазона = %v, ожидалось %d", f.Step, got, lo)
+	}
+	if got := rg["hi"].(float64); got != float64(hi+1) {
+		t.Fatalf("кадр шага %d: hi диапазона = %v, ожидалось %d (включительный hi partition)", f.Step, got, hi+1)
+	}
+	if _, present := rg["mid"]; present {
+		t.Fatalf("кадр шага %d: у диапазона partition не может быть границы половин mid", f.Step)
+	}
+}
+
+func TestRunQuickSortValidation(t *testing.T) { assertSortValidation(t, "quick-sort") }
+
+// Сквозной сценарий теста: сортировка [2,4,1,3] — один стартовый кадр и по
+// кадру на каждое событие: выбор pivot, три сравнения с pivot (первый
+// кандидат-самообмен не эмитится), обмен строго меньшего влево, размещение
+// pivot, затем partition левой части [0..1]. Итог — упорядоченный массив.
+func TestRunQuickSortScenario(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", "2,4,1,3")
+	if len(frames) != 10 {
+		t.Fatalf("кадров = %d, ожидалось 10:\n%v", len(frames), frames)
+	}
+
+	start := []int{2, 4, 1, 3}
+	sorted := []int{1, 2, 3, 4}
+
+	assertSortSnapshot(t, frames[0], start, nil, "") // старт: исходный массив
+	assertSortRanges(t, frames[0], nil)
+
+	// Partition [0..3] вокруг pivot 3 (последний элемент диапазона).
+	assertSortSnapshot(t, frames[1], start,
+		[]render.SortHighlight{{Index: 3, Role: render.RolePivot}}, "pivot 3")
+	assertPartitionRange(t, frames[1], 0, 3)
+	if !strings.Contains(frames[1].Explanation, "последний элемент") {
+		t.Errorf("пояснение выбора pivot = %q, ожидается «последний элемент»", frames[1].Explanation)
+	}
+
+	// 2 < 3: строго меньше; блока меньших ещё нет (boundary не подсвечен).
+	assertSortSnapshot(t, frames[2], start,
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 3, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertPartitionRange(t, frames[2], 0, 3)
+	if !strings.Contains(frames[2].Explanation, "строго меньше") {
+		t.Errorf("пояснение сравнения с меньшим = %q, ожидается «строго меньше»", frames[2].Explanation)
+	}
+
+	// 4 не меньше 3; блок меньших вырос до позиции 0 — граница подсвечена.
+	assertSortSnapshot(t, frames[3], start,
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 3, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 1 с pivot")
+	if !strings.Contains(frames[3].Explanation, "не меньше pivot") {
+		t.Errorf("пояснение сравнения с большим = %q, ожидается «не меньше pivot»", frames[3].Explanation)
+	}
+
+	// 1 < 3: уходит влево обменом с позицией 1.
+	assertSortSnapshot(t, frames[4], start,
+		[]render.SortHighlight{{Index: 2, Role: render.RoleCompare}, {Index: 3, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 2 с pivot")
+	assertSortSnapshot(t, frames[5], []int{2, 1, 4, 3},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleBoundary}, {Index: 2, Role: render.RoleSwapped}, {Index: 3, Role: render.RolePivot}},
+		"обмен 1 2")
+	if !strings.Contains(frames[5].Explanation, "блок меньших вырос") {
+		t.Errorf("пояснение обмена = %q, ожидается рост блока меньших", frames[5].Explanation)
+	}
+
+	// Pivot 3 занимает финальную позицию 2: 4 переезжает в конец.
+	assertSortSnapshot(t, frames[6], []int{2, 1, 3, 4},
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot на позиции 2")
+	assertSortRanges(t, frames[6], nil)
+
+	// Рекурсия слева partition [0..1] вокруг pivot 1.
+	assertSortSnapshot(t, frames[7], []int{2, 1, 3, 4},
+		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot 1")
+	assertPartitionRange(t, frames[7], 0, 1)
+	assertSortSnapshot(t, frames[8], []int{2, 1, 3, 4},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertPartitionRange(t, frames[8], 0, 1)
+
+	// Pivot 1 занимает финальную позицию 0; правые рекурсии ([2..2] и [3..3])
+	// одноэлементны — partition'ов и событий на них нет.
+	assertSortSnapshot(t, frames[9], sorted,
+		[]render.SortHighlight{{Index: 0, Role: render.RolePivot}}, "pivot на позиции 0")
+	if !strings.Contains(frames[9].Explanation, "финальную позицию") {
+		t.Errorf("пояснение размещения pivot = %q, ожидается финальная позиция", frames[9].Explanation)
+	}
+
+	assertStepsInOrder(t, frames)
+}
+
+// Дубликаты pivot уходят вправо (строгое сравнение из черновика):
+// вход [-1,-1,0] — оба элемента строго меньше pivot 0 и за счёт частых
+// самообменов не порождают обменов; сравнение равных в partition [0..1]
+// не сдвигает дубликат с правой стороны.
+func TestRunQuickSortDuplicates(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", "-1,-1,0")
+	if len(frames) != 8 {
+		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	}
+
+	assertSortSnapshot(t, frames[0], []int{-1, -1, 0}, nil, "")
+	assertSortSnapshot(t, frames[1], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot 2")
+	// Оба элемента строго меньше 0 — по кадру сравнения на каждый.
+	assertSortSnapshot(t, frames[2], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	assertSortSnapshot(t, frames[3], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 1, Role: render.RoleCompare}, {Index: 2, Role: render.RolePivot}, {Index: 0, Role: render.RoleBoundary}},
+		"сравнение 1 с pivot")
+	// Pivot 0 уже на финальной позиции 2 — обмена не потребовалось.
+	assertSortSnapshot(t, frames[4], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 2, Role: render.RolePivot}}, "pivot на позиции 2")
+	if !strings.Contains(frames[4].Explanation, "обмена не потребовалось") {
+		t.Errorf("пояснение размещения = %q, ожидается «обмена не потребовалось»", frames[4].Explanation)
+	}
+	// Partition [0..1] вокруг pivot -1: сравнение равных значений —
+	// дубликат не строго меньше pivot, остаётся справа.
+	assertSortSnapshot(t, frames[5], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot 1")
+	assertSortSnapshot(t, frames[6], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 0, Role: render.RoleCompare}, {Index: 1, Role: render.RolePivot}},
+		"сравнение 0 с pivot")
+	if !strings.Contains(frames[6].Explanation, "не меньше pivot") {
+		t.Errorf("пояснение сравнения дубликатов = %q, ожидается «не меньше pivot»", frames[6].Explanation)
+	}
+	assertSortSnapshot(t, frames[7], []int{-1, -1, 0},
+		[]render.SortHighlight{{Index: 0, Role: render.RolePivot}}, "pivot на позиции 0")
+
+	assertStepsInOrder(t, frames)
+}
+
+// Вырожденный вход — уже упорядоченный массив: каждый pivot — максимум
+// диапазона, строго меньшие стоят подряд (самообмен пропускается),
+// обменов в потоке нет совсем.
+func TestRunQuickSortSortedDegenerate(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", "1,2,3")
+	if len(frames) != 8 {
+		t.Fatalf("кадров = %d, ожидалось 8:\n%v", len(frames), frames)
+	}
+	for _, f := range frames {
+		s, ok := f.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+		}
+		if op, ok := s["operation"].(string); ok && strings.HasPrefix(op, "обмен") {
+			t.Errorf("на упорядоченном входе обменов не ожидается: кадр %d, операция %q", f.Step, op)
+		}
+	}
+}
+
+// Пустой массив — легальный вход: SSE-поток состоит из одного стартового
+// кадра с пустым рядом и завершается; одноэлементный вход — кадр исходного
+// состояния без partition.
+func TestRunQuickSortEmptyInput(t *testing.T) {
+	runs := runSortTrivialInputs(t, "quick-sort")
+	for _, frames := range runs {
+		assertSortRanges(t, frames[0], nil)
+	}
+}
+
+// Граница лимита длины: 100 элементов принимаются (SSE-поток завершён),
+// 101-й элемент отвергается до начала потока. Вход уже отсортирован —
+// худший случай по глубине рекурсии, но кадры считаются независимой
+// формулой: на partition длины k приходится 1 pivot + (k-1) сравнение
+// + 1 размещение = k+1 событий; E(n) = Σ_{k=2..n}(k+1).
+func TestRunQuickSortLengthLimit(t *testing.T) {
+	frames := doRunSortSSE(t, "quick-sort", sortedInput(100))
+	want := 1 + quickSortedEvents(100)
+	if len(frames) != want {
+		t.Fatalf("кадров = %d, ожидалось %d", len(frames), want)
+	}
+	// Последний кадр — размещение последнего pivot рекурсии в [0..1].
+	last := frames[len(frames)-1]
+	assertSortSnapshot(t, last, mustInts(t, sortedInput(100)),
+		[]render.SortHighlight{{Index: 1, Role: render.RolePivot}}, "pivot на позиции 1")
+	assertSortRanges(t, last, nil)
+
+	resp := doRunSort(t, "quick-sort", sortedInput(101))
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("статус = %d, ожидается 400: лимит превышен на 101-м элементе", resp.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
+	}
+	if !strings.Contains(got["error"], "максимум 100") {
+		t.Errorf("ошибка = %q, ожидается упоминание максимума 100", got["error"])
+	}
+}
+
+// quickSortedEvents — независимая формула числа кадров quicksort минус
+// стартовый на уже отсортированном входе длины n: partition (0..n-1)
+// даёт pivot + (n-1) сравнение + размещение, затем рекурсия в [0..n-2].
+func quickSortedEvents(n int) int {
+	total := 0
+	for k := 2; k <= n; k++ {
+		total += k + 1
+	}
+	return total
+}
+
+// Рендерер и транспорт не должны расходиться: кадры из эндпоинта совпадают
+// с кадрами, собранными напрямую у рендерера.
+func TestRunQuickSortMatchesDirectRenderer(t *testing.T) {
+	assertSortMatchesDirectRenderer(t, "quick-sort", "2,4,1,3", render.QuickFrames)
 }

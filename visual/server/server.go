@@ -28,6 +28,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/run/selection-sort", handleSort(render.SelectionRun))
 	mux.HandleFunc("GET /api/run/insertion-sort", handleSort(render.InsertionRun))
 	mux.HandleFunc("GET /api/run/merge-sort", handleSort(render.MergeRun))
+	mux.HandleFunc("GET /api/run/quick-sort", handleSort(render.QuickSortRun))
 	return mux
 }
 

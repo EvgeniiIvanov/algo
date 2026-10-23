@@ -520,3 +520,20 @@ code {
   color: white;
   transform: scale(1.05);
 }
+
+/* Pivot (quicksort): позиция выбранного на partition pivot и его
+   финальной позиции — pivot виден на всех кадрах своей partition. */
+.sort .cell.pivot {
+  background: #0369a1;
+  border-color: #075985;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Граница partition (quicksort): позиция i — конец блока строго меньших
+   значений; следующее строго меньшее встанет на позицию после неё.
+   Фон светлее ролей шага: граница — контекст блока, а не действо. */
+.sort .cell.boundary {
+  background: #dbeafe;
+  border-color: #2563eb;
+}

@@ -64,6 +64,7 @@ describe.each([
   { algorithm: "selection-sort", route: "/api/run/selection-sort" },
   { algorithm: "insertion-sort", route: "/api/run/insertion-sort" },
   { algorithm: "merge-sort", route: "/api/run/merge-sort" },
+  { algorithm: "quick-sort", route: "/api/run/quick-sort" },
 ] as const)("buildSortRunURL — $route", ({ algorithm, route }) => {
   it("собирает URL маршрута сортировки с массивом значений", () => {
     expect(buildSortRunURL(algorithm, [3, 1, 2])).toBe(`${route}?values=3%2C1%2C2`);
