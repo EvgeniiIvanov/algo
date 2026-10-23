@@ -23,9 +23,11 @@ function renderToDOM(frame: Frame): {
   return { ok, explanationEl, containerEl };
 }
 
-/** Снимок сортировки: массив [3,1,2], сравнивается пара 0..1. */
+/** Снимок сортировки: массив [3,1,2], сравнивается пара 0..1. Переопределяемые
+ * поля передаются как переопределения; явные undefined отфильтровываются,
+ * чтобы Partial-переопределения не «затирали» обязательные поля снимка. */
 function snapshot(overrides?: Partial<SortSnapshot>): SortSnapshot {
-  return {
+  const base: SortSnapshot = {
     values: [3, 1, 2],
     highlights: [
       { index: 0, role: "compare" },
@@ -34,8 +36,13 @@ function snapshot(overrides?: Partial<SortSnapshot>): SortSnapshot {
     operation: "сравнение 0 1",
     gap: -1, // шаг без состояния вставки (стартовый кадр, bubble/selection)
     key: 0,
-    ...overrides,
+    ranges: [],
   };
+  if (overrides === undefined) return base;
+  const clean = Object.fromEntries(
+    Object.entries(overrides).filter(([, v]) => v !== undefined),
+  );
+  return { ...base, ...clean } as SortSnapshot;
 }
 
 describe("isSortFrame", () => {
@@ -53,6 +60,19 @@ describe("isSortFrame", () => {
   it("принимает пустой массив — легальный вход сортировки", () => {
     expect(
       isSortFrame(sortFrame({ values: [], highlights: [], operation: "", gap: -1, key: 0 })),
+    ).toBe(true);
+  });
+
+  it("принимает активные диапазоны merge sort", () => {
+    expect(
+      isSortFrame(
+        sortFrame(
+          snapshot({
+            values: [1, 3, 2],
+            ranges: [{ lo: 0, mid: 1, hi: 3 }],
+          }),
+        ),
+      ),
     ).toBe(true);
   });
 
@@ -79,6 +99,31 @@ describe("isSortFrame", () => {
     expect(isSortFrame(sortFrame({ ...base, key: "5" }))).toBe(false); // ключ не число
     expect(isSortFrame(sortFrame({ ...base, key: undefined, gap: 0 }))).toBe(false); // gap без key
     expect(isSortFrame(sortFrame({ ...base, gap: undefined, key: 5 }))).toBe(false); // key без gap
+  });
+
+  it("отвергает кривые активные диапазоны merge sort", () => {
+    const base = snapshot({ values: [1, 3, 2] });
+    expect(isSortFrame(sortFrame({ ...base, ranges: {} }))).toBe(false); // не массив
+    expect(isSortFrame(sortFrame({ ...base, ranges: [{ lo: "0", mid: 1, hi: 3 }] }))).toBe(false); // lo не число
+    expect(isSortFrame(sortFrame({ ...base, ranges: [{ lo: 0, mid: 1, hi: 5 }] }))).toBe(false); // hi вне массива
+    expect(isSortFrame(sortFrame({ ...base, ranges: [{ lo: 2, mid: 1, hi: 3 }] }))).toBe(false); // lo после hi
+    expect(isSortFrame(sortFrame({ ...base, ranges: [{ lo: 0, mid: 0, hi: 3 }] }))).toBe(false); // mid не делит пополам
+    expect(isSortFrame(sortFrame({ ...base, ranges: [{ lo: 0, mid: 3, hi: 3 }] }))).toBe(false); // mid на границе
+  });
+
+  it("старый снимок без ranges читается как шаг без активных диапазонов", () => {
+    const oldFrame = {
+      step: 1,
+      kind: "sort",
+      explanation: "шаг",
+      data: { values: [3, 1, 2], highlights: [], operation: "" },
+    } as unknown as Frame;
+
+    expect(isSortFrame(oldFrame)).toBe(true);
+  });
+
+  it("некорректный снимок вызывает ошибку — ветка рендера не рисует мусор", () => {
+    expect(() => renderToDOM(sortFrame({ values: "целиком не массив" }))).toThrow();
   });
 
   it("отвергает чужие kind'ы", () => {
@@ -165,6 +210,90 @@ describe("renderFrame — kind=\"sort\"", () => {
     expect(containerEl.querySelectorAll(".cell.shift")).toHaveLength(2);
     expect(containerEl.querySelectorAll(".cell.insert")).toHaveLength(1);
     expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: вставка на позицию 0");
+  });
+
+  it("подсвечивает запись слияния merge sort без разметки половин источника", () => {
+    // Кадр записи слияния [0,3) с границей 1: запись на позицию 0.
+    // Позиция записи — приёмник слияния: половинные классы in-left/in-right
+    // на кадре записи не рисуются, иначе выход слияния выглядел бы как
+    // левая/правая половина источника вопреки пояснению («взято из левой»).
+    // Источник читается в тексте пояснения, а роль write отмечает ячейку.
+    const { ok, explanationEl, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [1, 2, 2],
+          highlights: [{ index: 0, role: "write" }],
+          operation: "запись 0",
+          ranges: [],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(explanationEl.textContent).toBe("пояснение шага");
+    expect(containerEl.querySelectorAll(".cell.write")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.in-left, .cell.in-right")).toHaveLength(0);
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: запись 0");
+  });
+
+  it("подсвечивает сравнение слияния на фоне половин диапазона", () => {
+    // Кадр сравнения слияния [0,3) с границей 1: сравниваемые головы
+    // 0 (левая половина) и 1 (правая) подсвечены ролями compare, а сам
+    // диапазон размечен половинами.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [1, 2, 2],
+          highlights: [
+            { index: 0, role: "compare" },
+            { index: 1, role: "compare" },
+          ],
+          operation: "сравнение 0 1",
+          ranges: [{ lo: 0, mid: 1, hi: 3 }],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.compare")).toHaveLength(2);
+    expect(containerEl.querySelectorAll(".cell.in-left")).toHaveLength(1); // левая половина [0, 1)
+    expect(containerEl.querySelectorAll(".cell.in-right")).toHaveLength(2); // правая [1, 3)
+  });
+
+  it("рисует кадр деления merge sort: обе половины размечены, зеркальный массив цел", () => {
+    // Кадр split-события диапазона [0,3) с границей 1: деления без подсветок
+    // ролей, левая половина [0,1) и правая [1,3) видны разметкой половин.
+    const { ok, containerEl } = renderToDOM(
+      sortFrame(
+        snapshot({
+          values: [3, 1, 2],
+          highlights: [],
+          operation: "деление 0..2",
+          ranges: [{ lo: 0, mid: 1, hi: 3 }],
+        }),
+      ),
+    );
+
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.filled")).toHaveLength(3); // деление не меняет массив
+    expect(containerEl.querySelectorAll(".cell.in-left")).toHaveLength(1);
+    expect(containerEl.querySelectorAll(".cell.in-right")).toHaveLength(2);
+    expect(containerEl.querySelectorAll(".cell.compare, .cell.write")).toHaveLength(0);
+    expect(containerEl.querySelector(".operation")?.textContent).toBe("Шаг: деление 0..2");
+  });
+
+  it("старый снимок без ranges остаётся валидным и рисуется без разметки половин", () => {
+    const oldFrame = {
+      step: 1,
+      kind: "sort",
+      explanation: "шаг",
+      data: { values: [3, 1, 2], highlights: [], operation: "" },
+    } as unknown as Frame;
+
+    expect(isSortFrame(oldFrame)).toBe(true);
+    const { ok, containerEl } = renderToDOM(oldFrame);
+    expect(ok).toBe(true);
+    expect(containerEl.querySelectorAll(".cell.in-left, .cell.in-right")).toHaveLength(0);
   });
 
   it("пустой массив рисуется без ячеек", () => {

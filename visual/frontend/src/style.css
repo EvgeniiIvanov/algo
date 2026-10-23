@@ -435,15 +435,35 @@ code {
   gap: 8px;
 }
 
-/* Сравнение сейчас: обе ячейки сравниваемой пары. */
-.cell.compare {
+/* Активные половины слияния (merge sort): левая и правая части
+   сливаемого диапазона получают фоновую разметку — видно, какие
+   части массива сейчас размечены и в работе. Правила идут после
+   .cell.filled на той же специфичности (два класса) — каскад здесь
+   осознанно опирается на порядок; победа ролей шага (compare/write/...)
+   над этой разметкой задана не порядком, а их более высокой
+   специфичностью (три класса, см. ниже). */
+.cell.in-left {
+  background: #eef2ff;
+  border-color: #93a3d8;
+}
+
+.cell.in-right {
+  background: #fdf2f8;
+  border-color: #d8a3b8;
+}
+
+/* Роли шага ветки kind="sort"; каждая предварена .sort — специфичность
+   трёх классов выше, чем у разметки половин (.cell.in-left/.in-right) и
+   базовых ячеек, поэтому роль шага выигрывает каскад независимо от
+   порядка правил: белый текст роли читается на своём тёмном фоне. */
+.sort .cell.compare {
   background: var(--mid);
   border-color: #b45309;
   color: white;
 }
 
 /* Обмен сейчас: обе ячейки обмениваемой пары. */
-.cell.swap {
+.sort .cell.swap {
   background: #7c3aed;
   border-color: #5b21b6;
   color: white;
@@ -452,7 +472,7 @@ code {
 
 /* Текущий минимум прохода selection sort: кандидат, с которым сравниваются
    остальные элементы неотсортированной части. */
-.cell.min {
+.sort .cell.min {
   background: var(--accent);
   border-color: #1d4ed8;
   color: white;
@@ -461,7 +481,7 @@ code {
 
 /* Сдвиг сейчас (insertion sort): значение уходит вправо, освобождая место
    ключу, — подсвечен приёмник сдвига; источник становится «дыркой». */
-.cell.shift {
+.sort .cell.shift {
   background: #0f766e;
   border-color: #134e4a;
   color: white;
@@ -485,9 +505,18 @@ code {
 }
 
 /* Вставка сейчас (insertion sort): позиция, куда встал ключ. */
-.cell.insert {
+.sort .cell.insert {
   background: #15803d;
   border-color: #166534;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Запись при слиянии (merge sort): позиция, в которую значение
+   слияния только что появилось в массиве. */
+.sort .cell.write {
+  background: #a16207;
+  border-color: #854d0e;
   color: white;
   transform: scale(1.05);
 }

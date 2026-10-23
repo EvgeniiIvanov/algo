@@ -14,7 +14,17 @@ const (
 	RoleMin     = "min"     // позиция текущего минимума прохода (selection sort)
 	RoleShift   = "shift"   // позиция, в которую сейчас сдвинулось значение (insertion sort)
 	RoleInsert  = "insert"  // позиция, куда вставляется ключ (insertion sort)
+	RoleWrite   = "write"   // позиция, в которую сейчас записано значение при слиянии (merge sort)
 )
+
+// SortRange — активный диапазон merge sort: [Lo, Hi) сейчас используется
+// слиянием или участвует в нём, Mid — граница между его отсортированными
+// половинами. Другие сортировки активных диапазонов не несут.
+type SortRange struct {
+	Lo  int `json:"lo"`  // начало активного диапазона
+	Mid int `json:"mid"` // граница половин слияния
+	Hi  int `json:"hi"`  // исключительная граница активного диапазона
+}
 
 // Сентинелы состояния вставки в SortSnapshot: шаг без удерживаемого ключа
 // и «дырки» — стартовый кадр, кадры bubble/selection, кадр после вставки.
@@ -40,6 +50,11 @@ type SortSnapshot struct {
 	Values     []int           `json:"values"`     // весь массив на шаге (копия, не nil)
 	Highlights []SortHighlight `json:"highlights"` // подсветки сравниваемых/обмениваемых/сдвигаемых позиций, минимума и вставки (пустые шаги — [])
 	Operation  string          `json:"operation"`  // имя шага ("сравнение 0 1", "обмен 1 2", "сдвиг 0 → 1"); пусто — стартовый кадр
+	// Ranges — активные диапазоны шага (merge sort: сливаемый отрезок
+	// [Lo, Hi) с границей половин Mid); у других сортировок и на шаге без
+	// активного диапазона — пустой список. Поле обратно совместимо:
+	// прежние снимки без ranges читаются фронтом как пустые.
+	Ranges []SortRange `json:"ranges"`
 	// Gap — индекс «дырки»: пустой позиции, ожидающей удерживаемый ключ
 	// (insertion sort, пока ключ вне массива). -1 — дырки на шаге нет.
 	// При Gap >= 0 значение Values[Gap] — исходное значение ключа
@@ -121,8 +136,9 @@ type sortFrames struct {
 	operation  string          // имя текущего шага
 	step       int
 	emit       func(frame.Frame)
-	key        int // значение удерживаемого ключа (insertion sort); осмыслен при gap >= 0
-	gap        int // индекс «дырки» вставки (insertion sort); -1 — дырки нет
+	key        int         // значение удерживаемого ключа (insertion sort); осмыслен при gap >= 0
+	gap        int         // индекс «дырки» вставки (insertion sort); -1 — дырки нет
+	ranges     []SortRange // активный диапазон шага (merge sort); у остальных пустой
 }
 
 // newSortFrames — основа по исходному массиву: кадры не зависят
@@ -154,6 +170,7 @@ func (r *sortFrames) frame(explanation string) {
 			Operation:  r.operation,
 			Gap:        r.gap,
 			Key:        r.key,
+			Ranges:     append([]SortRange{}, r.ranges...),
 		},
 	})
 }
@@ -231,6 +248,90 @@ func (r *selectionFrames) Emit(ev sort.SelectionEvent) {
 		r.operation = fmt.Sprintf("обмен %d %d", e.Pass, e.Min)
 		r.frame(fmt.Sprintf("Минимум остатка найден: меняем позиции %d и %d — значения %d и %d поменялись местами.",
 			e.Pass, e.Min, e.PassValue, e.MinValue))
+	}
+}
+
+// MergeRun — Frame Renderer merge sort: запускает сортировку в режиме
+// наблюдения и на каждое событие отдаёт кадр в emit. Вход уже валидирован
+// маршрутом (лимит длины, целые числа), ошибок здесь нет.
+func MergeRun(values []int, emit func(frame.Frame)) {
+	r := &mergeFrames{sortFrames: *newSortFrames(values, emit)}
+
+	r.frame(fmt.Sprintf("Начинаем сортировку слиянием: массив из %d элементов упорядочивается по возрастанию — рекурсия делит диапазон пополам, сортирует половины и сливает их через буфер. При равных значениях первым берётся элемент левой половины, поэтому слияние устойчиво; дополнительная память — один буфер размера массива.",
+		len(values)))
+
+	sort.MergeSortWithEmitter(values, r)
+}
+
+// MergeFrames — все кадры сортировки сразу (удобно для тестов).
+func MergeFrames(values []int) []frame.Frame {
+	return collectSortFrames(MergeRun, values)
+}
+
+// mergeFrames — обёртка-эмиттер событий merge sort над общей основой.
+type mergeFrames struct{ sortFrames }
+
+// mergeActiveRange — разметка активного диапазона слияния из события алгоритма
+// для снимка: одна именованная конструкция тройки lo/mid/hi вместо её
+// повторения в каждой ветке рендерера. Ставится
+// на кадрах, показывающих источник — половины слияния (деление,
+// сравнение); кадр записи его не несёт — он рисует приёмник.
+func mergeActiveRange(r sort.MergeRange) []SortRange {
+	return []SortRange{{Lo: r.Lo, Mid: r.Mid, Hi: r.Hi}}
+}
+
+// Emit — одно событие алгоритма → один кадр (ADR-0002). Зеркало меняется
+// только по событиям записи (MergeWrite): деление и сравнения читают ещё
+// не перестроенные половины. Активный диапазон слияния — в поле ranges
+// снимка; кадр деления показывает обе половины диапазона разметкой
+// in-left/in-right; сравнение подсвечивает обе сравниваемые позиции;
+// запись подсвечивает позицию, в которой значение появилось в массиве,
+// и не размечает половины: выход слияния — приёмник, а не диапазон-источник,
+// и метки левой/правой половины ввели бы в заблуждение (FromLeft объясняет
+// источник текстом пошагового пояснения).
+func (r *mergeFrames) Emit(ev sort.MergeEvent) {
+	switch e := ev.(type) {
+	case sort.MergeSplit:
+		// Кадр деления: зеркало не меняется — половины ещё не сортированы.
+		// Обе половины видны как левая/правая разметка одного активного
+		// диапазона: ячейки [Lo, Mid) получают in-left, [Mid, Hi) — in-right.
+		r.ranges = mergeActiveRange(e.MergeRange)
+		r.highlights = nil
+		r.operation = fmt.Sprintf("деление %d..%d", e.Lo, e.Hi-1)
+		r.frame(fmt.Sprintf("Делим диапазон [%d, %d) пополам: левая половина [%d, %d), правая [%d, %d). Каждую половину алгоритм отсортирует той же рекурсией, затем отсортированные половины будут слиты в порядке возрастания.",
+			e.Lo, e.Hi, e.Lo, e.Mid, e.Mid, e.Hi))
+
+	case sort.MergeCompare:
+		r.ranges = mergeActiveRange(e.MergeRange)
+		r.highlights = []SortHighlight{
+			{Index: e.Left, Role: RoleCompare},
+			{Index: e.Right, Role: RoleCompare},
+		}
+		r.operation = fmt.Sprintf("сравнение %d %d", e.Left, e.Right)
+		if e.LeftChosen && e.LeftValue == e.RightValue {
+			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d и %d на позиции %d равны — берём значение из левой половины, порядок равных сохраняется (устойчивость); оно пойдёт на позицию %d.",
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
+		} else if e.LeftChosen {
+			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d не больше %d на позиции %d — берём значение из левой половины, оно пойдёт на позицию %d.",
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
+		} else {
+			r.frame(fmt.Sprintf("Сравниваем головы половин при слиянии [%d, %d): %d на позиции %d больше %d на позиции %d — берём значение из правой половины, оно пойдёт на позицию %d.",
+				e.Lo, e.Hi, e.LeftValue, e.Left, e.RightValue, e.Right, e.Dest))
+		}
+
+	case sort.MergeWrite:
+		r.mirror[e.Index] = e.Value
+		// Разметка половин не ставится: позиция записи — приёмник слияния,
+		// а не левая/правая половина источника (см. комментарий Emit выше).
+		r.ranges = nil
+		r.highlights = []SortHighlight{{Index: e.Index, Role: RoleWrite}}
+		r.operation = fmt.Sprintf("запись %d", e.Index)
+		side := "правой"
+		if e.FromLeft {
+			side = "левой"
+		}
+		r.frame(fmt.Sprintf("Записываем %d на позицию %d: значение взято из %s половины слияния [%d, %d) — сливаемые половины отсортированы, их значения идут в массив в порядке очерёдности.",
+			e.Value, e.Index, side, e.Lo, e.Hi))
 	}
 }
 

@@ -21,6 +21,7 @@ import {
   type HashEntryRemoval,
   type HashTableSnapshot,
   type SortHighlight,
+  type SortRange,
   type SortSnapshot,
   type StructureSnapshot,
 } from "./types";
@@ -331,7 +332,38 @@ function asSortSnapshot(data: unknown): SortSnapshot {
   }
   // Нормализованный снимок: gap/key заданы явно — рендер не различает
   // старые и новые кадры.
-  return { ...obj, gap, key } as unknown as SortSnapshot;
+  // Активные диапазоны merge sort: старый снимок без поля читается как
+  // пустой список; кривые значения — ошибка.
+  let ranges: SortRange[] = [];
+  if (obj.ranges !== undefined) {
+    if (!Array.isArray(obj.ranges)) {
+      throw new Error("снимок сортировки: поле ranges должно быть массивом активных диапазонов");
+    }
+    ranges = (obj.ranges as unknown[]).map((r) => {
+      if (r === null || typeof r !== "object") {
+        throw new Error("снимок сортировки: активный диапазон должен быть объектом {lo, mid, hi}");
+      }
+      const rg = r as Record<string, unknown>;
+      for (const field of ["lo", "mid", "hi"] as const) {
+        if (typeof rg[field] !== "number" || !Number.isInteger(rg[field])) {
+          throw new Error(`снимок сортировки: поле ${field} активного диапазона должно быть целым числом`);
+        }
+      }
+      const range = rg as unknown as SortRange;
+      if (range.lo < 0 || range.hi > (obj.values as number[]).length || range.lo >= range.hi) {
+        throw new Error(
+          "снимок сортировки: активный диапазон должен быть непустым отрезком внутри массива",
+        );
+      }
+      if (range.mid <= range.lo || range.mid >= range.hi) {
+        throw new Error(
+          "снимок сортировки: граница половин mid должна делить активный диапазон на непустые части",
+        );
+      }
+      return range;
+    });
+  }
+  return { ...obj, gap, key, ranges } as unknown as SortSnapshot;
 }
 
 /** Является ли кадр снимком сортировки с допустимыми полями. */
@@ -655,7 +687,12 @@ function renderHashTable(snap: HashTableSnapshot, containerEl: HTMLElement): voi
  * "swap" — обмениваемая, "min" — текущий минимум прохода selection sort
  * (в том числе новый минимум сразу после сравнения), "shift" — позиция,
  * в которую сейчас сдвинулось значение (insertion sort), "insert" —
- * позиция, куда вставляется ключ (insertion sort). Временное состояние
+ * позиция, куда вставляется ключ (insertion sort), "write" — позиция,
+ * в которую сейчас записано значение при слиянии (merge sort). Активные
+ * диапазоны merge sort (snap.ranges) размечают ряд: ячейки левой половины
+ * получают класс in-left, правой — in-right; кадры записи диапазоны не несут
+ * (позиция записи — приёмник слияния, а не половина источника), поэтому
+ * разметки половин на них нет. Временное состояние
  * вставки insertion sort (пока ключ удерживается вне массива) рисуется
  * из полей снимка — видимое состояние задают gap и key вместе: ячейка
  * на позиции gap — пустая «дырка» (значение массива под ней — исходное
@@ -685,6 +722,14 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
   const row = document.createElement("div");
   row.className = "array";
   const roleByIndex = new Map(snap.highlights.map((h) => [h.index, h.role]));
+  // Активные диапазоны merge sort: левая/правая половины слияния получают
+  // фоновую разметку — видно, какие части массива сейчас в работе.
+  const sideByIndex = new Map<number, "in-left" | "in-right">();
+  for (const range of snap.ranges) {
+    for (let i = range.lo; i < range.hi; i++) {
+      sideByIndex.set(i, i < range.mid ? "in-left" : "in-right");
+    }
+  }
   for (let i = 0; i < snap.values.length; i++) {
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -695,7 +740,9 @@ function renderSort(snap: SortSnapshot, containerEl: HTMLElement): void {
       cell.classList.add("filled");
       cell.textContent = String(snap.values[i]);
       const role = roleByIndex.get(i);
-      if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert"
+      if (role !== undefined) cell.classList.add(role); // "compare" / "swap" / "min" / "shift" / "insert" / "write"
+      const side = sideByIndex.get(i);
+      if (side !== undefined) cell.classList.add(side); // активные половины слияния merge sort
     }
     row.appendChild(cell);
   }

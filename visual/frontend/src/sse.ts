@@ -129,6 +129,7 @@ export const SORT_ALGORITHMS = [
   "bubble-sort",
   "selection-sort",
   "insertion-sort",
+  "merge-sort",
 ] as const;
 
 /** Маршрут простой сортировки — элемент канонического списка. */

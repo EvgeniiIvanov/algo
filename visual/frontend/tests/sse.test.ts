@@ -49,6 +49,7 @@ describe("isSortAlgorithm", () => {
     expect(isSortAlgorithm("bubble-sort")).toBe(true);
     expect(isSortAlgorithm("selection-sort")).toBe(true);
     expect(isSortAlgorithm("insertion-sort")).toBe(true);
+    expect(isSortAlgorithm("merge-sort")).toBe(true);
   });
 
   it("отвергает прочие алгоритмы и неизвестные значения", () => {
