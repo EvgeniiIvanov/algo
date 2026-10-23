@@ -45,7 +45,7 @@ describe("parseFrame", () => {
 });
 
 describe("isSortAlgorithm", () => {
-  it("распознаёт маршруты простых сортировок", () => {
+  it("распознаёт маршруты сортировок", () => {
     expect(isSortAlgorithm("bubble-sort")).toBe(true);
     expect(isSortAlgorithm("selection-sort")).toBe(true);
     expect(isSortAlgorithm("insertion-sort")).toBe(true);

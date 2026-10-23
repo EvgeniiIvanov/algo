@@ -38,7 +38,7 @@ const ALGORITHMS = [
   "list",
   "linked-list",
   "hash-table",
-  // Маршруты простых сортировок — канонический список из sse.ts.
+  // Маршруты сортировок — канонический список из sse.ts.
   ...SORT_ALGORITHMS,
 ] as const;
 type Algorithm = (typeof ALGORITHMS)[number];
