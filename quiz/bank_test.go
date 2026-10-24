@@ -169,22 +169,31 @@ func embeddedBlock1WithModules(t *testing.T, ids ...string) (*Block, []int) {
 	return block1, indices
 }
 
-// Тест порядка модулей block-1 (тикет 16): hash-tables стоит после
-// structures и до модулей сортировок, если они уже добавлены.
-func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
-	block1, indices := embeddedBlock1WithModules(t, "structures", "hash-tables")
-	structuresIdx, hashIdx := indices[0], indices[1]
-	if hashIdx < structuresIdx {
-		t.Errorf("модуль hash-tables (индекс %d) стоит раньше structures (индекс %d), ожидалось после", hashIdx, structuresIdx)
-	}
-	// ID модулей сортировок ещё не зафиксированы; когда они появятся,
-	// hash-tables должна остаться перед ними — опознаём по подстроке
-	// "sort" в id (sorting, merge-sort, quick-sort и т. п.).
-	for i, m := range block1.Modules {
-		if i < hashIdx && strings.Contains(m.ID, "sort") {
-			t.Errorf("модуль сортировок %q (индекс %d) стоит раньше hash-tables (индекс %d)", m.ID, i, hashIdx)
+// assertModulesInOrder проверяет, что модули с перечисленными id идут
+// в списке модулей блока в том же порядке, что и в списке id.
+func assertModulesInOrder(t *testing.T, modules []Module, ids ...string) {
+	t.Helper()
+	prevIdx, prevID := -1, ""
+	for _, id := range ids {
+		idx := moduleIndexByID(modules, id)
+		if idx == -1 {
+			t.Fatalf("в блоке нет модуля %s", id)
 		}
+		if prevIdx != -1 && idx < prevIdx {
+			t.Errorf("модуль %s (индекс %d) стоит раньше модуля %s (индекс %d), ожидалось после", id, idx, prevID, prevIdx)
+		}
+		prevIdx, prevID = idx, id
 	}
+}
+
+// Тест порядка модулей block-1 (тикет 16): hash-tables стоит после
+// structures и перед модулями сортировок. ID модулей сортировок
+// (simple-sorts, divide-and-conquer-sorts) зафиксированы в банке.
+func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
+	block1, _ := embeddedBlock1WithModules(t,
+		"structures", "hash-tables", "simple-sorts", "divide-and-conquer-sorts")
+	assertModulesInOrder(t, block1.Modules,
+		"structures", "hash-tables", "simple-sorts", "divide-and-conquer-sorts")
 }
 
 // Тест порядка модулей block-1 (тикет 22): модуль simple-sorts стоит
@@ -201,9 +210,6 @@ func TestEmbeddedBankBlock1SimpleSortsAfterHashTables(t *testing.T) {
 // стоит в блоке после simple-sorts (немедленного соседства не требуется —
 // между ними могут появиться новые модули).
 func TestEmbeddedBankBlock1DivideAndConquerAfterSimpleSorts(t *testing.T) {
-	_, indices := embeddedBlock1WithModules(t, "simple-sorts", "divide-and-conquer-sorts")
-	simpleSortsIdx, divideAndConquerIdx := indices[0], indices[1]
-	if divideAndConquerIdx < simpleSortsIdx {
-		t.Errorf("модуль divide-and-conquer-sorts (индекс %d) стоит раньше simple-sorts (индекс %d), ожидалось после", divideAndConquerIdx, simpleSortsIdx)
-	}
+	block1, _ := embeddedBlock1WithModules(t, "simple-sorts", "divide-and-conquer-sorts")
+	assertModulesInOrder(t, block1.Modules, "simple-sorts", "divide-and-conquer-sorts")
 }
