@@ -75,7 +75,7 @@ flowchart TD
     QsBase -- "да: отрезок пуст или одноэлементный" --> QsReturn([возврат])
     QsBase -- "нет" --> QsPartition["partition(nums, lo, hi)"]
     QsPartition --> QsPivot["QuickPivot: pivot = nums[hi]<br/>i = lo - 1"]
-    QsPivot --> QsScanInit{"j = lo"}
+    QsPivot --> QsScanInit["j = lo"]
     QsScanInit --> QsBounds{"j < hi?"}
     QsBounds -- "да" --> QsCompare{"nums[j] < pivot?<br/>QuickCompare"}
     QsCompare -- "да: строго меньшее, QuickSwap при i ≠ j" --> QsSwap["i++; обмен nums[i] ↔ nums[j]"]
