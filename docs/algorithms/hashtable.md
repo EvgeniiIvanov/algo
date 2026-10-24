@@ -14,7 +14,7 @@
 
 ```mermaid
 flowchart TD
-    K["key = 6"] --> B["6 % 5 = 1<br/>корзина 1"]
+    KeyInput["key = 6"] --> BucketCalc["6 % 5 = 1<br/>корзина 1"]
     subgraph buckets["buckets (головы цепочек)"]
         B0["buckets[0] = nil"]:::empty
         B1["buckets[1]"] --> E11["(key=6, value=60)<br/>голова: встаёт первой"] --> E12["(key=1, value=10)<br/>коллизия: обе в корзине 1"] --> NIL1["nil"]
@@ -36,15 +36,15 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S(["findEntry(head цепочки, key)"]) --> A["prev = nil<br/>cur = head"]
-    A --> B{"cur == nil?"}
-    B -- "да: ключа в цепочке нет" --> NB["вернуть nil, nil"]
-    B -- "нет" --> C{"cur.key == key?"}
-    C -- "да" --> F["вернуть prev, cur"]
-    C -- "нет: следующая запись цепочки" --> D["prev = cur<br/>cur = cur.next"]
-    D --> B
-    F --> E([конец])
-    NB --> E
+    FeStart(["findEntry(head цепочки, key)"]) --> FeInit["prev = nil<br/>cur = head"]
+    FeInit --> FeNil{"cur == nil?"}
+    FeNil -- "да: ключа в цепочке нет" --> FeReturnNil["вернуть nil, nil"]
+    FeNil -- "нет" --> FeKey{"cur.key == key?"}
+    FeKey -- "да" --> FeReturnEntry["вернуть prev, cur"]
+    FeKey -- "нет: следующая запись цепочки" --> FeAdvance["prev = cur<br/>cur = cur.next"]
+    FeAdvance --> FeNil
+    FeReturnEntry --> FeEnd([конец])
+    FeReturnNil --> FeEnd
 ```
 
 ## Операции

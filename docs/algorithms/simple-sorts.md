@@ -13,21 +13,21 @@
 
 ```mermaid
 flowchart TD
-    S([BubbleSort nums]) --> A["i = 0"]
-    A --> W{"i < n - 1?"}
-    W -- "нет" --> R([конец: массив отсортирован])
-    W -- "да" --> I["swapped = false<br/>j = 0"]
-    I --> J{"j < n - 1 - i?"}
-    J -- "нет" --> K{"swapped?"}
-    K -- "нет: проход без обменов" --> R
-    K -- "да" --> N["i = i + 1"]
-    N --> W
-    J -- "да" --> C["Compare: nums[j] и nums[j+1]"]
-    C --> D{"nums[j] > nums[j+1]?"}
-    D -- "да: строго убывающая пара" --> E["Swap: обмен пары<br/>swapped = true"]
-    D -- "нет: пара упорядочена (≤)" --> B["j = j + 1"]
-    E --> B
-    B --> J
+    BubStart([BubbleSort nums]) --> BubInitI["i = 0"]
+    BubInitI --> BubOuter{"i < n - 1?"}
+    BubOuter -- "нет" --> BubEnd([конец: массив отсортирован])
+    BubOuter -- "да" --> BubInitJ["swapped = false<br/>j = 0"]
+    BubInitJ --> BubInner{"j < n - 1 - i?"}
+    BubInner -- "нет" --> BubSwapped{"swapped?"}
+    BubSwapped -- "нет: проход без обменов" --> BubEnd
+    BubSwapped -- "да" --> BubIncI["i = i + 1"]
+    BubIncI --> BubOuter
+    BubInner -- "да" --> BubCompare["Compare: nums[j] и nums[j+1]"]
+    BubCompare --> BubPair{"nums[j] > nums[j+1]?"}
+    BubPair -- "да: строго убывающая пара" --> BubSwap["Swap: обмен пары<br/>swapped = true"]
+    BubPair -- "нет: пара упорядочена (≤)" --> BubIncJ["j = j + 1"]
+    BubSwap --> BubIncJ
+    BubIncJ --> BubInner
 ```
 
 Сложность: худший и средний случай O(n²), лучший — O(n) на уже упорядоченном
@@ -42,21 +42,21 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S([SelectionSort nums]) --> A["i = 0"]
-    A --> W{"i < n - 1?"}
-    W -- "нет" --> R([конец])
-    W -- "да" --> I["minIdx = i<br/>j = i + 1"]
-    I --> J{"j < n?"}
-    J -- "да" --> C{"nums[j] < nums[minIdx]?"}
-    C -- "да: новый минимум" --> D["minIdx = j"]
-    C -- "нет: минимум остаётся" --> B["j = j + 1"]
-    D --> B
-    B --> J
-    J -- "нет: минимум найден" --> E{"minIdx ≠ i?"}
-    E -- "да" --> F["Swap: nums[i] ↔ nums[minIdx]"]
-    E -- "нет: минимум уже на месте, без обмена" --> G["i = i + 1"]
-    F --> G
-    G --> W
+    SelStart([SelectionSort nums]) --> SelInitI["i = 0"]
+    SelInitI --> SelOuter{"i < n - 1?"}
+    SelOuter -- "нет" --> SelEnd([конец])
+    SelOuter -- "да" --> SelInitMin["minIdx = i<br/>j = i + 1"]
+    SelInitMin --> SelInner{"j < n?"}
+    SelInner -- "да" --> SelCompare{"nums[j] < nums[minIdx]?"}
+    SelCompare -- "да: новый минимум" --> SelUpdateMin["minIdx = j"]
+    SelCompare -- "нет: минимум остаётся" --> SelIncJ["j = j + 1"]
+    SelUpdateMin --> SelIncJ
+    SelIncJ --> SelInner
+    SelInner -- "нет: минимум найден" --> SelMinDiff{"minIdx ≠ i?"}
+    SelMinDiff -- "да" --> SelSwap["Swap: nums[i] ↔ nums[minIdx]"]
+    SelMinDiff -- "нет: минимум уже на месте, без обмена" --> SelIncI["i = i + 1"]
+    SelSwap --> SelIncI
+    SelIncI --> SelOuter
 ```
 
 Сложность всегда O(n²) сравнений — даже на упорядоченном входе; обменов не
@@ -72,19 +72,19 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S([InsertionSort nums]) --> A["i = 1"]
-    A --> W{"i < n?"}
-    W -- "нет" --> R([конец])
-    W -- "да" --> I["key = nums[i]<br/>j = i - 1"]
-    I --> J{"j >= 0?"}
-    J -- "нет: префикс кончился" --> P["nums[j + 1] = key<br/>Write: вставка ключа"]
-    J -- "да" --> C{"Outcome: nums[j] и key"}
-    C -- "nums[j] > key" --> D["Shift: nums[j + 1] = nums[j]<br/>j = j - 1"]
-    D --> J
-    C -- "nums[j] == key: равный не сдвигается" --> P
-    C -- "nums[j] < key" --> P
-    P --> G["i = i + 1"]
-    G --> W
+    InsStart([InsertionSort nums]) --> InsInitI["i = 1"]
+    InsInitI --> InsOuter{"i < n?"}
+    InsOuter -- "нет" --> InsEnd([конец])
+    InsOuter -- "да" --> InsInitKey["key = nums[i]<br/>j = i - 1"]
+    InsInitKey --> InsBack{"j >= 0?"}
+    InsBack -- "нет: префикс кончился" --> InsPlace["nums[j + 1] = key<br/>Write: вставка ключа"]
+    InsBack -- "да" --> InsCompare{"Outcome: nums[j] и key"}
+    InsCompare -- "nums[j] > key" --> InsShift["Shift: nums[j + 1] = nums[j]<br/>j = j - 1"]
+    InsShift --> InsBack
+    InsCompare -- "nums[j] == key: равный не сдвигается" --> InsPlace
+    InsCompare -- "nums[j] < key" --> InsPlace
+    InsPlace --> InsIncI["i = i + 1"]
+    InsIncI --> InsOuter
 ```
 
 Сложность: худший и средний O(n²), лучший — O(n) на упорядоченном входе

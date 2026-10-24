@@ -22,32 +22,32 @@
 
 ```mermaid
 flowchart TD
-    S(["mergeSortRange(Lo, Mid, Hi)"]) --> W{"Hi - Lo ≤ 1?"}
-    W -- "да: пусто или один элемент" --> R([возврат])
-    W -- "нет: MergeSplit — диапазон делится" --> A["mergeSortRange(Lo, (Lo+Mid)/2, Mid)<br/>левая половина"]
-    A --> B["mergeSortRange(Mid, (Mid+Hi)/2, Hi)<br/>правая половина"]
-    B --> M["mergeRange(Lo, Mid, Hi)<br/>слияние отсортированных половин"]
-    M --> R
+    MsStart(["mergeSortRange(Lo, Mid, Hi)"]) --> MsBase{"Hi - Lo ≤ 1?"}
+    MsBase -- "да: пусто или один элемент" --> MsReturn([возврат])
+    MsBase -- "нет: MergeSplit — диапазон делится" --> MsLeft["mergeSortRange(Lo, (Lo+Mid)/2, Mid)<br/>левая половина"]
+    MsLeft --> MsRight["mergeSortRange(Mid, (Mid+Hi)/2, Hi)<br/>правая половина"]
+    MsRight --> MsMerge["mergeRange(Lo, Mid, Hi)<br/>слияние отсортированных половин"]
+    MsMerge --> MsReturn
 ```
 
 ### Слияние двух половин
 
 ```mermaid
 flowchart TD
-    S(["mergeRange(Lo, Mid, Hi)"]) --> I["i = Lo — голова левой<br/>j = Mid — голова правой<br/>k = Lo — позиция буфера"]
-    I --> J{"i < Mid и j < Hi?"}
-    J -- "да" --> C{"nums[i] ≤ nums[j]?"}
-    C -- "да: равенство — берём левую<br/>(устойчивость), MergeCompare" --> D["take(i, слева): буфер[k] = nums[i]"]
-    C -- "нет: берём правого кандидата,<br/>MergeCompare" --> E["take(j, справа): буфер[k] = nums[j]"]
-    D --> J
-    E --> J
-    J -- "нет" --> T{"оставался ли хвост?"}
-    T -- "в левой половине" --> T1["дописать хвост левой в буфер"]
-    T -- "в правой половине" --> T2["дописать хвост правой в буфер"]
-    T -- "нет: буфер полон" --> X["перенос буфера в nums по элементу<br/>MergeWrite на каждую позицию [Lo..Hi)"]
-    T1 --> X
-    T2 --> X
-    X --> R([конец слияния])
+    MrStart(["mergeRange(Lo, Mid, Hi)"]) --> MrInit["i = Lo — голова левой<br/>j = Mid — голова правой<br/>k = Lo — позиция буфера"]
+    MrInit --> MrHeads{"i < Mid и j < Hi?"}
+    MrHeads -- "да" --> MrCompare{"nums[i] ≤ nums[j]?"}
+    MrCompare -- "да: равенство — берём левую<br/>(устойчивость), MergeCompare" --> MrTakeLeft["take(i, слева): буфер[k] = nums[i]"]
+    MrCompare -- "нет: берём правого кандидата,<br/>MergeCompare" --> MrTakeRight["take(j, справа): буфер[k] = nums[j]"]
+    MrTakeLeft --> MrHeads
+    MrTakeRight --> MrHeads
+    MrHeads -- "нет" --> MrTail{"оставался ли хвост?"}
+    MrTail -- "в левой половине" --> MrFlushLeft["дописать хвост левой в буфер"]
+    MrTail -- "в правой половине" --> MrFlushRight["дописать хвост правой в буфер"]
+    MrTail -- "нет: буфер полон" --> MrCopyBack["перенос буфера в nums по элементу<br/>MergeWrite на каждую позицию [Lo..Hi)"]
+    MrFlushLeft --> MrCopyBack
+    MrFlushRight --> MrCopyBack
+    MrCopyBack --> MrReturn([конец слияния])
 ```
 
 События режима наблюдения: `MergeSplit` (деление диапазона, до спуска
@@ -70,22 +70,22 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Q(["QuickSort(nums)"]) --> S["quickSort(nums, 0, len(nums)-1)"]
-    S --> W2{"lo ≥ hi?"}
-    W2 -- "да: отрезок пуст или одноэлементный" --> R([возврат])
-    W2 -- "нет" --> P["partition(nums, lo, hi)"]
-    P --> A["QuickPivot: pivot = nums[hi]<br/>i = lo - 1"]
-    A --> I["j = lo"]
-    I --> J{"j < hi?"}
-    J -- "да" --> C{"nums[j] < pivot?<br/>QuickCompare"}
-    C -- "да: строго меньшее, QuickSwap при i ≠ j" --> F["i++; обмен nums[i] ↔ nums[j]"]
-    F --> B["j++"]
-    C -- "нет: не меньшее остаётся справа" --> B
-    B --> J
-    J -- "нет: сканирование окончено" --> K["обмен nums[i+1] ↔ nums[hi]<br/>QuickPlaced: pivot на позиции i+1 = p"]
-    K --> L["quickSort(nums, lo, p-1)<br/>левая часть"]
-    L --> M["quickSort(nums, p+1, hi)<br/>правая часть"]
-    M --> R
+    QsStart(["QuickSort(nums)"]) --> QsRecurse["quickSort(nums, 0, len(nums)-1)"]
+    QsRecurse --> QsBase{"lo ≥ hi?"}
+    QsBase -- "да: отрезок пуст или одноэлементный" --> QsReturn([возврат])
+    QsBase -- "нет" --> QsPartition["partition(nums, lo, hi)"]
+    QsPartition --> QsPivot["QuickPivot: pivot = nums[hi]<br/>i = lo - 1"]
+    QsPivot --> QsScanInit{"j = lo"}
+    QsScanInit --> QsBounds{"j < hi?"}
+    QsBounds -- "да" --> QsCompare{"nums[j] < pivot?<br/>QuickCompare"}
+    QsCompare -- "да: строго меньшее, QuickSwap при i ≠ j" --> QsSwap["i++; обмен nums[i] ↔ nums[j]"]
+    QsSwap --> QsNext["j++"]
+    QsCompare -- "нет: не меньшее остаётся справа" --> QsNext
+    QsNext --> QsBounds
+    QsBounds -- "нет: сканирование окончено" --> QsPlace["обмен nums[i+1] ↔ nums[hi]<br/>QuickPlaced: pivot на позиции i+1 = p"]
+    QsPlace --> QsLeft["quickSort(nums, lo, p-1)<br/>левая часть"]
+    QsLeft --> QsRight["quickSort(nums, p+1, hi)<br/>правая часть"]
+    QsRight --> QsReturn
 ```
 
 Детали реализованного варианта:
@@ -98,8 +98,10 @@ flowchart TD
   pivot могут переносить значения через другие равные им значения и менять
   их взаимный порядок.
 - Среднее время O(n log n), худшее O(n²) — в частности на уже упорядоченных
-  входах при выбранном pivot. Дополнительная память — O(log n), глубина
-  рекурсии.
+  входах при выбранном pivot. Дополнительная память — это глубина стека
+  рекурсии: **O(log n) в среднем** и **O(n) в худшем** (при Lomuto с pivot —
+  последним элементом худшая глубина рекурсии достигается на уже
+  упорядоченных входах, когда partition не делит диапазон пополам).
 
 ## Сравнение вариантов
 
@@ -108,5 +110,5 @@ flowchart TD
 | Устойчивость | да | нет |
 | Среднее время | O(n log n) | O(n log n) |
 | Худшее время | O(n log n) | O(n²) |
-| Память | O(n) (буфер) | O(log n) (глубина рекурсии) |
+| Память | O(n) (буфер) | O(log n) в среднем, O(n) в худшем (глубина рекурсии) |
 | Границы диапазона | `[Lo, Hi)`, верхняя исключительная | `[lo..hi]`, включительные |

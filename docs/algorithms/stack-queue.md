@@ -15,9 +15,9 @@
 flowchart LR
     subgraph data["data: слайс ёмкости Cap"]
         direction LR
-        a["0"] --- b["1"] --- c["2"] --- d["..."] --- e["Cap-1"]
+        cells["0"] --- cell1["1"] --- cell2["2"] --- cellRest["..."] --- cellLast["Cap-1"]
     end
-    SP["sp"] -. "граница живых значений: Push пишет на sp, Pop читает data[sp-1]" .-> b
+    StackPointer["sp"] -. "граница живых значений: Push пишет на sp, Pop читает data[sp-1]" .-> cell1
 ```
 
 Пример состояния при 5 значениях в стеке (sp = 5):

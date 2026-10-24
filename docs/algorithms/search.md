@@ -17,19 +17,19 @@
 
 ```mermaid
 flowchart TD
-    S([Search data, target]) --> B["low = 0<br/>high = len(data) - 1"]
-    B --> C{"low <= high?"}
-    C -- "нет: диапазон пуст" --> NF["вернуть -1 (NotFound)"]
-    C -- "да" --> D["mid = low + (high - low) / 2<br/>Compare: data[mid]"]
-    D --> E{"data[mid] == target?"}
-    E -- "да" --> F["Found: вернуть mid"]
-    E -- "нет" --> G{"data[mid] < target?"}
-    G -- "да: искомое правее" --> H["low = mid + 1<br/>Bounds"]
-    G -- "нет: искомое левее (data[mid] больше target)" --> I["high = mid - 1<br/>Bounds"]
-    H --> C
-    I --> C
-    F --> R([конец])
-    NF --> R
+    SearchStart([Search data, target]) --> SearchBounds["low = 0<br/>high = len(data) - 1"]
+    SearchBounds --> SearchLoop{"low <= high?"}
+    SearchLoop -- "нет: диапазон пуст" --> SearchNotFound["вернуть -1 (NotFound)"]
+    SearchLoop -- "да" --> SearchMid["mid = low + (high - low) / 2<br/>Compare: data[mid]"]
+    SearchMid --> SearchEqual{"data[mid] == target?"}
+    SearchEqual -- "да" --> SearchFound["Found: вернуть mid"]
+    SearchEqual -- "нет" --> CheckRight{"data[mid] < target?"}
+    CheckRight -- "да: искомое правее" --> MoveLow["low = mid + 1<br/>Bounds"]
+    CheckRight -- "нет: искомое левее (data[mid] больше target)" --> MoveHigh["high = mid - 1<br/>Bounds"]
+    MoveLow --> SearchLoop
+    MoveHigh --> SearchLoop
+    SearchFound --> SearchEnd([конец])
+    SearchNotFound --> SearchEnd
 ```
 
 ## Детали реализации

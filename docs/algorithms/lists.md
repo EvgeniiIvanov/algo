@@ -15,7 +15,7 @@ flowchart LR
         direction LR
         a0["10"] --- a1["20"] --- a2["30"] --- a3["40"]
     end
-    I["Get(2) = 30 — прямой доступ по индексу, O(1)"] -.-> a2
+    GetExample["Get(2) = 30 — прямой доступ по индексу, O(1)"] -.-> a2
 ```
 
 - `Get(i)` — прямой доступ по индексу, **O(1)**.
@@ -37,9 +37,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    H["head"] --> N0["узел 0<br/>val = 10"] --> N1["узел 1<br/>val = 20"] --> N2["узел 2<br/>val = 30"] --> NIL["nil<br/>конец списка"]
-    T["tail"] -.-> N2
-    S["size = 3"] -.-> N0
+    HeadMark["head"] --> N0["узел 0<br/>val = 10"] --> N1["узел 1<br/>val = 20"] --> N2["узел 2<br/>val = 30"] --> NIL["nil<br/>конец списка"]
+    TailMark["tail"] -.-> N2
+    SizeMark["size = 3"] -.-> N0
 ```
 
 Пример вставки в середину (`InsertAt(2, 15)` — после узла 1):
@@ -50,8 +50,8 @@ flowchart LR
         A0["10"] --> A1["20"] --> A2["30"]
     end
     subgraph after["после"]
-        B0["10"] --> B1["20"] --> B2["15<br/>новый узел"] --> B3["30"]
-        P["prev (узел 1)<br/>сначала переключается на новый"] -.-> B1
+        B0["10"] --> B1["20"] --> B2["15<br/>новый узел: сначала next = 30,<br/>затем prev.next = новый"] --> B3["30"]
+        PrevMark["prev (узел 1)<br/>переключается на новый вторым"] -.-> B1
     end
 ```
 
@@ -65,20 +65,21 @@ flowchart LR
 | `Find(value)` | O(n) | обход от головы (схема ниже) |
 
 **Обход поиска** (`Find`) — операция, где сам обход важен для понимания цены
-O(n): идём от головы узел за узлом, пока не встретим значение или не дойдём
-до конца.
+O(n): идём от головы узел за узлом циклом по счётчику `k < size` — тот же цикл,
+что в реализации. Пустой список не читает ни одного узла: при `size == 0`
+условие счётчика ложно сразу, и `cur.val` не разыменовывается.
 
 ```mermaid
 flowchart TD
-    S(["Find(value)"]) --> A["cur = head"]
-    A --> B{"cur.val == value?"}
-    B -- "да" --> R["вернуть позицию узла"]
-    B -- "нет" --> C["cur = cur.next"]
-    C --> D{"cur == nil?"}
-    D -- "нет" --> B
-    D -- "да: списка больше нет" --> NF["вернуть -1"]
-    R --> E([конец])
-    NF --> E
+    FindStart(["Find(value)"]) --> InitCur["cur = head<br/>k = 0"]
+    InitCur --> CounterCheck{"k < size?"}
+    CounterCheck -- "нет: список пуст или пройден целиком,<br/>значения нет — по счётчику" --> FindNotFound["вернуть -1"]
+    CounterCheck -- "да" --> NodeCheck{"cur.val == value?"}
+    NodeCheck -- "да" --> FindReturn["вернуть позицию k"]
+    NodeCheck -- "нет" --> Advance["k = k + 1<br/>cur = cur.next"]
+    Advance --> CounterCheck
+    FindReturn --> FindEnd([конец])
+    FindNotFound --> FindEnd
 ```
 
 Сравнение вариантов:
