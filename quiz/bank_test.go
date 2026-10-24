@@ -187,11 +187,26 @@ func assertModulesInOrder(t *testing.T, modules []Module, ids ...string) {
 }
 
 // Тест порядка модулей block-1 (тикет 16): hash-tables стоит после
-// structures и перед модулями сортировок. ID модулей сортировок
-// (simple-sorts, divide-and-conquer-sorts) зафиксированы в банке.
+// structures и перед модулями сортировок. Проверка распознаёт модули
+// сортировок универсально по ID, содержащему "sort", чтобы инвариант
+// сохранялся при добавлении новых сортировочных модулей.
 func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
 	block1, _ := embeddedBlock1WithModules(t,
 		"structures", "hash-tables", "simple-sorts", "divide-and-conquer-sorts")
+
+	// Универсальная проверка: любой модуль сортировки не стоит перед
+	// hash-tables.
+	hashIdx := moduleIndexByID(block1.Modules, "hash-tables")
+	if hashIdx == -1 {
+		t.Fatal("в block-1 нет модуля hash-tables")
+	}
+	for _, m := range block1.Modules[:hashIdx] {
+		if strings.Contains(m.ID, "sort") {
+			t.Errorf("модуль сортировки %s (индекс %d) стоит раньше hash-tables (индекс %d)", m.ID, moduleIndexByID(block1.Modules, m.ID), hashIdx)
+		}
+	}
+
+	// Известные модули сохраняют свой порядок.
 	assertModulesInOrder(t, block1.Modules,
 		"structures", "hash-tables", "simple-sorts", "divide-and-conquer-sorts")
 }
