@@ -198,3 +198,24 @@ func TestEmbeddedBankBlock1SimpleSortsAfterHashTables(t *testing.T) {
 		t.Errorf("модуль simple-sorts (индекс %d) должен стоять сразу после hash-tables (индекс %d)", simpleSortsIdx, hashIdx)
 	}
 }
+
+// Тест порядка модулей block-1 (тикет 28): модуль divide-and-conquer-sorts
+// стоит в блоке сразу после simple-sorts.
+func TestEmbeddedBankBlock1DivideAndConquerAfterSimpleSorts(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	block1 := findBlock1(t, bank)
+	simpleSortsIdx := moduleIndexByID(block1.Modules, "simple-sorts")
+	dcIdx := moduleIndexByID(block1.Modules, "divide-and-conquer-sorts")
+	if simpleSortsIdx == -1 {
+		t.Fatal("в block-1 нет модуля simple-sorts")
+	}
+	if dcIdx == -1 {
+		t.Fatal("в block-1 нет модуля divide-and-conquer-sorts")
+	}
+	if dcIdx != simpleSortsIdx+1 {
+		t.Errorf("модуль divide-and-conquer-sorts (индекс %d) должен стоять сразу после simple-sorts (индекс %d)", dcIdx, simpleSortsIdx)
+	}
+}
