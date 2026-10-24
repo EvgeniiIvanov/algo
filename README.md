@@ -81,3 +81,4 @@ Frontend-шаги внутри `make` выполняются в `visual/frontend
 - [docs/SPEC.md](docs/SPEC.md) — требования активного учебного модуля
 - [docs/WORKFLOWS.md](docs/WORKFLOWS.md) — сценарии процессов (спека → тикеты → реализация → ревью)
 - [docs/adr/](docs/adr/) — архитектурные решения
+- [docs/algorithms/](docs/algorithms/) — документация реализованных алгоритмов и структур (индекс)
