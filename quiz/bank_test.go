@@ -197,12 +197,9 @@ func TestEmbeddedBankBlock1HashTablesOrder(t *testing.T) {
 	// Универсальная проверка: любой модуль сортировки не стоит перед
 	// hash-tables.
 	hashIdx := moduleIndexByID(block1.Modules, "hash-tables")
-	if hashIdx == -1 {
-		t.Fatal("в block-1 нет модуля hash-tables")
-	}
-	for _, m := range block1.Modules[:hashIdx] {
+	for i, m := range block1.Modules[:hashIdx] {
 		if strings.Contains(m.ID, "sort") {
-			t.Errorf("модуль сортировки %s (индекс %d) стоит раньше hash-tables (индекс %d)", m.ID, moduleIndexByID(block1.Modules, m.ID), hashIdx)
+			t.Errorf("модуль сортировки %s (индекс %d) стоит раньше hash-tables (индекс %d)", m.ID, i, hashIdx)
 		}
 	}
 
