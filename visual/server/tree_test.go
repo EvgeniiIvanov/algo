@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -244,26 +245,8 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 		t.Fatalf("не удалось прочитать общий fixture: %v", err)
 	}
 	var fixtures struct {
-		Comment string `json:"comment"`
-		Cases   []struct {
-			Name   string `json:"name"`
-			Tree   string `json:"tree"`
-			Accept *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
-			// AssertEffectiveNode — явный маркер: кейс назначенно
-			// проверяет эффективный узел, поэтому в fixture обязан быть
-			// корректный ExpectedNode; проверяется рантайм-охраной ниже.
-			AssertEffectiveNode bool   `json:"assertEffectiveNode"`
-			ClientError         string `json:"clientError"`
-			ServerError         string `json:"serverError"`
-			// ExpectedNode — необязательное ожидание эффективного узла
-			// снимка: путь от корня и значение. Проверяется по
-			// фактическому SSE-снимку, поэтому реализация «первая
-			// запись выигрывает» кейс не проходит.
-			ExpectedNode *struct {
-				Path  string      `json:"path"`
-				Value json.Number `json:"value"`
-			} `json:"expectedNode"`
-		} `json:"cases"`
+		Comment string              `json:"comment"`
+		Cases   []parityFixtureCase `json:"cases"`
 	}
 	if err := json.Unmarshal(raw, &fixtures); err != nil {
 		t.Fatalf("fixture не разбирается: %v", err)
@@ -276,13 +259,16 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 			if tc.Accept == nil {
 				t.Fatalf("в кейсе fixture отсутствует поле accept")
 			}
+			wantPath, wantValue, assertNode, err := validateEffectiveNodeContract(
+				tc.Name, *tc.Accept, tc.AssertEffectiveNode, tc.ExpectedNode,
+			)
+			if err != nil {
+				t.Fatalf("контракт fixture нарушен: %v", err)
+			}
 			if !*tc.Accept {
 				resp := doRunTree(t, tc.Tree, "in-order")
 				if resp.Code != http.StatusBadRequest {
 					t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
-				}
-				if tc.AssertEffectiveNode {
-					t.Fatalf("маркер assertEffectiveNode у отвергающего кейса неверен: отвергающий кейс не имеет снимка")
 				}
 				// Ожидание ошибки обязано быть заполнено в fixture, иначе кейс
 				// ничего не проверяет; сравниваем с обязательной сутью сообщения.
@@ -293,26 +279,6 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 					t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tc.ServerError)
 				}
 				return
-			}
-			// Рантайм-охрана fixture: маркер assertEffectiveNode обязывает
-			// кейс иметь корректный expectedNode (непустой путь и целое
-			// значение), иначе кейс ничего не проверяет. Обычные
-			// принимающие кейсы expectedNode не требуют.
-			var wantPath string
-			var wantValue int64
-			var assertNode bool
-			if tc.AssertEffectiveNode || tc.ExpectedNode != nil {
-				if tc.ExpectedNode == nil {
-					t.Fatalf("у кейса с assertEffectiveNode отсутствует expectedNode в fixture")
-				}
-				if tc.ExpectedNode.Path == "" {
-					t.Fatalf("у кейса с assertEffectiveNode пустой путь в expectedNode")
-				}
-				v, err := tc.ExpectedNode.Value.Int64()
-				if err != nil {
-					t.Fatalf("у кейса с assertEffectiveNode value в expectedNode не целое число: %v", err)
-				}
-				wantPath, wantValue, assertNode = tc.ExpectedNode.Path, v, true
 			}
 			frames := doRunTreeSSE(t, tc.Tree, "in-order")
 			if !assertNode {
@@ -325,7 +291,234 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 	}
 }
 
-// assertNodeInSnapshot — в снимке кадра обязан быть узел с данным путём
+// validateEffectiveNodeContract — рантайм-охрана coherent-контракта
+// маркера assertEffectiveNode и ожидания expectedNode в кейсе fixture:
+//   - маркер, если присутствует, обязан быть булевым;
+//   - маркер true требует принимающего кейса с корректным
+//     expectedNode (непустой после обрезки пробелов путь и значение —
+//     знаковое десятичное целое в строке в пределах |v| ≤ 2^53−1);
+//   - expectedNode без assertEffectiveNode: true — ошибка fixture;
+//   - отвергающий кейс не несёт ни маркера, ни ожидания;
+//   - обычные принимающие кейсы не маркируются и expectedNode не несут.
+//
+// Проверка общая с TS-консьюмером fixture; возвращает путь и значение
+// ожидания и признак назначенной проверки снимка.
+func validateEffectiveNodeContract(caseName string, accept bool, markerRaw json.RawMessage, expect *parityExpectedNode) (string, int64, bool, error) {
+	assert := false
+	if len(markerRaw) > 0 {
+		var marker bool
+		if err := json.Unmarshal(markerRaw, &marker); err != nil {
+			return "", 0, false, fmt.Errorf("кейс «%s»: маркер assertEffectiveNode не булево (%s)", caseName, markerRaw)
+		}
+		assert = marker
+	}
+	if !accept {
+		if len(markerRaw) > 0 {
+			return "", 0, false, fmt.Errorf("кейс «%s»: отвергающий кейс не должен нести маркер assertEffectiveNode", caseName)
+		}
+		if expect != nil {
+			return "", 0, false, fmt.Errorf("кейс «%s»: отвергающий кейс не должен нести expectedNode", caseName)
+		}
+		return "", 0, false, nil
+	}
+	if expect != nil && !assert {
+		return "", 0, false, fmt.Errorf("кейс «%s»: expectedNode без assertEffectiveNode: true — ошибка fixture", caseName)
+	}
+	if assert && expect == nil {
+		return "", 0, false, fmt.Errorf("кейс «%s»: у кейса с assertEffectiveNode отсутствует expectedNode", caseName)
+	}
+	if !assert {
+		return "", 0, false, nil
+	}
+	path := strings.TrimSpace(expect.Path)
+	if path == "" {
+		return "", 0, false, fmt.Errorf("кейс «%s»: пустой путь в expectedNode", caseName)
+	}
+	if !isSignedDecimalInteger(expect.Value) {
+		return "", 0, false, fmt.Errorf("кейс «%s»: value в expectedNode не знаковое десятичное целое в строке: %q", caseName, expect.Value)
+	}
+	v, err := strconv.ParseInt(expect.Value, 10, 64)
+	if err != nil || v > maxSafeInteger || v < -maxSafeInteger {
+		return "", 0, false, fmt.Errorf("кейс «%s»: value в expectedNode вне безопасного диапазона (|v| ≤ 2^53−1): %q", caseName, expect.Value)
+	}
+	return path, v, true, nil
+}
+
+// parityExpectedNode — тестовое ожидание эффективного узла снимка
+// (метаданные fixture, не вход дерева). Value хранится строкой со
+// знаковым десятичным целым: это исключает лексическое расхождение
+// Go json.Number.Int64() и TS Number.isInteger() (1e3, 1.0 и т.п.).
+type parityExpectedNode struct {
+	Path  string `json:"path"`
+	Value string `json:"value"`
+}
+
+// parityFixtureCase — прозрачная копия структуры кейса fixture
+// (visual/testdata/tree-input-parity.json), чтобы оба консьюмера
+// читали одни и те же поля.
+type parityFixtureCase struct {
+	Name   string `json:"name"`
+	Tree   string `json:"tree"`
+	Accept *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
+	// AssertEffectiveNode — сырой JSON маркера назначенной проверки
+	// эффективного узла: рантайм-охрана требует, чтобы присутствующий
+	// маркер был булевым (json.Unmarshal в bool отверг бы строку и прочее).
+	AssertEffectiveNode json.RawMessage     `json:"assertEffectiveNode"`
+	ClientError         string              `json:"clientError"`
+	ServerError         string              `json:"serverError"`
+	ExpectedNode        *parityExpectedNode `json:"expectedNode"`
+}
+
+// maxSafeInteger — граница безопасного целого TS (2^53−1): тестовое
+// значение expectedNode обязано в неё укладываться, чтобы оба
+// консьюмера сравнивали одно и то же число.
+const maxSafeInteger = 1<<53 - 1
+
+// isSignedDecimalInteger — общая грамматика знакового десятичного
+// целого для expectedNode.value: необязательный минус, затем 0 или
+// ненулевая цифра с любым хвостом десятичных цифр (ведущие нули и
+// лексические формы вроде 1e3 или 1.0 не допускаются).
+// Та же грамматика проверяется в TS-консьюмере fixture.
+func isSignedDecimalInteger(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	if s == "0" {
+		return true
+	}
+	if s == "" || s[0] == '0' {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// TestValidateEffectiveNodeContract — рантайм-охрана coherent-контракта
+// маркера/ожидания: таблица нарушений и корректных форм кейса fixture.
+func TestValidateEffectiveNodeContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		accept    bool
+		markerRaw string // "" — маркер отсутствует
+		expect    *parityExpectedNode
+		wantErr   string // "" — ошибки нет
+	}{
+		{
+			name:   "обычный принимающий кейс — без маркера и ожидания",
+			accept: true,
+			expect: nil,
+		},
+		{
+			name:      "назначенный кейс — маркер true и корректное ожидание",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: "L", Value: "3"},
+		},
+		{
+			name:      "путь в ожидании обрезается пробелами",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: " root ", Value: "-7"},
+		},
+		{
+			name:      "отвергающий кейс не несёт маркер",
+			accept:    false,
+			markerRaw: "true",
+			wantErr:   "не должен нести маркер",
+		},
+		{
+			name:    "отвергающий кейс не несёт ожидание",
+			accept:  false,
+			expect:  &parityExpectedNode{Path: "L", Value: "3"},
+			wantErr: "не должен нести expectedNode",
+		},
+		{
+			name:      "маркер не булево",
+			accept:    true,
+			markerRaw: `"true"`,
+			wantErr:   "маркер assertEffectiveNode не булево",
+		},
+		{
+			name:      "маркер true без expectedNode",
+			accept:    true,
+			markerRaw: "true",
+			wantErr:   "отсутствует expectedNode",
+		},
+		{
+			name:    "expectedNode без маркера true",
+			accept:  true,
+			expect:  &parityExpectedNode{Path: "L", Value: "3"},
+			wantErr: "expectedNode без assertEffectiveNode: true",
+		},
+		{
+			name:      "пустой путь в ожидании",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: "   ", Value: "3"},
+			wantErr:   "пустой путь",
+		},
+		{
+			name:      "value не знаковое десятичное целое",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: "L", Value: "1.0"},
+			wantErr:   "не знаковое десятичное целое",
+		},
+		{
+			name:      "value вне безопасного диапазона",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: "L", Value: "9007199254740993"},
+			wantErr:   "вне безопасного диапазона",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var marker json.RawMessage
+			if tc.markerRaw != "" {
+				marker = json.RawMessage(tc.markerRaw)
+			}
+			path, value, assert, err := validateEffectiveNodeContract(tc.name, tc.accept, marker, tc.expect)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("ошибка = %v, ожидается упоминание %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("неожиданная ошибка: %v", err)
+			}
+			if assert && value == 0 {
+				t.Fatalf("назначенный кейс обязан вернуть ненулевое значение, got path=%q value=%d", path, value)
+			}
+		})
+	}
+}
+
+// TestIsSignedDecimalInteger — грамматика тестового значения
+// expectedNode.value, общая с TS-консьюмером fixture.
+func TestIsSignedDecimalInteger(t *testing.T) {
+	valid := []string{"0", "-0", "3", "-7", "123", "-123", "9007199254740991"}
+	invalid := []string{"", "-", "1.0", "1e3", "+3", "01", "-01", " 3", "3 ", "3. "}
+	for _, s := range valid {
+		if !isSignedDecimalInteger(s) {
+			t.Fatalf("%q должно быть корректным знаковым десятичным целым", s)
+		}
+	}
+	for _, s := range invalid {
+		if isSignedDecimalInteger(s) {
+			t.Fatalf("%q не должно быть корректным знаковым десятичным целым", s)
+		}
+	}
+}
+
 // от корня (id) и ровно данным значением.
 func assertNodeInSnapshot(t *testing.T, f frame.Frame, path string, value int64) {
 	t.Helper()

@@ -176,11 +176,21 @@ type ParityCase = { name: string; tree: string } & (
   | { accept: false; clientError: string }
 ) & {
   // Явный маркер назначенной проверки эффективного узла: требует
-  // корректный expectedNode (непустой путь и целое значение) — это
-  // проверяет рантайм-охрана validateParityFixture. Сам снимок SSE
-  // проверяет серверный консьюмер fixture.
+  // корректный expectedNode — это проверяет рантайм-охрана
+  // validateParityFixture. Сам снимок SSE проверяет серверный
+  // консьюмер fixture. Оба консьюмера применяют один coherent-контракт
+  // (см. describe ниже): маркер, если присутствует, обязан быть
+  // булевым; маркер true требует принимающего кейса с корректным
+  // expectedNode; expectedNode без assertEffectiveNode: true — ошибка
+  // fixture; отвергающий кейс не несёт ни маркера, ни ожидания.
   assertEffectiveNode?: boolean;
-  expectedNode?: { path: string; value: number };
+  // Тестовое представление value — строка со знаковым десятичным
+  // целым (например "3"): это метаданные fixture, а не вход дерева.
+  // Строка исключает лексическое расхождение Go json.Number.Int64() и
+  // TS Number.isInteger() (1e3, 1.0 и т.п.); общая грамматика
+  // проверяется ниже, значение затем сравнивается с числом узла
+  // SSE-снимка серверным консьюмером fixture.
+  expectedNode?: { path: string; value: string };
 };
 
 type ParityFixture = {
@@ -193,6 +203,51 @@ const fixturePath = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../testdata/tree-input-parity.json",
 );
+
+// maxSafeInteger — граница безопасного целого TS (2^53−1): тестовое
+// значение expectedNode обязано в неё укладываться, чтобы оба
+// консьюмера (TS и Go) сравнивали одно и то же число.
+const maxSafeInteger = Number.MAX_SAFE_INTEGER;
+
+// isSignedDecimalInteger — общая грамматика знакового десятичного
+// целого для expectedNode.value: необязательный минус, затем 0 или
+// ненулевая цифра с любым хвостом десятичных цифр (ведущие нули и
+// лексические формы вроде 1e3 или 1.0 не допускаются). Та же
+// грамматика проверяется в Go-консьюмере fixture.
+function isSignedDecimalInteger(value: string): boolean {
+  return /^-?(0|[1-9]\d*)$/.test(value);
+}
+
+// validateExpectation — общая проверка корректного expectedNode
+// назначенного кейса: непустой после обрезки пробелов путь и значение —
+// знаковое десятичное целое в строке в пределах |v| ≤ 2^53−1.
+function validateExpectation(byName: string, node: unknown): {
+  path: string;
+  value: string;
+} {
+  if (typeof node !== "object" || node === null || Array.isArray(node)) {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode отсутствует expectedNode`,
+    );
+  }
+  const { path, value } = node as Record<string, unknown>;
+  if (typeof path !== "string" || path.trim() === "") {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode пустой путь в expectedNode`,
+    );
+  }
+  if (
+    typeof value !== "string" ||
+    !isSignedDecimalInteger(value) ||
+    !Number.isInteger(Number(value)) ||
+    Math.abs(Number(value)) > maxSafeInteger
+  ) {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode value в expectedNode не знаковое десятичное целое в безопасном диапазоне`,
+    );
+  }
+  return { path, value };
+}
 
 // validateParityFixture — рантайм-охрана контракта fixture (JSON.parse
 // даёт any, компиляции он не подчиняется): объект, непустой набор кейсов,
@@ -234,9 +289,21 @@ function validateParityFixture(json: unknown): ParityFixture {
       throw new Error(`${byName}: accept не булево (или поле отсутствует)`);
     }
     if (!item.accept) {
-      if (item.assertEffectiveNode === true) {
+      // Coherent-контракт: отвергающий кейс не несёт ни маркера, ни
+      // ожидания — у него нет снимка.
+      if ("assertEffectiveNode" in item) {
+        if (typeof item.assertEffectiveNode !== "boolean") {
+          throw new Error(
+            `${byName}: маркер assertEffectiveNode не булево`,
+          );
+        }
         throw new Error(
-          `${byName}: маркер assertEffectiveNode у отвергающего кейса неверен — отвергающий кейс не имеет снимка`,
+          `${byName}: отвергающий кейс не должен нести маркер assertEffectiveNode`,
+        );
+      }
+      if ("expectedNode" in item) {
+        throw new Error(
+          `${byName}: отвергающий кейс не должен нести expectedNode`,
         );
       }
       if (
@@ -254,36 +321,41 @@ function validateParityFixture(json: unknown): ParityFixture {
         clientError: item.clientError,
       };
     }
-    // Рантайм-охрана маркера: назначенный кейс обязан нести корректный
-    // expectedNode (непустой путь и целое значение). Обычные принимающие
-    // кейсы expectedNode не требуют.
-    if (item.assertEffectiveNode === true) {
-      const node = item.expectedNode as Record<string, unknown>;
-      if (typeof node !== "object" || node === null || Array.isArray(node)) {
+    // Рантайм-охрана coherent-контракта маркера/ожидания: маркер, если
+    // присутствует, обязан быть булевым; expectedNode без
+    // assertEffectiveNode: true — ошибка fixture; маркер true требует
+    // корректного expectedNode. Обычные принимающие кейсы expectedNode
+    // не требуют.
+    if ("assertEffectiveNode" in item) {
+      if (typeof item.assertEffectiveNode !== "boolean") {
+        throw new Error(`${byName}: маркер assertEffectiveNode не булево`);
+      }
+      if (!item.assertEffectiveNode) {
+        if ("expectedNode" in item) {
+          throw new Error(
+            `${byName}: expectedNode без assertEffectiveNode: true — ошибка fixture`,
+          );
+        }
+        return { name: item.name, tree: item.tree, accept: true };
+      }
+      if (!("expectedNode" in item)) {
         throw new Error(
           `${byName}: у кейса с assertEffectiveNode отсутствует expectedNode`,
         );
       }
-      if (typeof node.path !== "string" || node.path.trim() === "") {
-        throw new Error(
-          `${byName}: у кейса с assertEffectiveNode пустой путь в expectedNode`,
-        );
-      }
-      if (
-        typeof node.value !== "number" ||
-        !Number.isInteger(node.value)
-      ) {
-        throw new Error(
-          `${byName}: у кейса с assertEffectiveNode value в expectedNode не целое число`,
-        );
-      }
+      const node = validateExpectation(byName, item.expectedNode);
       return {
         name: item.name,
         tree: item.tree,
         accept: true,
         assertEffectiveNode: true,
-        expectedNode: { path: node.path, value: node.value },
+        expectedNode: node,
       };
+    }
+    if ("expectedNode" in item) {
+      throw new Error(
+        `${byName}: expectedNode без assertEffectiveNode: true — ошибка fixture`,
+      );
     }
     return { name: item.name, tree: item.tree, accept: true };
   });
@@ -308,6 +380,126 @@ describe("parseTreeInput: паритет с сервером (общий fixture
       );
     }
   });
+});
+
+// Таблица coherent-контракта маркера/ожидания: те же правила, что
+// проверяет Go-консьюмер fixture (visual/server/tree_test.go →
+// validateEffectiveNodeContract).
+type ContractCase = {
+  name: string;
+  accept?: boolean;
+  assertEffectiveNode?: unknown;
+  expectedNode?: unknown;
+  clientError?: string;
+  wantErr?: string;
+};
+
+describe("validateParityFixture: coherent-контракт маркера/ожидания", () => {
+  const cases: ContractCase[] = [
+    {
+      name: "обычный принимающий кейс — без маркера и ожидания",
+      accept: true,
+    },
+    {
+      name: "назначенный кейс — маркер true и корректное ожидание (строка-value)",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: "3" },
+    },
+    {
+      name: "путь в ожидании обрезается пробелами",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: " root ", value: "-7" },
+    },
+    {
+      name: "отвергающий кейс не несёт маркер",
+      accept: false,
+      assertEffectiveNode: true,
+      clientError: "не целое",
+      wantErr: "не должен нести маркер",
+    },
+    {
+      name: "отвергающий кейс не несёт ожидание",
+      accept: false,
+      expectedNode: { path: "L", value: "3" },
+      clientError: "не целое",
+      wantErr: "не должен нести expectedNode",
+    },
+    {
+      name: "маркер не булево",
+      accept: true,
+      assertEffectiveNode: "true",
+      wantErr: "маркер assertEffectiveNode не булево",
+    },
+    {
+      name: "маркер true без expectedNode",
+      accept: true,
+      assertEffectiveNode: true,
+      wantErr: "отсутствует expectedNode",
+    },
+    {
+      name: "expectedNode без маркера true",
+      accept: true,
+      expectedNode: { path: "L", value: "3" },
+      wantErr: "expectedNode без assertEffectiveNode: true",
+    },
+    {
+      name: "маркер false с expectedNode",
+      accept: true,
+      assertEffectiveNode: false,
+      expectedNode: { path: "L", value: "3" },
+      wantErr: "expectedNode без assertEffectiveNode: true",
+    },
+    {
+      name: "пустой путь в ожидании",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "   ", value: "3" },
+      wantErr: "пустой путь",
+    },
+    {
+      name: "value не знаковое десятичное целое (лексическая форма 1.0)",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: "1.0" },
+      wantErr: "не знаковое десятичное целое",
+    },
+    {
+      name: "value вне безопасного диапазона (2^53)",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: "9007199254740992" },
+      wantErr: "не знаковое десятичное целое",
+    },
+  ];
+  const base = { tree: `{"value":1}`, clientError: "не целое" };
+  it.each(cases)("%s", (testCase) => {
+    const fixture = {
+      comment: "тестовый fixture",
+      cases: [{ ...base, ...testCase }],
+    };
+    if (testCase.wantErr === undefined) {
+      expect(() => validateParityFixture(fixture)).not.toThrow();
+      return;
+    }
+    expect(() => validateParityFixture(fixture)).toThrow(testCase.wantErr);
+  });
+});
+
+describe("isSignedDecimalInteger", () => {
+  it.each(["0", "-0", "3", "-7", "123", "-123", "9007199254740991"])(
+    "принимает %s",
+    (value) => {
+      expect(isSignedDecimalInteger(value)).toBe(true);
+    },
+  );
+  it.each(["", "-", "1.0", "1e3", "+3", "01", "-01", " 3", "3 "])(
+    "отвергает %s",
+    (value) => {
+      expect(isSignedDecimalInteger(value)).toBe(false);
+    },
+  );
 });
 
 describe("parseTreeOrder", () => {
