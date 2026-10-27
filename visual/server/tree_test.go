@@ -248,9 +248,17 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 		Cases   []struct {
 			Name        string `json:"name"`
 			Tree        string `json:"tree"`
-			Accept      bool   `json:"accept"`
+			Accept      *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
 			ClientError string `json:"clientError"`
 			ServerError string `json:"serverError"`
+			// ExpectedNode — необязательное ожидание эффективного узла
+			// снимка: путь от корня и значение. Проверяется по
+			// фактическому SSE-снимку, поэтому реализация «первая
+			// запись выигрывает» кейс не проходит.
+			ExpectedNode *struct {
+				Path  string `json:"path"`
+				Value int64  `json:"value"`
+			} `json:"expectedNode"`
 		} `json:"cases"`
 	}
 	if err := json.Unmarshal(raw, &fixtures); err != nil {
@@ -261,27 +269,64 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 	}
 	for _, tc := range fixtures.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			resp := doRunTree(t, tc.Tree, "in-order")
-			if tc.Accept {
-				if resp.Code != http.StatusOK {
-					t.Fatalf("статус = %d, ожидается 200: %s", resp.Code, resp.Body.String())
+			if tc.Accept == nil {
+				t.Fatalf("в кейсе fixture отсутствует поле accept")
+			}
+			if !*tc.Accept {
+				resp := doRunTree(t, tc.Tree, "in-order")
+				if resp.Code != http.StatusBadRequest {
+					t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
 				}
-				assertSSE(t, resp)
+				// Ожидание ошибки обязано быть заполнено в fixture, иначе кейс
+				// ничего не проверяет; сравниваем с обязательной сутью сообщения.
+				if tc.ServerError == "" {
+					t.Fatalf("у отвергающего кейса пустое ожидание ошибки сервера в fixture")
+				}
+				if got := resp.Body.String(); !strings.Contains(got, tc.ServerError) {
+					t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tc.ServerError)
+				}
 				return
 			}
-			if resp.Code != http.StatusBadRequest {
-				t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
+			frames := doRunTreeSSE(t, tc.Tree, "in-order")
+			if tc.ExpectedNode == nil {
+				return
 			}
-			// Ожидание ошибки обязано быть заполнено в fixture, иначе кейс
-			// ничего не проверяет; сравниваем с обязательной сутью сообщения.
-			if tc.ServerError == "" {
-				t.Fatalf("у отвергающего кейса пустое ожидание ошибки сервера в fixture")
-			}
-			if got := resp.Body.String(); !strings.Contains(got, tc.ServerError) {
-				t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tc.ServerError)
-			}
+			// Стартовый кадр — полный снимок топологии: проверяем
+			// фактический результат разбора, а не только вердикт.
+			assertNodeInSnapshot(t, frames[0], tc.ExpectedNode.Path, tc.ExpectedNode.Value)
 		})
 	}
+}
+
+// assertNodeInSnapshot — в снимке кадра обязан быть узел с данным путём
+// от корня (id) и ровно данным значением.
+func assertNodeInSnapshot(t *testing.T, f frame.Frame, path string, value int64) {
+	t.Helper()
+
+	data, ok := f.Data.(map[string]any) // после JSON-кругосветки снимок — map
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	nodes := mustSliceAny(t, data, "nodes")
+	for _, node := range nodes {
+		nodeData, ok := node.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: элемент nodes не объект: %#v", f.Step, node)
+		}
+		id, _ := nodeData["id"].(string)
+		if id != path {
+			continue
+		}
+		num, ok := nodeData["value"].(float64)
+		if !ok {
+			t.Fatalf("узел пути %q: value не число: %#v", path, nodeData["value"])
+		}
+		if int64(num) != value || num != float64(int64(num)) {
+			t.Fatalf("узел пути %q: value = %v, ожидается %d", path, nodeData["value"], value)
+		}
+		return
+	}
+	t.Fatalf("узла пути %q нет в снимке кадра шага %d: %d узлов", path, f.Step, len(nodes))
 }
 
 // TestTreeTraversalIntegerBoundariesSSE — целые числа на границах int64 и

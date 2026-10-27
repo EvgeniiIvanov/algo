@@ -170,8 +170,9 @@ describe("parseTreeInput: точные value-литералы (париитет 
 // representative-входы (числовые литералы и повторные ключи).
 type ParityCase = { name: string; tree: string } & (
   | { accept: true }
-  // Отвергающие кейсы обязаны нести непустое ожидание ошибки клиента:
-  // пропуск поля ловится уже на уровне типов.
+  // Отвергающие кейсы обязаны нести непустое ожидание ошибки клиента;
+  // контракт проверяется в рантайме (см. validateParityFixture), тип
+  // лишь фиксирует, что у отвергающего кейса поле есть.
   | { accept: false; clientError: string }
 );
 
@@ -180,27 +181,79 @@ type ParityFixture = {
   cases: ParityCase[];
 };
 
-const parityCases = (JSON.parse(
-  readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../testdata/tree-input-parity.json"),
-    "utf8",
-  ),
-) as ParityFixture).cases;
+// fixturePath — общий fixture паритета клиент/сервер.
+const fixturePath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../testdata/tree-input-parity.json",
+);
 
-// Рантайм-охрана контракта fixture: набор не пуст, а у отвергающих кейсов
-// ожидание ошибки непусто (типовая проверка дополняется проверкой значения).
-if (parityCases.length === 0) {
-  throw new Error(
-    "общий fixture пуст — ожидаются общие кейсы паритета клиент/сервер",
-  );
-}
-for (const testCase of parityCases) {
-  if (!testCase.accept && testCase.clientError.trim() === "") {
+// validateParityFixture — рантайм-охрана контракта fixture (JSON.parse
+// даёт any, компиляции он не подчиняется): объект, непустой набор кейсов,
+// у каждого кейса строковые name/tree и булево accept, у отвергающих —
+// непустое clientError. Диагностики — со спецификой кейса.
+function validateParityFixture(json: unknown): ParityFixture {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
     throw new Error(
-      `кейс «${testCase.name}»: пустое ожидание ошибки клиента у отвергающего кейса`,
+      "общий fixture: корень не является объектом — ожидаются кейсы паритета",
     );
   }
+  const raw = json as { comment?: unknown; cases?: unknown };
+  if (!Array.isArray(raw.cases) || raw.cases.length === 0) {
+    throw new Error(
+      "общий fixture: cases не непустой массив — ожидаются кейсы паритета",
+    );
+  }
+  const cases: ParityCase[] = raw.cases.map((element, index) => {
+    if (
+      typeof element !== "object" ||
+      element === null ||
+      Array.isArray(element)
+    ) {
+      throw new Error(
+        `общий fixture: кейс №${index + 1} не объект — ожидаются кейсы паритета`,
+      );
+    }
+    const item = element as Record<string, unknown>;
+    if (typeof item.name !== "string" || item.name.trim() === "") {
+      throw new Error(
+        `общий fixture: кейс №${index + 1}: name не непустая строка`,
+      );
+    }
+    const byName = `общий fixture: кейс «${item.name}»`;
+    if (typeof item.tree !== "string" || item.tree.trim() === "") {
+      throw new Error(`${byName}: tree не непустая строка`);
+    }
+    if (item.accept !== true && item.accept !== false) {
+      throw new Error(`${byName}: accept не булево (или поле отсутствует)`);
+    }
+    if (!item.accept) {
+      if (
+        typeof item.clientError !== "string" ||
+        item.clientError.trim() === ""
+      ) {
+        throw new Error(
+          `${byName}: пустое ожидание ошибки клиента у отвергающего кейса`,
+        );
+      }
+      return {
+        name: item.name,
+        tree: item.tree,
+        accept: false,
+        clientError: item.clientError,
+      };
+    }
+    return { name: item.name, tree: item.tree, accept: true };
+  });
+  if (typeof raw.comment !== "string" || raw.comment.trim() === "") {
+    throw new Error("общий fixture: comment не непустая строка");
+  }
+  return { comment: raw.comment, cases };
 }
+
+const parityCases =
+  validateParityFixture(
+    JSON.parse(readFileSync(fixturePath, "utf8")) as unknown,
+  ).cases;
 
 describe("parseTreeInput: паритет с сервером (общий fixture)", () => {
   it.each(parityCases)("%s", (testCase) => {
