@@ -221,11 +221,19 @@ function isSignedDecimalInteger(value: string): boolean {
 // validateExpectation — общая проверка корректного expectedNode
 // назначенного кейса: непустой после обрезки пробелов путь и значение —
 // знаковое десятичное целое в строке в пределах |v| ≤ 2^53−1.
+// Отсутствие поля (undefined) и явный null — разные ситуации: null
+// отклоняется как некорректная форма ожидания. Возвращает обрезанный
+// путь — так же, как это делает Go-консьюмер fixture.
 function validateExpectation(byName: string, node: unknown): {
   path: string;
   value: string;
 } {
-  if (typeof node !== "object" || node === null || Array.isArray(node)) {
+  if (node === null) {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode expectedNode — null вместо объекта ожидания`,
+    );
+  }
+  if (typeof node !== "object" || Array.isArray(node)) {
     throw new Error(
       `${byName}: у кейса с assertEffectiveNode отсутствует expectedNode`,
     );
@@ -246,7 +254,7 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: у кейса с assertEffectiveNode value в expectedNode не знаковое десятичное целое в безопасном диапазоне`,
     );
   }
-  return { path, value };
+  return { path: path.trim(), value };
 }
 
 // validateParityFixture — рантайм-охрана контракта fixture (JSON.parse
@@ -392,6 +400,8 @@ type ContractCase = {
   expectedNode?: unknown;
   clientError?: string;
   wantErr?: string;
+  wantPath?: string;
+  wantValue?: string;
 };
 
 describe("validateParityFixture: coherent-контракт маркера/ожидания", () => {
@@ -405,12 +415,32 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: "L", value: "3" },
+      wantPath: "L",
+      wantValue: "3",
+    },
+    {
+      name: "value 0 — корректное значение",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: "0" },
+      wantPath: "L",
+      wantValue: "0",
+    },
+    {
+      name: "value -0 — корректное значение",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: "-0" },
+      wantPath: "L",
+      wantValue: "-0",
     },
     {
       name: "путь в ожидании обрезается пробелами",
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: " root ", value: "-7" },
+      wantPath: "root",
+      wantValue: "-7",
     },
     {
       name: "отвергающий кейс не несёт маркер",
@@ -427,9 +457,22 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       wantErr: "не должен нести expectedNode",
     },
     {
+      name: "отвергающий кейс несёт null вместо expectedNode",
+      accept: false,
+      expectedNode: null,
+      clientError: "не целое",
+      wantErr: "не должен нести expectedNode",
+    },
+    {
       name: "маркер не булево",
       accept: true,
       assertEffectiveNode: "true",
+      wantErr: "маркер assertEffectiveNode не булево",
+    },
+    {
+      name: "маркер null не булево",
+      accept: true,
+      assertEffectiveNode: null,
       wantErr: "маркер assertEffectiveNode не булево",
     },
     {
@@ -445,11 +488,24 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       wantErr: "expectedNode без assertEffectiveNode: true",
     },
     {
+      name: "null вместо expectedNode без маркера true",
+      accept: true,
+      expectedNode: null,
+      wantErr: "expectedNode без assertEffectiveNode: true",
+    },
+    {
       name: "маркер false с expectedNode",
       accept: true,
       assertEffectiveNode: false,
       expectedNode: { path: "L", value: "3" },
       wantErr: "expectedNode без assertEffectiveNode: true",
+    },
+    {
+      name: "null вместо объекта ожидания",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: null,
+      wantErr: "null вместо объекта ожидания",
     },
     {
       name: "пустой путь в ожидании",
@@ -479,11 +535,27 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       comment: "тестовый fixture",
       cases: [{ ...base, ...testCase }],
     };
-    if (testCase.wantErr === undefined) {
-      expect(() => validateParityFixture(fixture)).not.toThrow();
+    if (testCase.wantErr !== undefined) {
+      expect(() => validateParityFixture(fixture)).toThrow(
+        testCase.wantErr,
+      );
       return;
     }
-    expect(() => validateParityFixture(fixture)).toThrow(testCase.wantErr);
+    // Удачная валидация обязана вернуть назначенный кейс с маркером
+    // true и ожиданием с обрезанным путём; обычный принимающий кейс
+    // не несёт ни маркера, ни ожидания.
+    const validated = validateParityFixture(fixture);
+    const returned = validated.cases[0] as Record<string, unknown>;
+    const assigned = testCase.assertEffectiveNode === true;
+    expect(returned.assertEffectiveNode).toBe(assigned ? true : undefined);
+    if (assigned) {
+      expect(returned.expectedNode).toEqual({
+        path: testCase.wantPath,
+        value: testCase.wantValue,
+      });
+    } else {
+      expect(returned.expectedNode).toBeUndefined();
+    }
   });
 });
 
