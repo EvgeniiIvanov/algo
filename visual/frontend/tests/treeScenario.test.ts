@@ -223,8 +223,11 @@ function isSignedDecimalInteger(value: string): boolean {
 // строка из символов L/R (без обрезки пробелов — дополненный пробелами
 // или иными символами путь отвергается; так же, как Go-валидатор), и
 // значение — знаковое десятичное целое в строке в пределах
-// |v| ≤ 2^53−1. Отсутствие поля (undefined) и явный null — разные
-// ситуации: null отклоняется как некорректная форма ожидания.
+// |v| ≤ 2^53−1. Отсутствие поля (undefined) и явный null ожидания —
+// разные ситуации: null вместо объекта отклоняется как некорректная
+// форма ожидания; явный null в path/value — ошибка типа поля, как и
+// прочие не-строки (typeof-проверка отдельно от грамматики, выровнена
+// с Go-валидатором).
 function validateExpectation(byName: string, node: unknown): {
   path: string;
   value: string;
@@ -250,9 +253,28 @@ function validateExpectation(byName: string, node: unknown): {
     );
   }
   const { path, value } = node as Record<string, unknown>;
-  if (typeof path !== "string" || !isNodePath(path)) {
+  // Проверка типа поля отдельно от грамматики: присутствующий path/value
+  // обязан быть строкой, включая явный null (typeof null !== "string").
+  // Диагностика типа поля выровнена с Go-консьюмером fixture
+  // (expectStringField: error "…в объекте ожидания не строка").
+  // Отсутствующий ключ (undefined) — не ошибка типа: как и в Go, пустое
+  // поле отвергает уже грамматика path/value ниже.
+  if (path !== undefined && typeof path !== "string") {
+    throw new Error(
+      `${byName}: expectedNode — path в объекте ожидания не строка`,
+    );
+  }
+  if (
+    typeof path !== "string" ||
+    !isNodePath(path)
+  ) {
     throw new Error(
       `${byName}: у кейса с assertEffectiveNode путь в expectedNode — не «root» и не путь из символов L/R (без пробелов и прочих символов): ${JSON.stringify(path)}`,
+    );
+  }
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(
+      `${byName}: expectedNode — value в объекте ожидания не строка`,
     );
   }
   if (
@@ -590,9 +612,9 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       wantErr: "не знаковое десятичное целое",
     },
     {
-      // Некорректная форма полей ожидания: поле присутствует, но не
-      // строка (typeof-проверка в validateExpectation). Зеркалит
-      // Go-кейсы TestValidateEffectiveNodeContract.
+      // Некорректный тип поля ожидания: поле присутствует, но не строка
+      // (typeof-проверка в validateExpectation, отдельно от грамматики).
+      // Зеркалит Go-кейсы TestValidateEffectiveNodeContract.
       // ["L"] подобран специально: если typeof-проверку убрать, строковое
       // приведение ["L"] → "L" удовлетворило бы грамматике пути — тест
       // действительно фиксирует guard, а не случайное совпадение формы.
@@ -600,14 +622,28 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: ["L"], value: "3" },
-      wantErr: "путь в expectedNode",
+      wantErr: "path в объекте ожидания не строка",
+    },
+    {
+      name: "path в expectedNode — число вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: 3, value: "3" },
+      wantErr: "path в объекте ожидания не строка",
     },
     {
       name: "path в expectedNode — null вместо строки",
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: null, value: "3" },
-      wantErr: "путь в expectedNode",
+      wantErr: "path в объекте ожидания не строка",
+    },
+    {
+      name: "value в expectedNode — число вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: 3 },
+      wantErr: "value в объекте ожидания не строка",
     },
     {
       // ["3"] подобран так, что при снятии typeof-проверки приведение и
@@ -617,7 +653,14 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: "L", value: ["3"] },
-      wantErr: "не знаковое десятичное целое",
+      wantErr: "value в объекте ожидания не строка",
+    },
+    {
+      name: "value в expectedNode — null вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: null },
+      wantErr: "value в объекте ожидания не строка",
     },
   ];
   const base = { tree: `{"value":1}`, clientError: "не целое" };

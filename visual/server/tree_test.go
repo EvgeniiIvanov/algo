@@ -428,15 +428,19 @@ func decodeExpectedNode(raw json.RawMessage) (*parityExpectation, error) {
 }
 
 // expectStringField — точный lowercase-lookup ключа в разобранном
-// объекте ожидания: отсутствие ключа оставляет поле пустым, ключ не
-// JSON-строка (число, объект, массив, булево) — ошибка разбора.
+// объекте ожидания: отсутствие ключа оставляет поле пустым, присутствующий
+// ключ обязан быть JSON-строкой (ошибка типа поля, без анализа содержимого —
+// до грамматики path/value, выровнена с TS-консьюмером fixture). Число,
+// объект, массив, булево отвергает json.Unmarshal; явный JSON null
+// приходится проверять по сырому литералу: json.Unmarshal(null, &string)
+// оставил бы поле пустым без ошибки.
 func expectStringField(node map[string]json.RawMessage, key string, dst *string) error {
 	raw, ok := node[key]
 	if !ok {
 		return nil
 	}
-	if err := json.Unmarshal(raw, dst); err != nil {
-		return fmt.Errorf("expectedNode — %s в объекте ожидания не строка: %w", key, err)
+	if strings.TrimSpace(string(raw)) == "null" || json.Unmarshal(raw, dst) != nil {
+		return fmt.Errorf("expectedNode — %s в объекте ожидания не строка", key)
 	}
 	return nil
 }
@@ -694,12 +698,13 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantErr:   "не знаковое десятичное целое",
 		},
 		{
-			// Некорректная форма полей ожидания: поле присутствует, но
-			// не JSON-строка. Зеркалит TS-кейсы validateParityFixture.
-			// Массив ["L"] при снятии expectStringField прошёл бы
-			// json-значение дальше и (после строкового приведения
-			// потребителем) удовлетворил бы грамматике пути — тест
-			// фиксирует именно presence-aware строковость поля.
+			// Некорректный тип поля ожидания: поле присутствует, но это
+			// не JSON-строка — сырая форма (массив, число) отвергается
+			// expectStringField как ошибка типа поля, до грамматики.
+			// Массив ["L"] подобран так, что его строковое представление
+			// ("L") удовлетворило бы грамматике пути — тест фиксирует
+			// именно проверку типа поля. Зеркалит TS-кейсы
+			// validateParityFixture.
 			name:      "path в expectedNode — массив вместо строки",
 			accept:    true,
 			markerRaw: "true",
@@ -707,15 +712,23 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantErr:   "path в объекте ожидания не строка",
 		},
 		{
-			// Явный null в path: json.Unmarshal(null, &string) не пишет
-			// поле и не даёт ошибки — дальше отвергает грамматика пути;
-			// TS-консьюмер отвергает по typeof null !== "string" —
-			// поведение выровнено.
+			name:      "path в expectedNode — число вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":3,"value":"3"}`,
+			wantErr:   "path в объекте ожидания не строка",
+		},
+		{
+			// Явный JSON null в path при json.Unmarshal(null, &string) не
+			// даёт ни записи поля, ни ошибки — expectStringField отсекает
+			// null по сырому литералу как ошибку типа поля, так что null
+			// отвергается с той же диагностикой, что и прочие не-строки
+			// (в Go null никуда не приводится — проверка именно сырая).
 			name:      "path в expectedNode — null вместо строки",
 			accept:    true,
 			markerRaw: "true",
 			expectRaw: `{"path":null,"value":"3"}`,
-			wantErr:   "путь в expectedNode",
+			wantErr:   "path в объекте ожидания не строка",
 		},
 		{
 			name:      "value в expectedNode — число вместо строки",
@@ -725,25 +738,26 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantErr:   "value в объекте ожидания не строка",
 		},
 		{
-			// Массив ["3"] при снятии expectStringField привёлся бы и в
-			// строку ("3"), и в число (Number(["3"]) === 3) — тест
-			// фиксирует guard, а не случайную форму значения.
+			// ["3"] подобран так, что его строковое представление ("3")
+			// удовлетворило бы грамматике value — тест фиксирует проверку
+			// типа поля, а не случайную форму значения.
 			name:      "value в expectedNode — массив вместо строки",
 			accept:    true,
 			markerRaw: "true",
 			expectRaw: `{"path":"L","value":["3"]}`,
 			wantErr:   "value в объекте ожидания не строка",
 		},
-		// Явный null в value: json.Unmarshal("null", &string) — пустое поле без
-		// ошибки, отвергается грамматикой value как не целое;
-		// TS-консьюмер отвергает по typeof null !== "string" —
-		// поведение выровнено.
 		{
+			// Явный JSON null в value тоже отсекается expectStringField
+			// по сырому литералу как ошибка типа поля — до грамматики
+			// value: json.Unmarshal(null, &string) оставил бы пустое поле
+			// без ошибки (в Go null никуда не приводится — проверка
+			// именно сырая).
 			name:      "value в expectedNode — null вместо строки",
 			accept:    true,
 			markerRaw: "true",
 			expectRaw: `{"path":"L","value":null}`,
-			wantErr:   "не знаковое десятичное целое",
+			wantErr:   "value в объекте ожидания не строка",
 		},
 	}
 	for _, tc := range tests {
