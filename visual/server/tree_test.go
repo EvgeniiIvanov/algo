@@ -295,7 +295,8 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 // маркера assertEffectiveNode и ожидания expectedNode в кейсе fixture:
 //   - маркер, если присутствует, обязан быть булевым;
 //   - маркер true требует принимающего кейса с корректным
-//     expectedNode (непустой после обрезки пробелов путь и значение —
+//     expectedNode (путь — точный идентификатор root или непустая
+//     строка из символов L/R, без обрезки пробелов; значение —
 //     знаковое десятичное целое в строке в пределах |v| ≤ 2^53−1);
 //   - expectedNode без assertEffectiveNode: true — ошибка fixture;
 //   - отвергающий кейс не несёт ни маркера, ни ожидания;
@@ -304,9 +305,11 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 //     как некорректное значение и для маркера, и для ожидания (как в
 //     TS-валидаторе, где typeof null !== "boolean" и node === null).
 //
-// Проверка общая с TS-консьюмером fixture; возвращает обрезанный путь и
-// значение ожидания и признак назначенной проверки снимка.
-func validateEffectiveNodeContract(caseName string, accept bool, markerRaw json.RawMessage, expect *parityExpectation) (string, int64, bool, error) {
+// Проверка общая с TS-консьюмером fixture; ожидание передаётся сырым
+// JSON-полем (presence-aware: nil/пусто — поле отсутствует) и
+// возвращает путь и значение ожидания и признак назначенной проверки
+// снимка.
+func validateEffectiveNodeContract(caseName string, accept bool, markerRaw json.RawMessage, expectRaw json.RawMessage) (string, int64, bool, error) {
 	assert := false
 	if len(markerRaw) > 0 {
 		if strings.TrimSpace(string(markerRaw)) == "null" {
@@ -318,30 +321,35 @@ func validateEffectiveNodeContract(caseName string, accept bool, markerRaw json.
 		}
 		assert = marker
 	}
+	expectPresent := len(strings.TrimSpace(string(expectRaw))) > 0
 	if !accept {
 		if len(markerRaw) > 0 {
 			return "", 0, false, fmt.Errorf("кейс «%s»: отвергающий кейс не должен нести маркер assertEffectiveNode", caseName)
 		}
-		if expect != nil {
+		if expectPresent {
 			return "", 0, false, fmt.Errorf("кейс «%s»: отвергающий кейс не должен нести expectedNode", caseName)
 		}
 		return "", 0, false, nil
 	}
-	if expect != nil && !assert {
+	if expectPresent && !assert {
 		return "", 0, false, fmt.Errorf("кейс «%s»: expectedNode без assertEffectiveNode: true — ошибка fixture", caseName)
 	}
-	if assert && expect == nil {
+	if assert && !expectPresent {
 		return "", 0, false, fmt.Errorf("кейс «%s»: у кейса с assertEffectiveNode отсутствует expectedNode", caseName)
 	}
 	if !assert {
 		return "", 0, false, nil
 	}
+	expect, err := decodeExpectedNode(expectRaw)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("кейс «%s»: expectedNode не разбирается как объект ожидания: %w", caseName, err)
+	}
 	if expect.null {
 		return "", 0, false, fmt.Errorf("кейс «%s»: expectedNode — null вместо объекта ожидания", caseName)
 	}
-	path := strings.TrimSpace(expect.node.Path)
-	if path == "" {
-		return "", 0, false, fmt.Errorf("кейс «%s»: пустой путь в expectedNode", caseName)
+	path := expect.node.Path
+	if !isValidNodePath(path) {
+		return "", 0, false, fmt.Errorf("кейс «%s»: путь в expectedNode — не «root» и не путь из символов L/R (без пробелов и прочих символов): %q", caseName, path)
 	}
 	if !isSignedDecimalInteger(expect.node.Value) {
 		return "", 0, false, fmt.Errorf("кейс «%s»: value в expectedNode не знаковое десятичное целое в строке: %q", caseName, expect.node.Value)
@@ -362,21 +370,53 @@ type parityExpectedNode struct {
 	Value string `json:"value"`
 }
 
-// parityExpectation — presence-aware обёртка разбора expectedNode:
-// отсутствие поля (nil-указатель) и явный JSON null (нен-nil, флаг
-// null) — разные ситуации, а не одна nil-строка. null не
-// материализуется как валидное ожидание.
+// parityExpectation — результат разбора сырого поля expectedNode:
+// отсутствие поля (nil из decodeExpectedNode) и явный JSON null
+// (нен-nil, флаг null) — разные ситуации. null не материализуется как
+// валидное ожидание.
 type parityExpectation struct {
 	null bool
 	node parityExpectedNode
 }
 
-func (e *parityExpectation) UnmarshalJSON(data []byte) error {
-	if strings.TrimSpace(string(data)) == "null" {
-		e.null = true
-		return nil
+// decodeExpectedNode — presence-aware разбор сырого поля expectedNode:
+// nil/пусто — поле отсутствует (nil), обрезанный null — явный JSON
+// null (флаг null), иначе — объект ожидания. Явно недопустимые формы
+// (строка, массив) дают ошибку разбора. Присутствие и null различаются
+// здесь, а не через nil-указатель: декодирование выполняет валидатор
+// на уже разобранном fixture-кейсе.
+func decodeExpectedNode(raw json.RawMessage) (*parityExpectation, error) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, nil
 	}
-	return json.Unmarshal(data, &e.node)
+	if strings.TrimSpace(string(raw)) == "null" {
+		return &parityExpectation{null: true}, nil
+	}
+	var e parityExpectation
+	if err := json.Unmarshal(raw, &e.node); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// isValidNodePath — грамматика пути expectedNode: точный идентификатор
+// root или непустая строка из символов L/R. Без обрезки пробелов:
+// дополненный пробелами, BOM или иными символами путь отвергается
+// (каждый байт обязан быть 'L' или 'R'). Та же грамматика проверяется
+// в TS-консьюмере fixture.
+func isValidNodePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	if path == "root" {
+		return true
+	}
+	for i := 0; i < len(path); i++ {
+		if path[i] != 'L' && path[i] != 'R' {
+			return false
+		}
+	}
+	return true
 }
 
 // parityFixtureCase — прозрачная копия структуры кейса fixture
@@ -386,13 +426,13 @@ type parityFixtureCase struct {
 	Name   string `json:"name"`
 	Tree   string `json:"tree"`
 	Accept *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
-	// AssertEffectiveNode — сырой JSON маркера назначенной проверки
-	// эффективного узла: рантайм-охрана требует, чтобы присутствующий
-	// маркер был булевым, и различает отсутствие поля и null (json.RawMessage).
-	AssertEffectiveNode json.RawMessage    `json:"assertEffectiveNode"`
-	ClientError         string             `json:"clientError"`
-	ServerError         string             `json:"serverError"`
-	ExpectedNode        *parityExpectation `json:"expectedNode"` // presence-aware: отсутствие поля ≠ null
+	// ExpectedNode — сырой JSON ожидания (presence-aware): nil/пусто —
+	// поле отсутствует, обрезанное null — явный JSON null, иначе —
+	// объект ожидания; отсутствие поля и null различаются.
+	AssertEffectiveNode json.RawMessage `json:"assertEffectiveNode"`
+	ClientError         string          `json:"clientError"`
+	ServerError         string          `json:"serverError"`
+	ExpectedNode        json.RawMessage `json:"expectedNode"`
 }
 
 // maxSafeInteger — граница безопасного целого TS (2^53−1): тестовое
@@ -474,13 +514,27 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantAssert: true,
 		},
 		{
-			name:       "путь в ожидании обрезается пробелами",
+			name:       "путь из символов L/R — корректный путь",
 			accept:     true,
 			markerRaw:  "true",
-			expect:     &parityExpectedNode{Path: " root ", Value: "-7"},
-			wantPath:   "root",
+			expect:     &parityExpectedNode{Path: "LRRL", Value: "-7"},
+			wantPath:   "LRRL",
 			wantValue:  -7,
 			wantAssert: true,
+		},
+		{
+			name:      "путь, дополненный пробелами, отвергается без обрезки",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: " root ", Value: "-7"},
+			wantErr:   "путь в expectedNode",
+		},
+		{
+			name:      "путь с BOM отвергается",
+			accept:    true,
+			markerRaw: "true",
+			expect:    &parityExpectedNode{Path: "\uFEFFL", Value: "-7"},
+			wantErr:   "путь в expectedNode",
 		},
 		{
 			name:      "отвергающий кейс не несёт маркер",
@@ -547,11 +601,11 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantErr:    "null вместо объекта ожидания",
 		},
 		{
-			name:      "пустой путь в ожидании",
+			name:      "пустой путь в ожидании отвергается",
 			accept:    true,
 			markerRaw: "true",
 			expect:    &parityExpectedNode{Path: "   ", Value: "3"},
-			wantErr:   "пустой путь",
+			wantErr:   "путь в expectedNode",
 		},
 		{
 			name:      "value не знаковое десятичное целое",
@@ -570,18 +624,35 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var marker json.RawMessage
+			// Кейс собирается как настоящий JSON и разбирается тем же
+			// декодером, что и fixture-файл: присутствие/отсутствие
+			// expectedNode и явный null проходят через json.Unmarshal
+			// в parityFixtureCase.ExpectedNode (json.RawMessage), а не
+			// через ручную конструкцию обёртки.
+			cj := map[string]any{
+				"name":        tc.name,
+				"tree":        `{"value":1}`,
+				"accept":      tc.accept,
+				"clientError": "не целое",
+			}
 			if tc.markerRaw != "" {
-				marker = json.RawMessage(tc.markerRaw)
+				cj["assertEffectiveNode"] = json.RawMessage(tc.markerRaw)
 			}
-			var expect *parityExpectation
-			switch {
-			case tc.expectNull:
-				expect = &parityExpectation{null: true}
-			case tc.expect != nil:
-				expect = &parityExpectation{node: *tc.expect}
+			if raw := expectJSONRaw(tc.expect, tc.expectNull); raw != "" {
+				cj["expectedNode"] = json.RawMessage(raw)
 			}
-			path, value, assert, err := validateEffectiveNodeContract(tc.name, tc.accept, marker, expect)
+			data, err := json.Marshal(cj)
+			if err != nil {
+				t.Fatalf("кейс fixture не собирается: %v", err)
+			}
+			var c parityFixtureCase
+			if err := json.Unmarshal(data, &c); err != nil {
+				t.Fatalf("кейс fixture не разбирается: %v", err)
+			}
+			if c.Accept == nil {
+				t.Fatalf("в кейсе fixture отсутствует поле accept")
+			}
+			path, value, assert, err := validateEffectiveNodeContract(tc.name, *c.Accept, c.AssertEffectiveNode, c.ExpectedNode)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("ошибка = %v, ожидается упоминание %q", err, tc.wantErr)
@@ -601,6 +672,24 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 				t.Fatalf("значение = %d, ожидается %d", value, tc.wantValue)
 			}
 		})
+	}
+}
+
+// expectJSONRaw — JSON-представление поля expectedNode для кейса
+// таблицы: nil/false — поле отсутствует, "null" — явный null, иначе —
+// объект ожидания.
+func expectJSONRaw(expect *parityExpectedNode, expectNull bool) string {
+	switch {
+	case expectNull:
+		return "null"
+	case expect != nil:
+		data, err := json.Marshal(expect)
+		if err != nil {
+			panic(err)
+		}
+		return string(data)
+	default:
+		return ""
 	}
 }
 

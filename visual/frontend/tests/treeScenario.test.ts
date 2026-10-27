@@ -219,11 +219,12 @@ function isSignedDecimalInteger(value: string): boolean {
 }
 
 // validateExpectation — общая проверка корректного expectedNode
-// назначенного кейса: непустой после обрезки пробелов путь и значение —
-// знаковое десятичное целое в строке в пределах |v| ≤ 2^53−1.
-// Отсутствие поля (undefined) и явный null — разные ситуации: null
-// отклоняется как некорректная форма ожидания. Возвращает обрезанный
-// путь — так же, как это делает Go-консьюмер fixture.
+// назначенного кейса: путь — точный идентификатор root или непустая
+// строка из символов L/R (без обрезки пробелов — дополненный пробелами
+// или иными символами путь отвергается; так же, как Go-валидатор), и
+// значение — знаковое десятичное целое в строке в пределах
+// |v| ≤ 2^53−1. Отсутствие поля (undefined) и явный null — разные
+// ситуации: null отклоняется как некорректная форма ожидания.
 function validateExpectation(byName: string, node: unknown): {
   path: string;
   value: string;
@@ -239,9 +240,9 @@ function validateExpectation(byName: string, node: unknown): {
     );
   }
   const { path, value } = node as Record<string, unknown>;
-  if (typeof path !== "string" || path.trim() === "") {
+  if (typeof path !== "string" || !isNodePath(path)) {
     throw new Error(
-      `${byName}: у кейса с assertEffectiveNode пустой путь в expectedNode`,
+      `${byName}: у кейса с assertEffectiveNode путь в expectedNode — не «root» и не путь из символов L/R (без пробелов и прочих символов): ${JSON.stringify(path)}`,
     );
   }
   if (
@@ -254,7 +255,15 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: у кейса с assertEffectiveNode value в expectedNode не знаковое десятичное целое в безопасном диапазоне`,
     );
   }
-  return { path: path.trim(), value };
+  return { path, value };
+}
+
+// isNodePath — грамматика пути expectedNode: точный идентификатор root
+// или непустая строка только из символов L/R. Без обрезки: дополненный
+// пробелами, BOM или иными символами путь отвергается. Та же
+// грамматика проверяется в Go-консьюмере fixture (isValidNodePath).
+function isNodePath(path: string): boolean {
+  return path === "root" || /^[LR]+$/.test(path);
 }
 
 // validateParityFixture — рантайм-охрана контракта fixture (JSON.parse
@@ -435,12 +444,26 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       wantValue: "-0",
     },
     {
-      name: "путь в ожидании обрезается пробелами",
+      name: "путь из символов L/R — корректный путь",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "LRRL", value: "-7" },
+      wantPath: "LRRL",
+      wantValue: "-7",
+    },
+    {
+      name: "путь, дополненный пробелами, отвергается без обрезки",
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: " root ", value: "-7" },
-      wantPath: "root",
-      wantValue: "-7",
+      wantErr: "путь в expectedNode",
+    },
+    {
+      name: "путь с BOM отвергается",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "﻿L", value: "-7" },
+      wantErr: "путь в expectedNode",
     },
     {
       name: "отвергающий кейс не несёт маркер",
@@ -512,7 +535,7 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: "   ", value: "3" },
-      wantErr: "пустой путь",
+      wantErr: "путь в expectedNode",
     },
     {
       name: "value не знаковое десятичное целое (лексическая форма 1.0)",
@@ -542,8 +565,8 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       return;
     }
     // Удачная валидация обязана вернуть назначенный кейс с маркером
-    // true и ожиданием с обрезанным путём; обычный принимающий кейс
-    // не несёт ни маркера, ни ожидания.
+    // true и ожиданием с точным путём (root или L/R); обычный
+    // принимающий кейс не несёт ни маркера, ни ожидания.
     const validated = validateParityFixture(fixture);
     const returned = validated.cases[0] as Record<string, unknown>;
     const assigned = testCase.assertEffectiveNode === true;
@@ -556,6 +579,38 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
     } else {
       expect(returned.expectedNode).toBeUndefined();
     }
+  });
+
+  // JSON-кругосветка (как при разборе настоящего fixture-файла):
+  // отсутствующее поле и явный expectedNode:null различаются так же и
+  // через JSON.parse, путь возвращается без обрезки.
+  it("JSON.parse: отсутствующее expectedNode и явный null различаются", () => {
+    const head =
+      '{"name":"x","tree":"{\\"value\\":1}","accept":true,"assertEffectiveNode":true';
+    const fixtureOf = (
+      caseHead: string,
+      node: string | null | undefined,
+    ) => {
+      const body = node === undefined ? "" : `,"expectedNode":${node === null ? "null" : node}`;
+      return `{"comment":"тест fixture","cases":[${caseHead}${body}}]}`;
+    };
+    expect(() =>
+      validateParityFixture(JSON.parse(fixtureOf(head, null))),
+    ).toThrow(/null вместо объекта ожидания/);
+    const assigned = validateParityFixture(
+      JSON.parse(
+        fixtureOf(head, '{"path":"LRRL","value":"3"}'),
+      ),
+    ).cases[0] as Record<string, unknown>;
+    expect(assigned.expectedNode).toEqual({ path: "LRRL", value: "3" });
+    // Без маркера null без маркера отвергаются как "expectedNode без
+    // assertEffectiveNode"; без ключа и без маркера кейс проходит.
+    const nomarker =
+      '{"name":"y","tree":"{\\"value\\":1}","accept":true';
+    expect(() =>
+      validateParityFixture(JSON.parse(fixtureOf(nomarker, null))),
+    ).toThrow(/expectedNode без assertEffectiveNode: true/);
+    validateParityFixture(JSON.parse(fixtureOf(nomarker, undefined)));
   });
 });
 
