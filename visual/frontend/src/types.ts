@@ -6,15 +6,18 @@ export const KIND_ARRAY = "array" as const;
 export const KIND_STRUCTURE = "structure" as const;
 export const KIND_HASH_TABLE = "hash-table" as const;
 export const KIND_SORT = "sort" as const;
+export const KIND_TREE = "tree" as const;
 export type ArrayKind = typeof KIND_ARRAY;
 export type StructureKind = typeof KIND_STRUCTURE;
 export type HashTableKind = typeof KIND_HASH_TABLE;
 export type SortKind = typeof KIND_SORT;
+export type TreeKind = typeof KIND_TREE;
 export type Kind =
   | ArrayKind
   | StructureKind
   | HashTableKind
   | SortKind
+  | TreeKind
   | (string & { readonly __brand?: unique symbol });
 
 /** Снимок массива — `Data` кадра для бинарного поиска. */
@@ -216,6 +219,43 @@ export interface SortSnapshot {
   ranges: SortRange[];
 }
 
+/**
+ * Снимок бинарного дерева — `Data` кадра kind="tree" (зеркало
+ * render.TreeSnapshot). Самодостаточен (ADR-0002): полная топология узлов
+ * в каждом кадре, преподаваемое состояние — активный узел и посещённая
+ * последовательность. Идентификаторы — путь узла от корня
+ * (["root", "L", "LR"...]), не зависят от значения: узлы с одинаковыми
+ * значениями различимы.
+ */
+export interface TreeSnapshot {
+  /** Порядок обхода: "in-order" / "pre-order" / "post-order". */
+  order: string;
+  /** Все узлы дерева: полный снимок топологии (пустой массив — пустое дерево). */
+  nodes: TreeNodeData[];
+  /** Идентификатор корня; "" — пустое дерево. */
+  rootId: string;
+  /** Посещаемый узел шага; "" — стартовый кадр. */
+  activeId: string;
+  /** Уже посещённые узлы с порядковыми номерами, с 1. */
+  visited: TreeVisit[];
+  /** Имя шага ("старт", "посещение LR"); пусто — стартовый кадр. */
+  operation: string;
+}
+
+/** Один узел дерева в снимке: значение и связи соседей по ID ("" — потомка нет). */
+export interface TreeNodeData {
+  id: string;
+  value: number;
+  leftId: string;
+  rightId: string;
+}
+
+/** Уже посещённый узел с его номером в порядке обхода (с 1). */
+export interface TreeVisit {
+  id: string;
+  position: number;
+}
+
 /** Кадр визуализации. Самодостаточен (ADR-0002). */
 export interface Frame {
   /** Порядковый номер шага, начиная с 1. */
@@ -224,5 +264,11 @@ export interface Frame {
   /** Пояснение на русском. */
   explanation: string;
   /** Снимок структуры. У каждого рендерера свой тип. */
-  data: ArraySnapshot | StructureSnapshot | HashTableSnapshot | SortSnapshot | { readonly [key: string]: unknown };
+  data:
+    | ArraySnapshot
+    | StructureSnapshot
+    | HashTableSnapshot
+    | SortSnapshot
+    | TreeSnapshot
+    | { readonly [key: string]: unknown };
 }

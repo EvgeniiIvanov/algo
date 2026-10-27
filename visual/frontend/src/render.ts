@@ -5,8 +5,9 @@
 // Поддерживаем kind="array" (бинарный поиск), kind="structure"
 // (стек "stack", очередь "queue", список "list", односвязный список
 // "linked-list" — узлы со стрелками next), kind="hash-table"
-// (корзины с цепочками записей) и kind="sort" (маршруты сортировок —
-// bubble sort и далее). Новые kind'ы — новая ветка без правок
+// (корзины с цепочками записей), kind="sort" (маршруты сортировок —
+// bubble sort и далее) и kind="tree" (бинарное дерево, обходы
+// in-/pre-/post-order). Новые kind'ы — новая ветка без правок
 // существующих.
 
 import {
@@ -14,6 +15,7 @@ import {
   KIND_HASH_TABLE,
   KIND_SORT,
   KIND_STRUCTURE,
+  KIND_TREE,
   type ArraySnapshot,
   type Frame,
   type HashEntry,
@@ -24,6 +26,8 @@ import {
   type SortRange,
   type SortSnapshot,
   type StructureSnapshot,
+  type TreeSnapshot,
+  type TreeNodeData,
 } from "./types";
 
 /** Внутренний помощник: бросает, если снимок не похож на снимок массива. */
@@ -388,6 +392,185 @@ export function isSortFrame(frame: Frame): boolean {
 }
 
 /**
+ * Ветка kind="tree": бинарное дерево (обходы in/pre/post-order).
+ * Полная топология redraw целиком (кадр самодостаточен), вложенная
+ * структура: узел — ячейка со значением, потомки — ветки L и R ниже,
+ * отступ растёт с глубиной. Подсветки: активный узел (activeId) —
+ * класс active, посещённые — класс visited с номером позиции.
+ */
+function asTreeSnapshot(data: unknown): TreeSnapshot {
+  if (data === null || typeof data !== "object") {
+    throw new Error("снимок не объект");
+  }
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.order !== "string") {
+    throw new Error("снимок дерева: поле order должно быть строкой");
+  }
+  if (!Array.isArray(obj.nodes)) {
+    throw new Error("снимок дерева: поле nodes должно быть массивом");
+  }
+  const byId = new Map<string, unknown>();
+  for (const n of obj.nodes) {
+    if (n === null || typeof n !== "object") {
+      throw new Error("снимок дерева: каждый узел — объект {id, value, leftId, rightId}");
+    }
+    const node = n as Record<string, unknown>;
+    for (const field of ["id", "leftId", "rightId"] as const) {
+      if (typeof node[field] !== "string") {
+        throw new Error(`снимок дерева: поле ${field} узла должно быть строкой`);
+      }
+    }
+    if (typeof node.value !== "number" || !Number.isInteger(node.value)) {
+      throw new Error("снимок дерева: поле value узла должно быть целым числом");
+    }
+    if (byId.has(node.id as string)) {
+      throw new Error("снимок дерева: идентификаторы узлов должны быть уникальными");
+    }
+    byId.set(node.id as string, n);
+  }
+  for (const n of obj.nodes as TreeNodeData[]) {
+    for (const link of [n.leftId, n.rightId]) {
+      if (link !== "" && !byId.has(link)) {
+        throw new Error(
+          `снимок дерева: узел ${n.id} ссылается на отсутствующего потомка ${link}`,
+        );
+      }
+    }
+  }
+  if (typeof obj.rootId !== "string") {
+    throw new Error("снимок дерева: поле rootId должно быть строкой");
+  }
+  if (typeof obj.activeId !== "string") {
+    throw new Error("снимок дерева: поле activeId должно быть строкой");
+  }
+  if (obj.activeId !== "" && !byId.has(obj.activeId)) {
+    throw new Error(
+      "снимок дерева: activeId должен быть идентификатором узла дерева",
+    );
+  }
+  if (!Array.isArray(obj.visited)) {
+    throw new Error("снимок дерева: поле visited должно быть массивом");
+  }
+  for (const v of obj.visited) {
+    if (v === null || typeof v !== "object") {
+      throw new Error("снимок дерева: посещение должно быть объектом {id, position}");
+    }
+    const visit = v as Record<string, unknown>;
+    if (typeof visit.id !== "string" || !byId.has(visit.id)) {
+      throw new Error(
+        "снимок дерева: поле id посещения должно быть идентификатором узла дерева",
+      );
+    }
+    if (
+      typeof visit.position !== "number" ||
+      !Number.isInteger(visit.position) ||
+      visit.position < 1
+    ) {
+      throw new Error(
+        "снимок дерева: поле position посещения должно быть положительным целым",
+      );
+    }
+  }
+  if (typeof obj.operation !== "string") {
+    throw new Error("снимок дерева: поле operation должно быть строкой");
+  }
+  return obj as unknown as TreeSnapshot;
+}
+
+/** Является ли кадр снимком дерева с допустимыми полями. */
+export function isTreeFrame(frame: Frame): boolean {
+  if (frame.kind !== KIND_TREE) return false;
+  try {
+    asTreeSnapshot(frame.data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ветка kind="tree": рисует полное дерево одним вложенным блоком.
+ * Корень сверху, ветки L и R с отступами — форма читается глазами;
+ * активный узел — класс active, посещённые — visited с номером позиции
+ * (метка data.position). Пустое дерево рисуется пустым маркером.
+ */
+function renderTree(snap: TreeSnapshot, containerEl: HTMLElement): void {
+  const wrap = document.createElement("div");
+  wrap.className = "tree";
+
+  const caption = document.createElement("div");
+  caption.className = "operation";
+  caption.textContent =
+    snap.operation === "" ? "Исходное состояние" : `Шаг: ${snap.operation}`;
+  wrap.appendChild(caption);
+
+  if (snap.rootId !== "") {
+    const root = snap.nodes.find((n) => n.id === snap.rootId) as TreeNodeData;
+    wrap.appendChild(treeNode(snap, root));
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "tree-node tree-empty";
+    empty.textContent = "Дерево пустое";
+    wrap.appendChild(empty);
+  }
+
+  containerEl.replaceChildren(wrap);
+}
+
+/** Построить DOM-блок одного узла с ветками L и R. */
+function treeNode(snap: TreeSnapshot, node: TreeNodeData): HTMLElement {
+  const block = document.createElement("div");
+  block.className = "tree-node-block";
+
+  const cell = document.createElement("div");
+  cell.className = "cell tree-node";
+  cell.dataset.id = node.id;
+  cell.textContent = String(node.value);
+  if (snap.activeId === node.id) cell.classList.add("active");
+  const visit = snap.visited.find((v) => v.id === node.id);
+  if (visit !== undefined) {
+    cell.classList.add("visited");
+    cell.dataset.visitedPosition = String(visit.position);
+  }
+  block.appendChild(cell);
+
+  const children = document.createElement("div");
+  children.className = "tree-children";
+  appendTreeBranch(snap, node.leftId, "L", children);
+  appendTreeBranch(snap, node.rightId, "R", children);
+  block.appendChild(children);
+  return block;
+}
+
+/** Одна ветка: метка L или R, вложенный узел или пустой маркер. */
+function appendTreeBranch(
+  snap: TreeSnapshot,
+  childId: string,
+  side: string,
+  childrenEl: HTMLElement,
+): void {
+  const branch = document.createElement("div");
+  branch.className = "tree-branch";
+  branch.dataset.side = side;
+
+  const label = document.createElement("div");
+  label.className = "tree-branch-label";
+  label.textContent = side;
+  branch.appendChild(label);
+
+  if (childId === "") {
+    const empty = document.createElement("div");
+    empty.className = "tree-node tree-empty";
+    empty.textContent = "∅";
+    branch.appendChild(empty);
+  } else {
+    const node = snap.nodes.find((n) => n.id === childId) as TreeNodeData;
+    branch.appendChild(treeNode(snap, node));
+  }
+  childrenEl.appendChild(branch);
+}
+
+/**
  * Отрисовать кадр в DOM. Возвращает true, если кадр был отрисован;
  * false — если kind не поддерживается (тогда узлы остаются нетронутыми).
  */
@@ -396,6 +579,12 @@ export function renderFrame(
   explanationEl: HTMLElement,
   arrayEl: HTMLElement,
 ): boolean {
+  if (frame.kind === KIND_TREE) {
+    const snap = asTreeSnapshot(frame.data);
+    explanationEl.textContent = frame.explanation;
+    renderTree(snap, arrayEl);
+    return true;
+  }
   if (frame.kind === KIND_STRUCTURE) {
     const snap = asStructureSnapshot(frame.data);
     explanationEl.textContent = frame.explanation;

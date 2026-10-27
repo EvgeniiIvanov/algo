@@ -22,6 +22,7 @@
             <option value="list">Список</option>
             <option value="linked-list">Связный список</option>
             <option value="hash-table">Хеш-таблица</option>
+            <option value="tree-traversal">Обход бинарного дерева</option>
             <option value="bubble-sort">Сортировка пузырьком</option>
             <option value="selection-sort">Сортировка выбором</option>
             <option value="insertion-sort">Сортировка вставками</option>
@@ -108,6 +109,20 @@ delete 9</textarea>
           <label>
             Массив (через запятую)
             <input id="sort-values" type="text" value="3,1,2" />
+          </label>
+        </div>
+        <div id="tree-inputs" class="inputs" hidden>
+          <label>
+            Дерево (вложенный JSON, value/left/right; null — пустое дерево)
+            <textarea id="tree-json" rows="6">{"value":1,"left":{"value":2,"left":{"value":4}},"right":{"value":3,"right":{"value":5}}}</textarea>
+          </label>
+          <label>
+            Порядок обхода
+            <select id="tree-order">
+              <option value="in-order">In-order (лево, узел, право)</option>
+              <option value="pre-order">Pre-order (узел, лево, право)</option>
+              <option value="post-order">Post-order (лево, право, узел)</option>
+            </select>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>
