@@ -6,9 +6,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/big"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/EvgeniiIvanov/algo/algorithms/trees"
@@ -67,6 +69,15 @@ func parseTreeJSON(r *http.Request) (*trees.Node, error) {
 	if err := dec.Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("не удалось разобрать JSON дерева: %v", err)
 	}
+	// Строго одно JSON-значение: после дерева — только конец ввода
+	// (пробелы допустимы). Повторный Decode возвращает io.EOF на чистом
+	// хвосте; лишнее значение или мусор — ошибка, а не молчаливое игнор.
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, fmt.Errorf("не удалось разобрать JSON дерева: %v", err)
+		}
+		return nil, fmt.Errorf("лишнее содержимое после JSON дерева: ожидается строго один JSON-объект")
+	}
 
 	var root *trees.Node
 	count := 0
@@ -109,29 +120,101 @@ func buildTree(parsed any, dest **trees.Node, count *int, context string) error 
 	return nil
 }
 
+// maxNumberLiteral — верхняя граница длины JSON-числа, которое рассматриваем:
+// ни один литерал, помещающийся в int64, не требует и десятой доли этого
+// размера (int64 — не более 19 значащих цифр; длиннее — только копейки
+// с ведущими нулями или дробные хвосты). Граница отсекает огромные литералы
+// до любых вычислений — раньше, чем что-то материализуется в памяти.
+const maxNumberLiteral = 4096
+
 // treeValue проверяет значение узла: JSON-число, целое и представимое
-// в int без округления. Дубликат проверки диапазона через float64 не
-// подходит: 2^63 представимо как float64, но не как int64 — округление
-// пропустило бы 9223372036854775808 с переполнением int.
+// в int64. Проверка точная — по литералу (декодер с UseNumber сохраняет
+// исходную запись числа), без float64 и без big.Float: на конечной
+// точности длинные дроби округлялись бы (например к 1), а разбор огромной
+// экспоненты через big.Float материализовал бы гигантский big.Int.
 func treeValue(v any) (int, error) {
 	num, ok := v.(json.Number)
 	if !ok {
 		return 0, fmt.Errorf("поле value обязательно — целое число")
 	}
-	// Литерал JSON-числа точно как big.Float (любая запись: 1, 1.5,
-	// 1e2): показывает, целое ли число и помещается ли оно в int64.
-	bf, _, err := big.ParseFloat(num.String(), 10, 128, big.ToNearestEven)
-	if err != nil {
-		return 0, fmt.Errorf("значение %s не число: value — целое число", num.String())
+	lit := num.String()
+	if len(lit) > maxNumberLiteral {
+		return 0, fmt.Errorf("значение %s… слишком длинное (лимит %d символов): value — целое число", lit[:16], maxNumberLiteral)
 	}
-	if !bf.IsInt() {
-		return 0, fmt.Errorf("значение %s не целое: value — целое число", num.String())
+
+	// Разбор литерала по структуре JSON-числа (саму грамматику уже
+	// гарантировал декодер): [-] цифры [. цифры] [eE [+-] цифры].
+	neg := strings.HasPrefix(lit, "-")
+	body := strings.TrimLeft(lit, "-+")
+	mant, es := body, ""
+	if i := strings.IndexAny(body, "eE"); i >= 0 {
+		mant, es = body[:i], body[i+1:]
 	}
-	n, _ := bf.Int(nil)
-	if !n.IsInt64() {
-		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", num.String())
+	intPart, frac := mant, ""
+	if i := strings.IndexByte(mant, '.'); i >= 0 {
+		intPart, frac = mant[:i], mant[i+1:]
 	}
-	return int(n.Int64()), nil
+	var err error
+	exp := 0
+	if es != "" {
+		exp, err = strconv.Atoi(es)
+		if err != nil {
+			// Показатель не разбирается или не помещается в int: значение
+			// заведомо вне int64 — отсекаем до любых вычислений.
+			return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+		}
+	}
+
+	// Значащие цифры (ведущие нули не считаются): "0", "0.0", "0e5" — нуль.
+	digits := strings.TrimLeft(intPart+frac, "0")
+	if digits == "" {
+		return 0, nil
+	}
+	t := 0 // замыкающие нули значащих цифр
+	for t < len(digits) && digits[len(digits)-1-t] == '0' {
+		t++
+	}
+	// E — порядок при значащих цифрах: значение = digits × 10^E.
+	// Отрицательный E — дробная часть: она должна полностью покрываться
+	// замыкающими нулями, иначе значение не целое (сравнение по счёту,
+	// без материализации длинных дробей).
+	E := exp - len(frac)
+	if E < 0 {
+		k := -E
+		if k > t {
+			return 0, fmt.Errorf("значение %s не целое: value — целое число", lit)
+		}
+		digits = digits[:len(digits)-k]
+		E = 0
+	}
+	// Неотрицательный E — домножение на степени десяти: 20 значащих
+	// разрядов и больше означают ≥ 10^19, что заведомо вне int64
+	// (в int64 помещается не более 19 цифр). Граница по счёту цифр —
+	// без порождения длинного числа в памяти.
+	if len(digits)+E > 19 {
+		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+	}
+	digits += strings.Repeat("0", E)
+	if len(digits) > 19 || (len(digits) == 19 && (neg && digits > "9223372036854775808" || !neg && digits > "9223372036854775807")) {
+		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+	}
+	// Magnitude гарантированно ≤ 2^63 (проверено сравнением), поэтому
+	// разбор беззнаковый: без него максимум int64 по модулю (2^63 для
+	// минимального значения) не влезает в ParseInt как положительное число.
+	u, err2 := strconv.ParseUint(digits, 10, 64)
+	if err2 != nil {
+		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+	}
+	n := int64(u)
+	if neg {
+		n = -n
+	}
+	// int64 → int: проект поддерживает 64-битные платформы — CI гоняет
+	// тесты на ubuntu-latest (64-битный GOARCH), локальная разработка
+	// тоже 64-битная, и только там поведение гарантируется. На 32-битной
+	// сборке int — 32 бита, диапазон сузится; совместимость с ней не
+	// заявлена и не поддерживается.
+	return int(n), nil
 }
 
 // treeContext — сегмент сообщения об ошибке: путь узла в живой форме,
