@@ -352,7 +352,7 @@ function validateParityFixture(json: unknown): ParityFixture {
     // присутствует, обязан быть булевым; expectedNode без
     // assertEffectiveNode: true — ошибка fixture; маркер true требует
     // корректного expectedNode. Обычные принимающие кейсы expectedNode
-    // Обычные принимающие кейсы expectedNode не требуют.
+    // не требуют.
     if ("assertEffectiveNode" in item) {
       if (typeof item.assertEffectiveNode !== "boolean") {
         throw new Error(`${byName}: маркер assertEffectiveNode не булево`);

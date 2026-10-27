@@ -367,7 +367,7 @@ func validateEffectiveNodeContract(caseName string, accept bool, markerRaw json.
 // Go json.Number.Int64() и TS Number.isInteger() (1e3, 1.0 и т.п.).
 // Ключи path/value — точные lowercase: decodeExpectedNode разбирает
 // ожидание case-sensitive (struct-теги json дают нечувствительность к
-// регистру, поэтому используется map).
+// регистру).
 type parityExpectedNode struct {
 	Path  string `json:"path"`
 	Value string `json:"value"`
@@ -386,9 +386,12 @@ type parityExpectation struct {
 // nil/пусто — поле отсутствует (nil), обрезанный null — явный JSON
 // null (флаг null), иначе — объект ожидания. Явно недопустимые формы
 // (строка, массив) дают ошибку разбора с конкретной формой. Ключи
-// разбираются точно (case-sensitive): принимаются только точные
-// lowercase path и value — регистровые варианты вроде Path отвергаются
-// на этапе проверки (как в TS-консьюмере); прочие ключи игнорируются.
+// разбираются точно (case-sensitive): читаются только точные lowercase
+// path и value (map[string]json.RawMessage, без struct-тегов — те
+// нечувствительны к регистру); посторонние ключи любого JSON-типа
+// игнорируются, как в TS-консьюмере, а присутствующим path/value
+// требуется строковое значение (ключи вроде Path не читаются вовсе —
+// их проверка выполняет валидатор на пустом поле).
 // Присутствие и null различаются здесь, а не через nil-указатель:
 // декодирование выполняет валидатор на уже разобранном fixture-кейсе.
 func decodeExpectedNode(raw json.RawMessage) (*parityExpectation, error) {
@@ -405,11 +408,37 @@ func decodeExpectedNode(raw json.RawMessage) (*parityExpectation, error) {
 	if strings.HasPrefix(trimmed, "[") {
 		return nil, fmt.Errorf("expectedNode — массив вместо объекта ожидания")
 	}
-	var node map[string]string
+	var node map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &node); err != nil {
-		return nil, fmt.Errorf("expectedNode — значения path/value не строки в объекте ожидания: %w", err)
+		return nil, fmt.Errorf("expectedNode — некорректный JSON в объекте ожидания: %w", err)
 	}
-	return &parityExpectation{node: parityExpectedNode{Path: node["path"], Value: node["value"]}}, nil
+	var expect parityExpectation
+	// Точные lowercase-ключи: map-lookup case-sensitive (struct-теги
+	// json — нет, поэтому map). Ключи отсутствуют — поля остаются
+	// пустыми, их отвергнет валидатор; присутствующий ключ обязан быть
+	// JSON-строкой (null не засчитывается строкой лишь у path/value —
+	// посторонние ключи с null допустимы, они игнорируются).
+	if err := expectStringField(node, "path", &expect.node.Path); err != nil {
+		return nil, err
+	}
+	if err := expectStringField(node, "value", &expect.node.Value); err != nil {
+		return nil, err
+	}
+	return &expect, nil
+}
+
+// expectStringField — точный lowercase-lookup ключа в разобранном
+// объекте ожидания: отсутствие ключа оставляет поле пустым, ключ не
+// JSON-строка (число, объект, массив, булево) — ошибка разбора.
+func expectStringField(node map[string]json.RawMessage, key string, dst *string) error {
+	raw, ok := node[key]
+	if !ok {
+		return nil
+	}
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return fmt.Errorf("expectedNode — %s в объекте ожидания не строка: %w", key, err)
+	}
+	return nil
 }
 
 // isValidNodePath — грамматика пути expectedNode: точный идентификатор
