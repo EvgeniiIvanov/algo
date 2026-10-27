@@ -154,6 +154,15 @@ func treeValue(v any) (int, error) {
 	if i := strings.IndexByte(mant, '.'); i >= 0 {
 		intPart, frac = mant[:i], mant[i+1:]
 	}
+	// Значащие цифры (ведущие нули не считаются): "0", "0.0" — нуль
+	// при любом показателе, поэтому нуль-проверка до разбора экспоненты:
+	// «0e99999999999999999999» — это нуль, а не литерал за пределами int.
+	// Значение = 0 × 10^n = 0, никакая арифметика показателя не нужна.
+	digits := strings.TrimLeft(intPart+frac, "0")
+	if digits == "" {
+		return 0, nil
+	}
+
 	var err error
 	exp := 0
 	if es != "" {
@@ -163,12 +172,23 @@ func treeValue(v any) (int, error) {
 			// заведомо вне int64 — отсекаем до любых вычислений.
 			return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
 		}
-	}
-
-	// Значащие цифры (ведущие нули не считаются): "0", "0.0", "0e5" — нуль.
-	digits := strings.TrimLeft(intPart+frac, "0")
-	if digits == "" {
-		return 0, nil
+		// Atoi принимает MaxInt/MinInt: арифметика ниже (E := exp - len(frac),
+		// k := -E, len(digits)+E) на машинных границах переполняется и
+		// переворачивает знак, из-за чего проверка размера проходит и код
+		// доходит до материализации гигантской строки. Отсекаем по границе
+		// до арифметики: int64 для ненулевых значащих цифр может иметь
+		// показатель только в умеренном диапазоне — E должен давать
+		// len(digits)+E ≤ 19 (см. ниже, E ≥ 19 — значение вне int64), а
+		// снизу -E ≤ t ≤ len(digits) ≤ maxNumberLiteral. Len(frac) и
+		// len(digits) не превышают maxNumberLiteral, поэтому проверка
+		// |exp| ≤ maxNumberLiteral отсекает всё заведомо вне int64, не
+		// отбрасывая ни одного представимого значения.
+		if exp > maxNumberLiteral {
+			return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+		}
+		if exp < -maxNumberLiteral {
+			return 0, fmt.Errorf("значение %s не целое: value — целое число", lit)
+		}
 	}
 	t := 0 // замыкающие нули значащих цифр
 	for t < len(digits) && digits[len(digits)-1-t] == '0' {
