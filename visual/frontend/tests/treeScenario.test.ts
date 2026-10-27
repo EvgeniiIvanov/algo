@@ -226,8 +226,8 @@ function isSignedDecimalInteger(value: string): boolean {
 // |v| ≤ 2^53−1. Отсутствие поля (undefined) и явный null ожидания —
 // разные ситуации: null вместо объекта отклоняется как некорректная
 // форма ожидания; явный null в path/value — ошибка типа поля, как и
-// прочие не-строки (typeof-проверка отдельно от грамматики, выровнена
-// с Go-валидатором).
+// прочие не-строки (typeof-проверка отдельно от грамматики; вердикт
+// accept/reject тот же, что у Go-валидатора).
 function validateExpectation(byName: string, node: unknown): {
   path: string;
   value: string;
@@ -255,8 +255,8 @@ function validateExpectation(byName: string, node: unknown): {
   const { path, value } = node as Record<string, unknown>;
   // Проверка типа поля отдельно от грамматики: присутствующий path/value
   // обязан быть строкой, включая явный null (typeof null !== "string").
-  // Диагностика типа поля выровнена с Go-консьюмером fixture
-  // (expectStringField: error "…в объекте ожидания не строка").
+  // Полный текст диагностики важен лишь как подстрока wantErr самой
+  // таблицы — паритет текстов со швами не проверяется.
   // Отсутствующий ключ (undefined) — не ошибка типа: как и в Go, пустое
   // поле отвергает уже грамматика path/value ниже.
   if (path !== undefined && typeof path !== "string") {
@@ -264,10 +264,7 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: expectedNode — path в объекте ожидания не строка`,
     );
   }
-  if (
-    typeof path !== "string" ||
-    !isNodePath(path)
-  ) {
+  if (path === undefined || !isNodePath(path)) {
     throw new Error(
       `${byName}: у кейса с assertEffectiveNode путь в expectedNode — не «root» и не путь из символов L/R (без пробелов и прочих символов): ${JSON.stringify(path)}`,
     );
@@ -278,7 +275,7 @@ function validateExpectation(byName: string, node: unknown): {
     );
   }
   if (
-    typeof value !== "string" ||
+    value === undefined ||
     !isSignedDecimalInteger(value) ||
     !Number.isInteger(Number(value)) ||
     Math.abs(Number(value)) > maxSafeInteger
@@ -287,7 +284,7 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: у кейса с assertEffectiveNode value в expectedNode не знаковое десятичное целое в безопасном диапазоне`,
     );
   }
-  return { path, value };
+  return { path: path as string, value: value as string };
 }
 
 // isNodePath — грамматика пути expectedNode: точный идентификатор root
@@ -615,9 +612,12 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       // Некорректный тип поля ожидания: поле присутствует, но не строка
       // (typeof-проверка в validateExpectation, отдельно от грамматики).
       // Зеркалит Go-кейсы TestValidateEffectiveNodeContract.
-      // ["L"] подобран специально: если typeof-проверку убрать, строковое
-      // приведение ["L"] → "L" удовлетворило бы грамматике пути — тест
-      // действительно фиксирует guard, а не случайное совпадение формы.
+      // ["L"] подобран специально: при снятии typeof-проверки массив
+      // дошёл бы до грамматики пути, где JS-коэрция Array→string ("L")
+      // прошла бы пустой fallback path === undefined — кейс фиксирует
+      // именно guard, а не случайную форму значения. Коэрция — только
+      // особенность JS: у Go (encoding/json) её нет, там то же поле
+      // отвергается декодером как ошибка типа сырого JSON-поля.
       name: "path в expectedNode — массив вместо строки",
       accept: true,
       assertEffectiveNode: true,
@@ -646,9 +646,11 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       wantErr: "value в объекте ожидания не строка",
     },
     {
-      // ["3"] подобран так, что при снятии typeof-проверки приведение и
-      // в строку ("3"), и в число (Number(["3"]) === 3) прошло бы
-      // грамматику value — guard действительно проверяется.
+      // ["3"] подобран так, что при снятии typeof-проверки массив дошёл
+      // бы до грамматики value, где JS-коэрция прошла бы и числом
+      // (Number(["3"]) === 3), и строкой — guard действительно
+      // проверяется. Коэрция — только особенность JS; в Go (encoding/
+      // json) массив в string не приводится, поле отвергается декодером.
       name: "value в expectedNode — массив вместо строки",
       accept: true,
       assertEffectiveNode: true,
