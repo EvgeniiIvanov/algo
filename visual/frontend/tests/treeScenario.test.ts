@@ -1,5 +1,8 @@
 // Тест шва фронта: разбор входа обхода дерева и порядка — валидный,
 // невалидный ввод и лимит узлов (зеркало visual/server/tree.go).
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   buildTreeTraversalRunURL,
@@ -158,6 +161,41 @@ describe("parseTreeInput: точные value-литералы (париитет 
     expect(() =>
       parseTreeInput(`{"value":2,"value":${"1." + "0".repeat(48) + "1"}}`),
     ).toThrow(/не целое/);
+  });
+});
+
+// Общие кейсы паритета клиент/сервер: один и тот же fixture-файл
+// (visual/testdata/tree-input-parity.json) прогоняется и здесь, и в
+// visual/server/tree_test.go — оба публичных шва проверяют одни и те же
+// representative-входы (числовые литералы и повторные ключи).
+type ParityCase = {
+  name: string;
+  tree: string;
+  accept: boolean;
+  clientError?: string;
+};
+
+type ParityFixture = {
+  comment: string;
+  cases: ParityCase[];
+};
+
+const parityCases = (JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../testdata/tree-input-parity.json"),
+    "utf8",
+  ),
+) as ParityFixture).cases;
+
+describe("parseTreeInput: паритет с сервером (общий fixture)", () => {
+  it.each(parityCases)("%s", (testCase) => {
+    if (testCase.accept) {
+      expect(() => parseTreeInput(testCase.tree)).not.toThrow();
+    } else {
+      expect(() => parseTreeInput(testCase.tree)).toThrow(
+        testCase.clientError,
+      );
+    }
   });
 });
 

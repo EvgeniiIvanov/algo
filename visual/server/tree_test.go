@@ -4,9 +4,11 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -225,6 +227,53 @@ func TestTreeTraversalRejections(t *testing.T) {
 			}
 			if got := resp.Body.String(); !strings.Contains(got, tt.want) {
 				t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTreeTraversalParityFixtures — общий fixture паритета клиент/сервер
+// (visual/testdata/tree-input-parity.json): тот же набор кейсов, что
+// гоняет тест публичного шва фронта (visual/frontend/tests/
+// treeScenario.test.ts) через parseTreeInput. Оба шва обязаны приходить
+// к одному вердикту: принимают — отдаёт SSE; отвергают — 400 с одной и
+// той же сутью сообщения. Подробнее о fixture — в его поле "comment".
+func TestTreeTraversalParityFixtures(t *testing.T) {
+	raw, err := os.ReadFile("../testdata/tree-input-parity.json")
+	if err != nil {
+		t.Fatalf("не удалось прочитать общий fixture: %v", err)
+	}
+	var fixtures struct {
+		Comment string `json:"comment"`
+		Cases   []struct {
+			Name        string `json:"name"`
+			Tree        string `json:"tree"`
+			Accept      bool   `json:"accept"`
+			ClientError string `json:"clientError"`
+			ServerError string `json:"serverError"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &fixtures); err != nil {
+		t.Fatalf("fixture не разбирается: %v", err)
+	}
+	if len(fixtures.Cases) == 0 {
+		t.Fatalf("fixture пуст — ожидаются общие кейсы паритета")
+	}
+	for _, tc := range fixtures.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			resp := doRunTree(t, tc.Tree, "in-order")
+			if tc.Accept {
+				if resp.Code != http.StatusOK {
+					t.Fatalf("статус = %d, ожидается 200: %s", resp.Code, resp.Body.String())
+				}
+				assertSSE(t, resp)
+				return
+			}
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
+			}
+			if tc.ServerError != "" && !strings.Contains(resp.Body.String(), tc.ServerError) {
+				t.Fatalf("ответ = %q, ожидается упоминание %q", resp.Body.String(), tc.ServerError)
 			}
 		})
 	}

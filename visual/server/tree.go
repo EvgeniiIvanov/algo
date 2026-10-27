@@ -127,6 +127,19 @@ func buildTree(parsed any, dest **trees.Node, count *int, context string) error 
 // до любых вычислений — раньше, чем что-то материализуется в памяти.
 const maxNumberLiteral = 4096
 
+// errNotInteger — ошибка «значение не целое»: формулировка повторяется
+// в нескольких ветках treeValue, поэтому собрана в одном месте, чтобы
+// сообщения не разъезжались.
+func errNotInteger(lit string) error {
+	return fmt.Errorf("значение %s не целое: value — целое число", lit)
+}
+
+// errOutOfInt64 — ошибка «значение за пределами целого»: единая
+// формулировка для всех веток treeValue.
+func errOutOfInt64(lit string) error {
+	return fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+}
+
 // treeValue проверяет значение узла: JSON-число, целое и представимое
 // в int64. Проверка точная — по литералу (декодер с UseNumber сохраняет
 // исходную запись числа), без float64 и без big.Float: на конечной
@@ -174,9 +187,9 @@ func treeValue(v any) (int, error) {
 			// вниз — дробный хвост с астрономическим числом нулей после
 			// запятой, замыкающими нулями значащих цифр не покрыть.
 			if strings.HasPrefix(es, "-") {
-				return 0, fmt.Errorf("значение %s не целое: value — целое число", lit)
+				return 0, errNotInteger(lit)
 			}
-			return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+			return 0, errOutOfInt64(lit)
 		}
 		// Переполнобезопасные границы показателя — с учётом len(frac) и
 		// числа значащих цифр (обе длины — это maxNumberLiteral в худшем
@@ -196,10 +209,10 @@ func treeValue(v any) (int, error) {
 		// Обе границы сравнивают exp без вычитаний, поэтому int не
 		// переполняется раньше времени (Atoi принимает MaxInt/MinInt).
 		if exp > 19+len(frac) {
-			return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+			return 0, errOutOfInt64(lit)
 		}
 		if exp < -(len(frac) + len(digits)) {
-			return 0, fmt.Errorf("значение %s не целое: value — целое число", lit)
+			return 0, errNotInteger(lit)
 		}
 	}
 	t := 0 // замыкающие нули значащих цифр
@@ -214,7 +227,7 @@ func treeValue(v any) (int, error) {
 	if E < 0 {
 		k := -E
 		if k > t {
-			return 0, fmt.Errorf("значение %s не целое: value — целое число", lit)
+			return 0, errNotInteger(lit)
 		}
 		digits = digits[:len(digits)-k]
 		E = 0
@@ -224,18 +237,18 @@ func treeValue(v any) (int, error) {
 	// (в int64 помещается не более 19 цифр). Граница по счёту цифр —
 	// без порождения длинного числа в памяти.
 	if len(digits)+E > 19 {
-		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+		return 0, errOutOfInt64(lit)
 	}
 	digits += strings.Repeat("0", E)
 	if len(digits) > 19 || (len(digits) == 19 && (neg && digits > "9223372036854775808" || !neg && digits > "9223372036854775807")) {
-		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+		return 0, errOutOfInt64(lit)
 	}
 	// Magnitude гарантированно ≤ 2^63 (проверено сравнением), поэтому
 	// разбор беззнаковый: без него максимум int64 по модулю (2^63 для
 	// минимального значения) не влезает в ParseInt как положительное число.
 	u, err2 := strconv.ParseUint(digits, 10, 64)
 	if err2 != nil {
-		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", lit)
+		return 0, errOutOfInt64(lit)
 	}
 	n := int64(u)
 	if neg {

@@ -15,6 +15,24 @@ export const MAX_TREE_NODES = 100;
  */
 export const MAX_NUMBER_LITERAL = 4096;
 
+/**
+ * Готовые ошибки проверки value — зеркала формулировок сервера. Обе
+ * повторяются в нескольких местах (buildTreeInput, checkValueLiteral),
+ * поэтому формулировки собраны здесь, чтобы сообщения не разъезжались.
+ */
+
+/** Значение узла не является целым числом. */
+function notIntegerError(context: string): Error {
+  return new Error(`значение узла${context} не целое: value — целое число`);
+}
+
+/** Значение узла за пределами точного диапазона JavaScript. */
+function outOfRangeError(context: string): Error {
+  return new Error(
+    `значение узла${context} за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
+  );
+}
+
 /** Порядки обхода — как на сервере (render.TreeOrder*). */
 export const TREE_ORDERS = ["in-order", "pre-order", "post-order"] as const;
 export type TreeOrder = (typeof TREE_ORDERS)[number];
@@ -85,14 +103,10 @@ function buildTreeInput(parsed: unknown, branch: string, count: number): number 
   const obj = parsed as Record<string, unknown>;
   const value = obj.value;
   if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new Error(
-      `значение узла${treeContext(branch)} не целое: value — целое число`,
-    );
+    throw notIntegerError(treeContext(branch));
   }
   if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
-    throw new Error(
-      `значение узла${treeContext(branch)} за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
-    );
+    throw outOfRangeError(treeContext(branch));
   }
   if (count + 1 > MAX_TREE_NODES) {
     throw new Error(
@@ -127,7 +141,11 @@ function treeContext(branch: string): string {
  * раскрывает тем же декодером строк, что JSON.parse, — расхождений по
  * именам ключей нет; посторонние поля и вложенные структуры сервер не
  * смотрит — их сканер только корректно пропускает (строки с
- * экранированием, вложенные скобки и массивы).
+ * экранированием, вложенные скобки и массивы). Повторные ключи
+ * value/left/right проверяются по последней записи: и JSON.parse,
+ * и сервер (encoding/json) при повторении ключа оставляют последнюю
+ * запись, поэтому литералы более ранних записей не влияют на приём
+ * входа — иначе клиент отверг бы ввод, который сервер принял бы.
  */
 
 /**
@@ -252,7 +270,7 @@ function checkValueLiterals(raw: string): void {
         }
       }
       if (ch === "{") {
-        skipObject(false, "");
+        walkObject(false, "");
         return;
       }
       if ((ch >= "0" && ch <= "9") || ch === "-") {
@@ -277,22 +295,25 @@ function checkValueLiterals(raw: string): void {
     };
 
     /**
-     * Обойти объект. В объектах-узлах (node=true): значения left/right —
-     * тоже узлы; ключ «value» в последней записи с этим ключом, если это
-     * число, проходит строгую проверку литерала (как JSON.parse, так и
-     * сервер оставляют при повторении ключа последнюю запись).
+     * Обойти объект: в объектах-узлах (node=true) значения left/right —
+     * тоже узлы, а числовой «value» проверяется литерально. Последняя
+     * запись по ключу выигрывает (как в JSON.parse, так и на сервере),
+     * поэтому вызывать проверки сразу нельзя — вложенные проверки
+     * собираются и выполняются при закрытии объекта, а повторное
+     * вхождение того же ключа подменяет прежнюю запись (last-wins
+     * для литералов value и вложенных узлов left/right). Возвращает
+     * функцию отложенных проверок или null — проверок нет.
      */
-    const skipObject = (node: boolean, path: string): void => {
+    const walkObject = (node: boolean, path: string): (() => void) | null => {
       skipWhitespace();
       if (raw[i] !== "{") abort();
       i++;
       skipWhitespace();
       if (raw[i] === "}") {
         i++;
-        return;
+        return null;
       }
-      let valueLit: string | null = null;
-      let valueIsNumber = false;
+      const checks = new Map<string, () => void>();
       for (;;) {
         skipWhitespace();
         const key = skipString(true);
@@ -302,24 +323,29 @@ function checkValueLiterals(raw: string): void {
         skipWhitespace();
         const ch = raw[i];
         const isNumber = ch === "-" || (ch >= "0" && ch <= "9");
-        if (node && key === "value") {
-          if (isNumber) {
-            valueLit = skipNumber(true);
-            valueIsNumber = true;
-          } else {
-            valueLit = null;
-            valueIsNumber = false;
-            skipValue();
-          }
+        if (node && key === "value" && isNumber) {
+          const lit = skipNumber(true);
+          const c = treeContext(path);
+          checks.set("value", () => checkValueLiteral(lit, c));
         } else if (node && (key === "left" || key === "right")) {
           const branchPath = path + (key === "left" ? "L" : "R");
           skipWhitespace();
+          let childCheck: (() => void) | null = null;
           if (raw[i] === "{") {
-            skipObject(true, branchPath);
+            childCheck = walkObject(true, branchPath);
           } else {
             skipValue();
           }
+          if (childCheck === null) {
+            checks.delete(key);
+          } else {
+            checks.set(key, childCheck);
+          }
         } else {
+          // Не-числовая «value» литерально не проверяется: такой ввод
+          // отвергнут парсером дерева тем же способом, что и сервер
+          // (последняя запись по ключу выигрывает и здесь).
+          if (node && key === "value") checks.delete("value");
           skipValue();
         }
         skipWhitespace();
@@ -330,10 +356,10 @@ function checkValueLiterals(raw: string): void {
         }
         if (c === "}") {
           i++;
-          if (valueIsNumber && valueLit !== null) {
-            checkValueLiteral(valueLit, treeContext(path));
-          }
-          return;
+          if (checks.size === 0) return null;
+          return () => {
+            for (const run of checks.values()) run();
+          };
         }
         abort();
       }
@@ -343,7 +369,8 @@ function checkValueLiterals(raw: string): void {
     // ошибка «должен быть объектом» в buildTreeInput.
     skipWhitespace();
     if (raw[i] === "{") {
-      skipObject(true, "");
+      const run = walkObject(true, "");
+      if (run) run();
     } else {
       skipValue();
     }
@@ -370,11 +397,7 @@ function checkValueLiteral(lit: string, ctx: string): void {
   // Структура литерала: [-] цифры [. цифры] [eE [+-] цифры].
   const neg = lit.startsWith("-");
   const body = neg ? lit.slice(1) : lit;
-  const eIdx = Math.min(
-    ...["e" as const, "E" as const]
-      .map((ch) => body.indexOf(ch))
-      .filter((idx) => idx >= 0),
-  );
+  const eIdx = body.search(/[eE]/);
   const mant = eIdx >= 0 ? body.slice(0, eIdx) : body;
   const es = eIdx >= 0 ? body.slice(eIdx + 1) : "";
   const dotIdx = mant.indexOf(".");
@@ -401,12 +424,10 @@ function checkValueLiteral(lit: string, ctx: string): void {
     // Границы сравниваются без вычислений над exp, так что работаем и на
     // MaxInt/MinInt-подобных показателях, и на Infinity.
     if (exp > 19 + frac.length) {
-      throw new Error(
-        `значение узла${ctx} за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
-      );
+      throw outOfRangeError(ctx);
     }
     if (exp < -(frac.length + digits.length)) {
-      throw new Error(`значение узла${ctx} не целое: value — целое число`);
+      throw notIntegerError(ctx);
     }
   }
 
@@ -417,7 +438,7 @@ function checkValueLiteral(lit: string, ctx: string): void {
   if (E < 0) {
     const k = -E;
     if (k > t) {
-      throw new Error(`значение узла${ctx} не целое: value — целое число`);
+      throw notIntegerError(ctx);
     }
     digits = digits.slice(0, digits.length - k);
     E = 0;
@@ -425,17 +446,13 @@ function checkValueLiteral(lit: string, ctx: string): void {
   // Домножение на степени десяти: MAX_SAFE_INTEGER — 16 цифр, поэтому
   // больше — заведомо за пределами безопасного диапазона.
   if (digits.length + E > 16) {
-    throw new Error(
-      `значение узла${ctx} за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
-    );
+    throw outOfRangeError(ctx);
   }
   digits += "0".repeat(E);
   // Сравнение по строке цифр: Number здесь уже не точен (длина ≤ 16 —
   // на границе 2^53), а правило то же, что в buildTreeInput:
   // |value| ≤ Number.MAX_SAFE_INTEGER = 9007199254740991.
   if (digits.length === 16 && digits > "9007199254740991") {
-    throw new Error(
-      `значение узла${ctx} за пределами точного диапазона JavaScript: поддерживаются целые от -${Number.MAX_SAFE_INTEGER} до ${Number.MAX_SAFE_INTEGER}`,
-    );
+    throw outOfRangeError(ctx);
   }
 }
