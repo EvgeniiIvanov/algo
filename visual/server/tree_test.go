@@ -237,8 +237,13 @@ func TestTreeTraversalRejections(t *testing.T) {
 // (visual/testdata/tree-input-parity.json): тот же набор кейсов, что
 // гоняет тест публичного шва фронта (visual/frontend/tests/
 // treeScenario.test.ts) через parseTreeInput. Оба шва обязаны приходить
-// к одному вердикту: принимают — отдаёт SSE; отвергают — 400 с одной и
-// той же сутью сообщения. Подробнее о fixture — в его поле "comment".
+// к одному вердикту: принимают — отдаёт SSE; отвергают — 400. Для
+// отвергающего кейса совпадает и суть диагностики — при условии, что
+// вход несёт один дефект: оба шва диагностируют поле одного и того же
+// типа ошибки (например «value обязательно»). Совпадение порядка
+// проверок, когда дефектных мест несколько одновременно, не
+// гарантируется — фиксируется только сам отказ. Подробнее о fixture —
+// в его поле "comment".
 func TestTreeTraversalParityFixtures(t *testing.T) {
 	raw, err := os.ReadFile("../testdata/tree-input-parity.json")
 	if err != nil {
@@ -429,9 +434,11 @@ func decodeExpectedNode(raw json.RawMessage) (*parityExpectation, error) {
 
 // expectStringField — точный lowercase-lookup ключа в разобранном
 // объекте ожидания: отсутствие ключа оставляет поле пустым, присутствующий
-// ключ обязан быть JSON-строкой (ошибка типа поля, без анализа содержимого —
-// до грамматики path/value, выровнена с TS-консьюмером fixture). Число,
-// объект, массив, булево отвергает json.Unmarshal; явный JSON null
+// ключ обязан быть JSON-строкой (ошибка типа поля, без анализа
+// содержимого — до грамматики path/value; для одиночного дефекта поля
+// диагностика совпадает с TS-консьюмером fixture, а при нескольких
+// некорректных полях порядок первой диагностики не фиксируется).
+// Массив, число, объект, булево отвергает json.Unmarshal; явный JSON null
 // приходится проверять по сырому литералу: json.Unmarshal(null, &string)
 // оставил бы поле пустым без ошибки.
 func expectStringField(node map[string]json.RawMessage, key string, dst *string) error {
@@ -439,8 +446,16 @@ func expectStringField(node map[string]json.RawMessage, key string, dst *string)
 	if !ok {
 		return nil
 	}
-	if strings.TrimSpace(string(raw)) == "null" || json.Unmarshal(raw, dst) != nil {
+	if strings.TrimSpace(string(raw)) == "null" {
+		// Явный raw null — собственная ошибка типа поля: json.Unmarshal
+		// (null, &string) не даёт ни ошибки, ни записи поля. Сообщение —
+		// то же слово «не строка», что и у прочих не-строк.
 		return fmt.Errorf("expectedNode — %s в объекте ожидания не строка", key)
+	}
+	if err := json.Unmarshal(raw, dst); err != nil {
+		// Сохраняем первопричину: несоответствие типа поля выдаёт
+		// json.Unmarshal («cannot unmarshal … into Go value of type string»).
+		return fmt.Errorf("expectedNode — %s в объекте ожидания не строка: %w", key, err)
 	}
 	return nil
 }
@@ -701,10 +716,14 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			// Некорректный тип поля ожидания: поле присутствует, но это
 			// не JSON-строка — сырая форма (массив, число) отвергается
 			// expectStringField как ошибка типа поля, до грамматики.
-			// Массив ["L"] подобран так, что его строковое представление
-			// ("L") удовлетворило бы грамматике пути — тест фиксирует
-			// именно проверку типа поля. Зеркалит TS-кейсы
-			// validateParityFixture.
+			// Не-строки здесь работают по-разному у швов, и это не баг:
+			// в Go коэрции нет — encoding/json сам отвергает массив при
+			// декодировании в string (скрытая коэрция строк в Go-тесте
+			// невозможна), поэтому Go-кейс фиксирует проверку типа
+			// сырого JSON-поля. TS-кейс, наоборот, дискриминирующий
+			// именно из-за коэрции JS: ["L"] приводится к строке "L",
+			// снятый typeof-guard «прошёл» бы грамматику пути. Зеркалит
+			// TS-кейс validateParityFixture.
 			name:      "path в expectedNode — массив вместо строки",
 			accept:    true,
 			markerRaw: "true",
@@ -738,9 +757,13 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			wantErr:   "value в объекте ожидания не строка",
 		},
 		{
-			// ["3"] подобран так, что его строковое представление ("3")
-			// удовлетворило бы грамматике value — тест фиксирует проверку
-			// типа поля, а не случайную форму значения.
+			// В Go коэрции массива в число/строку нет: encoding/json
+			// отвергает ["3"] при декодировании в string как ошибку типа
+			// поля, до грамматики value — тест фиксирует проверку типа
+			// сырого JSON-поля, а не случайную форму значения.
+			// Дискриминирующий подбор ["3"] (коэрция TS: и String(["3"]),
+			// и Number(["3"]) прошли бы грамматику) относится к
+			// TS-кейсу, где typeof-guard снимают.
 			name:      "value в expectedNode — массив вместо строки",
 			accept:    true,
 			markerRaw: "true",
