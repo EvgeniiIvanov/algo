@@ -693,6 +693,33 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			expectRaw: `{"path":"L","Value":"3"}`,
 			wantErr:   "не знаковое десятичное целое",
 		},
+		{
+			// Некорректная форма полей ожидания: поле присутствует, но
+			// не JSON-строка. Зеркалит TS-кейсы validateParityFixture.
+			name:      "path в expectedNode — число вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":1,"value":"3"}`,
+			wantErr:   "path в объекте ожидания не строка",
+		},
+		{
+			name:      "value в expectedNode — число вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":"L","value":3}`,
+			wantErr:   "value в объекте ожидания не строка",
+		},
+		// Явный null: json.Unmarshal("null", &string) — пустое поле без
+		// ошибки, отвергается грамматикой value как не целое;
+		// TS-консьюмер отвергает по typeof null !== "string" —
+		// поведение выровнено.
+		{
+			name:      "value в expectedNode — null вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":"L","value":null}`,
+			wantErr:   "не знаковое десятичное целое",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

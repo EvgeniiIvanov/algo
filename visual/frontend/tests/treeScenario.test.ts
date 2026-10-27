@@ -589,6 +589,33 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       expectedNode: { path: "L", Value: "3" },
       wantErr: "не знаковое десятичное целое",
     },
+    {
+      // Некорректная форма полей ожидания: поле присутствует, но не
+      // строка (typeof-проверка в validateExpectation). Зеркалит
+      // Go-кейсы TestValidateEffectiveNodeContract.
+      name: "path в expectedNode — число вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: 1, value: "3" },
+      wantErr: "путь в expectedNode",
+    },
+    {
+      name: "value в expectedNode — число вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: 3 },
+      wantErr: "не знаковое десятичное целое",
+    },
+    {
+      // Явный null в value отвергается так же, как нестроковое:
+      // typeof null !== "string"; Go-консьюмер превратит null в пустую
+      // строку и отвергнет её грамматикой value — поведение выровнено.
+      name: "value в expectedNode — null вместо строки",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", value: null },
+      wantErr: "не знаковое десятичное целое",
+    },
   ];
   const base = { tree: `{"value":1}`, clientError: "не целое" };
   it.each(cases)("%s", (testCase) => {
