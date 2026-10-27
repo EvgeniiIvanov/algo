@@ -234,7 +234,17 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: у кейса с assertEffectiveNode expectedNode — null вместо объекта ожидания`,
     );
   }
-  if (typeof node !== "object" || Array.isArray(node)) {
+  if (typeof node === "string") {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode expectedNode — строка вместо объекта ожидания`,
+    );
+  }
+  if (Array.isArray(node)) {
+    throw new Error(
+      `${byName}: у кейса с assertEffectiveNode expectedNode — массив вместо объекта ожидания`,
+    );
+  }
+  if (typeof node !== "object") {
     throw new Error(
       `${byName}: у кейса с assertEffectiveNode отсутствует expectedNode`,
     );
@@ -342,7 +352,7 @@ function validateParityFixture(json: unknown): ParityFixture {
     // присутствует, обязан быть булевым; expectedNode без
     // assertEffectiveNode: true — ошибка fixture; маркер true требует
     // корректного expectedNode. Обычные принимающие кейсы expectedNode
-    // не требуют.
+    // Обычные принимающие кейсы expectedNode не требуют.
     if ("assertEffectiveNode" in item) {
       if (typeof item.assertEffectiveNode !== "boolean") {
         throw new Error(`${byName}: маркер assertEffectiveNode не булево`);
@@ -462,7 +472,7 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       name: "путь с BOM отвергается",
       accept: true,
       assertEffectiveNode: true,
-      expectedNode: { path: "﻿L", value: "-7" },
+      expectedNode: { path: "\uFEFFL", value: "-7" },
       wantErr: "путь в expectedNode",
     },
     {
@@ -549,6 +559,34 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       accept: true,
       assertEffectiveNode: true,
       expectedNode: { path: "L", value: "9007199254740992" },
+      wantErr: "не знаковое десятичное целое",
+    },
+    {
+      name: "expectedNode — строка вместо объекта ожидания",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: "L",
+      wantErr: "строка вместо объекта ожидания",
+    },
+    {
+      name: "expectedNode — массив вместо объекта ожидания",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: ["L", "3"],
+      wantErr: "массив вместо объекта ожидания",
+    },
+    {
+      name: "ключ Path (не lowercase) отвергается",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { Path: "L", value: "3" },
+      wantErr: "путь в expectedNode",
+    },
+    {
+      name: "ключ Value (не lowercase) отвергается",
+      accept: true,
+      assertEffectiveNode: true,
+      expectedNode: { path: "L", Value: "3" },
       wantErr: "не знаковое десятичное целое",
     },
   ];
