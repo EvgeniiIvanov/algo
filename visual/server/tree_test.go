@@ -272,8 +272,13 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 			if resp.Code != http.StatusBadRequest {
 				t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
 			}
-			if tc.ServerError != "" && !strings.Contains(resp.Body.String(), tc.ServerError) {
-				t.Fatalf("ответ = %q, ожидается упоминание %q", resp.Body.String(), tc.ServerError)
+			// Ожидание ошибки обязано быть заполнено в fixture, иначе кейс
+			// ничего не проверяет; сравниваем с обязательной сутью сообщения.
+			if tc.ServerError == "" {
+				t.Fatalf("у отвергающего кейса пустое ожидание ошибки сервера в fixture")
+			}
+			if got := resp.Body.String(); !strings.Contains(got, tc.ServerError) {
+				t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tc.ServerError)
 			}
 		})
 	}

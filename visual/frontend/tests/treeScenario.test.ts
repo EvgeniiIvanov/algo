@@ -168,12 +168,12 @@ describe("parseTreeInput: точные value-литералы (париитет 
 // (visual/testdata/tree-input-parity.json) прогоняется и здесь, и в
 // visual/server/tree_test.go — оба публичных шва проверяют одни и те же
 // representative-входы (числовые литералы и повторные ключи).
-type ParityCase = {
-  name: string;
-  tree: string;
-  accept: boolean;
-  clientError?: string;
-};
+type ParityCase = { name: string; tree: string } & (
+  | { accept: true }
+  // Отвергающие кейсы обязаны нести непустое ожидание ошибки клиента:
+  // пропуск поля ловится уже на уровне типов.
+  | { accept: false; clientError: string }
+);
 
 type ParityFixture = {
   comment: string;
@@ -186,6 +186,21 @@ const parityCases = (JSON.parse(
     "utf8",
   ),
 ) as ParityFixture).cases;
+
+// Рантайм-охрана контракта fixture: набор не пуст, а у отвергающих кейсов
+// ожидание ошибки непусто (типовая проверка дополняется проверкой значения).
+if (parityCases.length === 0) {
+  throw new Error(
+    "общий fixture пуст — ожидаются общие кейсы паритета клиент/сервер",
+  );
+}
+for (const testCase of parityCases) {
+  if (!testCase.accept && testCase.clientError.trim() === "") {
+    throw new Error(
+      `кейс «${testCase.name}»: пустое ожидание ошибки клиента у отвергающего кейса`,
+    );
+  }
+}
 
 describe("parseTreeInput: паритет с сервером (общий fixture)", () => {
   it.each(parityCases)("%s", (testCase) => {
