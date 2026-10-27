@@ -284,7 +284,7 @@ function validateExpectation(byName: string, node: unknown): {
       `${byName}: у кейса с assertEffectiveNode value в expectedNode не знаковое десятичное целое в безопасном диапазоне`,
     );
   }
-  return { path: path as string, value: value as string };
+  return { path, value };
 }
 
 // isNodePath — грамматика пути expectedNode: точный идентификатор root
@@ -614,10 +614,11 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       // Зеркалит Go-кейсы TestValidateEffectiveNodeContract.
       // ["L"] подобран специально: при снятии typeof-проверки массив
       // дошёл бы до грамматики пути, где JS-коэрция Array→string ("L")
-      // прошла бы пустой fallback path === undefined — кейс фиксирует
-      // именно guard, а не случайную форму значения. Коэрция — только
-      // особенность JS: у Go (encoding/json) её нет, там то же поле
-      // отвергается декодером как ошибка типа сырого JSON-поля.
+      // прошла бы проверку — кейс фиксирует именно guard, а не случайную
+      // форму значения. Fallback path === undefined сам массивы не
+      // отвергает: он отвечает только за отсутствующее поле. Коэрция —
+      // только особенность JS: у Go (encoding/json) её нет, там то же
+      // поле отвергается декодером как ошибка типа сырого JSON-поля.
       name: "path в expectedNode — массив вместо строки",
       accept: true,
       assertEffectiveNode: true,
