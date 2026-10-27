@@ -696,11 +696,26 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 		{
 			// Некорректная форма полей ожидания: поле присутствует, но
 			// не JSON-строка. Зеркалит TS-кейсы validateParityFixture.
-			name:      "path в expectedNode — число вместо строки",
+			// Массив ["L"] при снятии expectStringField прошёл бы
+			// json-значение дальше и (после строкового приведения
+			// потребителем) удовлетворил бы грамматике пути — тест
+			// фиксирует именно presence-aware строковость поля.
+			name:      "path в expectedNode — массив вместо строки",
 			accept:    true,
 			markerRaw: "true",
-			expectRaw: `{"path":1,"value":"3"}`,
+			expectRaw: `{"path":["L"],"value":"3"}`,
 			wantErr:   "path в объекте ожидания не строка",
+		},
+		{
+			// Явный null в path: json.Unmarshal(null, &string) не пишет
+			// поле и не даёт ошибки — дальше отвергает грамматика пути;
+			// TS-консьюмер отвергает по typeof null !== "string" —
+			// поведение выровнено.
+			name:      "path в expectedNode — null вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":null,"value":"3"}`,
+			wantErr:   "путь в expectedNode",
 		},
 		{
 			name:      "value в expectedNode — число вместо строки",
@@ -709,7 +724,17 @@ func TestValidateEffectiveNodeContract(t *testing.T) {
 			expectRaw: `{"path":"L","value":3}`,
 			wantErr:   "value в объекте ожидания не строка",
 		},
-		// Явный null: json.Unmarshal("null", &string) — пустое поле без
+		{
+			// Массив ["3"] при снятии expectStringField привёлся бы и в
+			// строку ("3"), и в число (Number(["3"]) === 3) — тест
+			// фиксирует guard, а не случайную форму значения.
+			name:      "value в expectedNode — массив вместо строки",
+			accept:    true,
+			markerRaw: "true",
+			expectRaw: `{"path":"L","value":["3"]}`,
+			wantErr:   "value в объекте ожидания не строка",
+		},
+		// Явный null в value: json.Unmarshal("null", &string) — пустое поле без
 		// ошибки, отвергается грамматикой value как не целое;
 		// TS-консьюмер отвергает по typeof null !== "string" —
 		// поведение выровнено.

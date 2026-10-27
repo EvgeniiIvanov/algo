@@ -593,27 +593,30 @@ describe("validateParityFixture: coherent-контракт маркера/ожи
       // Некорректная форма полей ожидания: поле присутствует, но не
       // строка (typeof-проверка в validateExpectation). Зеркалит
       // Go-кейсы TestValidateEffectiveNodeContract.
-      name: "path в expectedNode — число вместо строки",
+      // ["L"] подобран специально: если typeof-проверку убрать, строковое
+      // приведение ["L"] → "L" удовлетворило бы грамматике пути — тест
+      // действительно фиксирует guard, а не случайное совпадение формы.
+      name: "path в expectedNode — массив вместо строки",
       accept: true,
       assertEffectiveNode: true,
-      expectedNode: { path: 1, value: "3" },
+      expectedNode: { path: ["L"], value: "3" },
       wantErr: "путь в expectedNode",
     },
     {
-      name: "value в expectedNode — число вместо строки",
+      name: "path в expectedNode — null вместо строки",
       accept: true,
       assertEffectiveNode: true,
-      expectedNode: { path: "L", value: 3 },
-      wantErr: "не знаковое десятичное целое",
+      expectedNode: { path: null, value: "3" },
+      wantErr: "путь в expectedNode",
     },
     {
-      // Явный null в value отвергается так же, как нестроковое:
-      // typeof null !== "string"; Go-консьюмер превратит null в пустую
-      // строку и отвергнет её грамматикой value — поведение выровнено.
-      name: "value в expectedNode — null вместо строки",
+      // ["3"] подобран так, что при снятии typeof-проверки приведение и
+      // в строку ("3"), и в число (Number(["3"]) === 3) прошло бы
+      // грамматику value — guard действительно проверяется.
+      name: "value в expectedNode — массив вместо строки",
       accept: true,
       assertEffectiveNode: true,
-      expectedNode: { path: "L", value: null },
+      expectedNode: { path: "L", value: ["3"] },
       wantErr: "не знаковое десятичное целое",
     },
   ];
