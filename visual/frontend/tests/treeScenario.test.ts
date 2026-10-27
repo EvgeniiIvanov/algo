@@ -84,7 +84,7 @@ describe("parseTreeInput", () => {
     for (let v = MAX_TREE_NODES; v >= 1; v--) {
       body = `{"value":${v},"left":${body}}`;
     }
-    expect(() => parseTreeInput(body)).toThrow(/максимум 100/);
+    expect(() => parseTreeInput(body)).toThrow(/разрешено не более 100 узлов/);
   });
 });
 

@@ -7,7 +7,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"math"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -52,8 +52,9 @@ var treeOrders = map[string]bool{
 
 // parseTreeJSON разбирает параметр tree — вложенный JSON дерева
 // (value, left, right). Отсутствующий или null потомок — пустая ветвь,
-// верхний null — пустое дерево. Валидирует значения (целые числа) и
-// лимит узлов.
+// верхний null — пустое дерево. Numbers разбираются как json.Number
+// (UseNumber): целое значение узла проверяется точно по литералу,
+// без float64-округления. Валидирует значения и лимит узлов.
 func parseTreeJSON(r *http.Request) (*trees.Node, error) {
 	raw := r.URL.Query().Get("tree")
 	if strings.TrimSpace(raw) == "" {
@@ -61,7 +62,9 @@ func parseTreeJSON(r *http.Request) (*trees.Node, error) {
 	}
 
 	var parsed any
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber() // числа остаются литералами: точная проверка целых
+	if err := dec.Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("не удалось разобрать JSON дерева: %v", err)
 	}
 
@@ -74,8 +77,9 @@ func parseTreeJSON(r *http.Request) (*trees.Node, error) {
 }
 
 // buildTree — рекурсивная проверка parsed как узла дерева: map с целым
-// value и опциональными потомками; null — это nil-узел. count накапливает
-// число узлов.
+// value и опциональными потомками; null — это nil-узел. context — сегмент
+// сообщения об ошибке с путём узла ("": корень, дальше "(путь L)" и т.д.).
+// count накапливает число узлов.
 func buildTree(parsed any, dest **trees.Node, count *int, context string) error {
 	if parsed == nil {
 		*dest = nil // верхний null или null-потомок — пустая ветвь
@@ -83,50 +87,60 @@ func buildTree(parsed any, dest **trees.Node, count *int, context string) error 
 	}
 	obj, ok := parsed.(map[string]any)
 	if !ok {
-		return fmt.Errorf("узел дерева%s должен быть объектом {value, left, right} или null", context)
+		return fmt.Errorf("узел дерева%s должен быть объектом {value, left, right} или null", treeContext(context))
 	}
 
 	value, err := treeValue(obj["value"])
 	if err != nil {
-		return fmt.Errorf("узел дерева%s: %v", context, err)
+		return fmt.Errorf("значение узла дерева%s: %v", treeContext(context), err)
 	}
-
 	node := trees.NewNode(value)
 	*count++
 	if *count > maxTreeNodes {
-		return fmt.Errorf("дерево слишком большое: больше %d узлов, максимум %d; сократите вход", *count, maxTreeNodes)
+		return fmt.Errorf("дерево слишком большое: разрешено не более %d узлов; сократите вход", maxTreeNodes)
 	}
 	*dest = node
-	if err := buildTree(obj["left"], &node.Left, count, ", левый потомок (путь "+path(context+"L")+")"); err != nil {
+	if err := buildTree(obj["left"], &node.Left, count, context+"L"); err != nil {
 		return err
 	}
-	if err := buildTree(obj["right"], &node.Right, count, ", правый потомок (путь "+path(context+"R")+")"); err != nil {
+	if err := buildTree(obj["right"], &node.Right, count, context+"R"); err != nil {
 		return err
 	}
 	return nil
 }
 
-// treeValue проверяет значение узла: число в JSON, целое.
+// treeValue проверяет значение узла: JSON-число, целое и представимое
+// в int без округления. Дубликат проверки диапазона через float64 не
+// подходит: 2^63 представимо как float64, но не как int64 — округление
+// пропустило бы 9223372036854775808 с переполнением int.
 func treeValue(v any) (int, error) {
-	num, ok := v.(float64)
+	num, ok := v.(json.Number)
 	if !ok {
 		return 0, fmt.Errorf("поле value обязательно — целое число")
 	}
-	if num != math.Trunc(num) || math.IsInf(num, 0) {
-		return 0, fmt.Errorf("значение %g не целое: value — целое число", num)
+	// Литерал JSON-числа точно как big.Float (любая запись: 1, 1.5,
+	// 1e2): показывает, целое ли число и помещается ли оно в int64.
+	bf, _, err := big.ParseFloat(num.String(), 10, 128, big.ToNearestEven)
+	if err != nil {
+		return 0, fmt.Errorf("значение %s не число: value — целое число", num.String())
 	}
-	if num > math.MaxInt64 || num < math.MinInt64 {
-		return 0, fmt.Errorf("значение %g за пределами целого: value — целое число", num)
+	if !bf.IsInt() {
+		return 0, fmt.Errorf("значение %s не целое: value — целое число", num.String())
 	}
-	return int(num), nil
+	n, _ := bf.Int(nil)
+	if !n.IsInt64() {
+		return 0, fmt.Errorf("значение %s за пределами целого (int64): value — целое число", num.String())
+	}
+	return int(n.Int64()), nil
 }
 
-// path — путь узла в сообщении об ошибке: корень — «корень».
-func path(p string) string {
+// treeContext — сегмент сообщения об ошибке: путь узла в живой форме,
+// как у клиента: корень — «(корень)», дальше — «(путь L)», «(путь LR)».
+func treeContext(p string) string {
 	if p == "" {
-		return "корень"
+		return "(корень)"
 	}
-	return p
+	return "(путь " + p + ")"
 }
 
 // parseTreeOrder разбирает параметр order — один из трёх порядков обхода.

@@ -80,15 +80,6 @@ func TreeTraversalRun(root *trees.Node, order string, emit func(frame.Frame)) er
 	return nil
 }
 
-// TreeFrames — все кадры обхода сразу (удобно для тестов).
-func TreeFrames(root *trees.Node, order string) ([]frame.Frame, error) {
-	var frames []frame.Frame
-	if err := TreeTraversalRun(root, order, func(f frame.Frame) { frames = append(frames, f) }); err != nil {
-		return nil, err
-	}
-	return frames, nil
-}
-
 // treeOrderName — человеческое имя порядка на русском; второе значение —
 // валиден ли порядок.
 func treeOrderName(order string) (string, bool) {

@@ -176,8 +176,14 @@ func TestTreeTraversalRejections(t *testing.T) {
 		{"не объект вместо узла", `[1,2]`, "in-order", "должен быть объектом"},
 		{"значение не число", `{"value":"1"}`, "pre-order", "value обязательно"},
 		{"значение не целое", `{"value":1.5}`, "post-order", "не целое"},
+		{"не целое на глубине 2", `{"value":1,"left":{"value":2,"left":{"value":2.5}}}`, "in-order", "(путь LL)"},
+		// 2^63 представимо как float64, но не как int64: округление через
+		// float64 пропускало бы 9223372036854775808 с переполнением int.
+		{"значение больше int64", `{"value":9223372036854775808}`, "in-order", "за пределами целого"},
+		{"значение меньше -int64", `{"value":-9223372036854775809}`, "pre-order", "за пределами целого"},
+		{"экспонента не целое", `{"value":1e-2}`, "in-order", "не целое"},
 		{"неизвестный порядок", knownTreeJSON, "breadth-first", "неизвестный порядок"},
-		{"лимит узлов", deepTreeLikeJSON(101), "in-order", "максимум 100"},
+		{"лимит узлов", deepTreeLikeJSON(101), "in-order", "разрешено не более 100 узлов"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,6 +196,38 @@ func TestTreeTraversalRejections(t *testing.T) {
 			}
 			if got := resp.Body.String(); !strings.Contains(got, tt.want) {
 				t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTreeTraversalIntegerBoundariesSSE — целые числа на границах int64 и
+// целые JSON-числа в ненатуральной записи (экспонента) проходят в Run по
+// SSE: сервер проверяет литерал точно, без float64-округления. Значение
+// проверяем по пояснению шага корня: к этом моменту снимок уже прошёл
+// JSON-кругосветку, где int64 max/min теряют точность, а строка — нет.
+func TestTreeTraversalIntegerBoundariesSSE(t *testing.T) {
+	tests := []struct {
+		name       string
+		tree       string
+		wantInText string
+	}{
+		{"int64 max", `{"value":9223372036854775807}`, "9223372036854775807"},
+		{"int64 min", `{"value":-9223372036854775808}`, "-9223372036854775808"},
+		{"экспонента, целое", `{"value":1e2}`, "100"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frames := doRunTreeSSE(t, tt.tree, "pre-order")
+			data, ok := frames[1].Data.(map[string]any)
+			if !ok {
+				t.Fatalf("кадр шага 2: data не является снимком: %#v", frames[1].Data)
+			}
+			if activeID, _ := data["activeId"].(string); activeID != "root" {
+				t.Fatalf("activeId = %q, ожидается root", activeID)
+			}
+			if !strings.Contains(frames[1].Explanation, tt.wantInText) {
+				t.Fatalf("пояснение = %q, ожидается значение %q", frames[1].Explanation, tt.wantInText)
 			}
 		})
 	}

@@ -83,7 +83,7 @@ function buildTreeInput(parsed: unknown, branch: string, count: number): number 
   }
   if (count + 1 > MAX_TREE_NODES) {
     throw new Error(
-      `дерево слишком большое: больше ${MAX_TREE_NODES} узлов, максимум ${MAX_TREE_NODES}; сократите вход`,
+      `дерево слишком большое: разрешено не более ${MAX_TREE_NODES} узлов; сократите вход`,
     );
   }
   // Отсутствующий ключ и явный null равнозначны — оба пустая ветвь.
