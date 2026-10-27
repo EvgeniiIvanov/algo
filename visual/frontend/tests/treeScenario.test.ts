@@ -88,6 +88,79 @@ describe("parseTreeInput", () => {
   });
 });
 
+describe("parseTreeInput: точные value-литералы (париитет с сервером)", () => {
+  // Компенсированная экспонента: «0.» + 4088 нулей + «1e4097» — ровно
+  // 100000000 (1e8), литерал ровно 4096 символов; JSON.parse даёт точное
+  // 100000000, а сервер принимает тот же вход через SSE.
+  const compensated = `{"value":0.${"0".repeat(4088)}1e4097}`;
+
+  it("принимает компенсированную экспоненту (ровно 4096 символов)", () => {
+    expect(() => parseTreeInput(compensated)).not.toThrow();
+  });
+
+  it("принимает обычные целые формы: 1.0, 1e2, 1.0e2, -0", () => {
+    for (const tree of [
+      `{"value":1.0}`,
+      `{"value":1e2}`,
+      `{"value":1.0e2}`,
+      `{"value":-0}`,
+      `{"value": 1 , "left" : {"value":0.50e3} }`,
+    ]) {
+      expect(() => parseTreeInput(tree)).not.toThrow();
+    }
+  });
+
+  it("принимает безопасную целую экспоненту вне int64 — клиентская политика точности", () => {
+    // 1e30 — целое, но за Number.MAX_SAFE_INTEGER: клиент отвергает сам.
+    expect(() => parseTreeInput(`{"value":1e30}`)).toThrow(/точного диапазона/);
+    expect(() => parseTreeInput(`{"value":1e12}`)).not.toThrow();
+  });
+
+  it("отвергает точную нецелую дробь, которая округляется до целого", () => {
+    const lit = "1." + "0".repeat(48) + "1";
+    expect(() => parseTreeInput(`{"value":${lit}}`)).toThrow(/не целое/);
+    // и на глубине дерева — литерал не проходит ни в каком узле
+    expect(() =>
+      parseTreeInput(`{"value":1,"right":{"value":${lit}}}`),
+    ).toThrow(/не целое/);
+  });
+
+  it("отвергает литерал длиннее 4096 символов — как сервер", () => {
+    const tooLong = "1" + "0".repeat(4097);
+    expect(() => parseTreeInput(`{"value":${tooLong}}`)).toThrow(
+      /слишком длинное/,
+    );
+  });
+
+  it("отвергает дробный хвост после показателя — не целое", () => {
+    expect(() => parseTreeInput(`{"value":1e-4000}`)).toThrow(/не целое/);
+  });
+
+  it("игнорирует посторонние поля и вложенные структуры — как сервер", () => {
+    const lit = "1." + "0".repeat(48) + "1";
+    expect(() =>
+      parseTreeInput(
+        `{"meta":{"value":${lit}},"xs":[{"value":${lit}}],"s":"${lit}","value":1}`,
+      ),
+    ).not.toThrow();
+  });
+
+  it("читает экранированный ключ value так же, как JSON.parse", () => {
+    expect(() =>
+      parseTreeInput(`{"\\u0076alue":${"1." + "0".repeat(48) + "1"}}`),
+    ).toThrow(/не целое/);
+  });
+
+  it("при повторении ключа value проверяет последнюю запись", () => {
+    expect(() =>
+      parseTreeInput(`{"value":${"1." + "0".repeat(48) + "1"},"value":2}`),
+    ).not.toThrow();
+    expect(() =>
+      parseTreeInput(`{"value":2,"value":${"1." + "0".repeat(48) + "1"}}`),
+    ).toThrow(/не целое/);
+  });
+});
+
 describe("parseTreeOrder", () => {
   it.each(["in-order", "pre-order", "post-order"] as const)(
     "принимает порядок %s",
