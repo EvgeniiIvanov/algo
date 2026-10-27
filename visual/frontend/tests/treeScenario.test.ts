@@ -174,7 +174,14 @@ type ParityCase = { name: string; tree: string } & (
   // контракт проверяется в рантайме (см. validateParityFixture), тип
   // лишь фиксирует, что у отвергающего кейса поле есть.
   | { accept: false; clientError: string }
-);
+) & {
+  // Явный маркер назначенной проверки эффективного узла: требует
+  // корректный expectedNode (непустой путь и целое значение) — это
+  // проверяет рантайм-охрана validateParityFixture. Сам снимок SSE
+  // проверяет серверный консьюмер fixture.
+  assertEffectiveNode?: boolean;
+  expectedNode?: { path: string; value: number };
+};
 
 type ParityFixture = {
   comment: string;
@@ -227,6 +234,11 @@ function validateParityFixture(json: unknown): ParityFixture {
       throw new Error(`${byName}: accept не булево (или поле отсутствует)`);
     }
     if (!item.accept) {
+      if (item.assertEffectiveNode === true) {
+        throw new Error(
+          `${byName}: маркер assertEffectiveNode у отвергающего кейса неверен — отвергающий кейс не имеет снимка`,
+        );
+      }
       if (
         typeof item.clientError !== "string" ||
         item.clientError.trim() === ""
@@ -240,6 +252,37 @@ function validateParityFixture(json: unknown): ParityFixture {
         tree: item.tree,
         accept: false,
         clientError: item.clientError,
+      };
+    }
+    // Рантайм-охрана маркера: назначенный кейс обязан нести корректный
+    // expectedNode (непустой путь и целое значение). Обычные принимающие
+    // кейсы expectedNode не требуют.
+    if (item.assertEffectiveNode === true) {
+      const node = item.expectedNode as Record<string, unknown>;
+      if (typeof node !== "object" || node === null || Array.isArray(node)) {
+        throw new Error(
+          `${byName}: у кейса с assertEffectiveNode отсутствует expectedNode`,
+        );
+      }
+      if (typeof node.path !== "string" || node.path.trim() === "") {
+        throw new Error(
+          `${byName}: у кейса с assertEffectiveNode пустой путь в expectedNode`,
+        );
+      }
+      if (
+        typeof node.value !== "number" ||
+        !Number.isInteger(node.value)
+      ) {
+        throw new Error(
+          `${byName}: у кейса с assertEffectiveNode value в expectedNode не целое число`,
+        );
+      }
+      return {
+        name: item.name,
+        tree: item.tree,
+        accept: true,
+        assertEffectiveNode: true,
+        expectedNode: { path: node.path, value: node.value },
       };
     }
     return { name: item.name, tree: item.tree, accept: true };

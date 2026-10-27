@@ -246,18 +246,22 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 	var fixtures struct {
 		Comment string `json:"comment"`
 		Cases   []struct {
-			Name        string `json:"name"`
-			Tree        string `json:"tree"`
-			Accept      *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
-			ClientError string `json:"clientError"`
-			ServerError string `json:"serverError"`
+			Name   string `json:"name"`
+			Tree   string `json:"tree"`
+			Accept *bool  `json:"accept"` // указатель: отсутствие поля — ошибка fixture, а не «отвергается»
+			// AssertEffectiveNode — явный маркер: кейс назначенно
+			// проверяет эффективный узел, поэтому в fixture обязан быть
+			// корректный ExpectedNode; проверяется рантайм-охраной ниже.
+			AssertEffectiveNode bool   `json:"assertEffectiveNode"`
+			ClientError         string `json:"clientError"`
+			ServerError         string `json:"serverError"`
 			// ExpectedNode — необязательное ожидание эффективного узла
 			// снимка: путь от корня и значение. Проверяется по
 			// фактическому SSE-снимку, поэтому реализация «первая
 			// запись выигрывает» кейс не проходит.
 			ExpectedNode *struct {
-				Path  string `json:"path"`
-				Value int64  `json:"value"`
+				Path  string      `json:"path"`
+				Value json.Number `json:"value"`
 			} `json:"expectedNode"`
 		} `json:"cases"`
 	}
@@ -277,6 +281,9 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 				if resp.Code != http.StatusBadRequest {
 					t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
 				}
+				if tc.AssertEffectiveNode {
+					t.Fatalf("маркер assertEffectiveNode у отвергающего кейса неверен: отвергающий кейс не имеет снимка")
+				}
 				// Ожидание ошибки обязано быть заполнено в fixture, иначе кейс
 				// ничего не проверяет; сравниваем с обязательной сутью сообщения.
 				if tc.ServerError == "" {
@@ -287,13 +294,33 @@ func TestTreeTraversalParityFixtures(t *testing.T) {
 				}
 				return
 			}
+			// Рантайм-охрана fixture: маркер assertEffectiveNode обязывает
+			// кейс иметь корректный expectedNode (непустой путь и целое
+			// значение), иначе кейс ничего не проверяет. Обычные
+			// принимающие кейсы expectedNode не требуют.
+			var wantPath string
+			var wantValue int64
+			var assertNode bool
+			if tc.AssertEffectiveNode || tc.ExpectedNode != nil {
+				if tc.ExpectedNode == nil {
+					t.Fatalf("у кейса с assertEffectiveNode отсутствует expectedNode в fixture")
+				}
+				if tc.ExpectedNode.Path == "" {
+					t.Fatalf("у кейса с assertEffectiveNode пустой путь в expectedNode")
+				}
+				v, err := tc.ExpectedNode.Value.Int64()
+				if err != nil {
+					t.Fatalf("у кейса с assertEffectiveNode value в expectedNode не целое число: %v", err)
+				}
+				wantPath, wantValue, assertNode = tc.ExpectedNode.Path, v, true
+			}
 			frames := doRunTreeSSE(t, tc.Tree, "in-order")
-			if tc.ExpectedNode == nil {
+			if !assertNode {
 				return
 			}
 			// Стартовый кадр — полный снимок топологии: проверяем
 			// фактический результат разбора, а не только вердикт.
-			assertNodeInSnapshot(t, frames[0], tc.ExpectedNode.Path, tc.ExpectedNode.Value)
+			assertNodeInSnapshot(t, frames[0], wantPath, wantValue)
 		})
 	}
 }
