@@ -546,3 +546,67 @@ code {
   background: #dbeafe;
   border-color: #2563eb;
 }
+
+/* Кадр kind="tree" (обходы бинарного дерева): узел — ячейка со значением;
+   потомки — ветки L и R со сдвигом вправо (чем глубже узел, тем дальше
+   от левого края), форма дерева читается глазами. */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tree-node-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 28px;
+  border-left: 2px solid var(--line);
+  padding-left: 14px;
+}
+
+.tree-branch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Метка ветки: L или R — видно, каким потомком узел является. */
+.tree-branch-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tree-node {
+  min-width: 44px;
+}
+
+/* Пустая ветвь (∅) и пустое дерево: призрак вместо узла. */
+.tree-node.tree-empty {
+  background: var(--out);
+  border: 2px dashed var(--line);
+  color: var(--muted);
+}
+
+/* Активный узел шага: посещаем сейчас. */
+.tree-node.active {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Посещённый узел: в порядке обхода уже пройден; номер позиции — в
+   data-атрибуте, как метка у ячейки. */
+.tree-node.visited {
+  background: #dbeafe;
+  border-color: var(--accent);
+}

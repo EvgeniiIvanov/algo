@@ -14,6 +14,7 @@ import {
   buildRunURL,
   buildSortRunURL,
   buildStackRunURL,
+  buildTreeTraversalRunURL,
   isSortAlgorithm,
   SORT_ALGORITHMS,
 } from "./sse";
@@ -29,6 +30,7 @@ import {
   parseStackCapacity,
   parseStackScenario,
 } from "./scenario";
+import { parseTreeInput, parseTreeOrder } from "./tree";
 import type { Frame } from "./types";
 
 const ALGORITHMS = [
@@ -38,6 +40,7 @@ const ALGORITHMS = [
   "list",
   "linked-list",
   "hash-table",
+  "tree-traversal",
   // Маршруты сортировок — канонический список из sse.ts.
   ...SORT_ALGORITHMS,
 ] as const;
@@ -64,6 +67,8 @@ function init(): void {
   const hashTableBucketsEl = getElement<HTMLInputElement>("hash-table-buckets");
   const hashTableScriptEl = getElement<HTMLTextAreaElement>("hash-table-script");
   const sortValuesEl = getElement<HTMLInputElement>("sort-values");
+  const treeJsonEl = getElement<HTMLTextAreaElement>("tree-json");
+  const treeOrderEl = getElement<HTMLSelectElement>("tree-order");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
@@ -71,6 +76,7 @@ function init(): void {
   const linkedListInputsEl = getElement<HTMLElement>("linked-list-inputs");
   const hashTableInputsEl = getElement<HTMLElement>("hash-table-inputs");
   const sortInputsEl = getElement<HTMLElement>("sort-inputs");
+  const treeInputsEl = getElement<HTMLElement>("tree-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -92,6 +98,7 @@ function init(): void {
     hashTableInputsEl.hidden = algorithm !== "hash-table";
     // Простые сортировки пользуются общим блоком ввода массива.
     sortInputsEl.hidden = !isSortAlgorithm(algorithm);
+    treeInputsEl.hidden = algorithm !== "tree-traversal";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -147,6 +154,10 @@ function init(): void {
         const buckets = parseHashTableBucketCount(hashTableBucketsEl.value);
         parseHashTableScenario(hashTableScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildHashTableRunURL(buckets, hashTableScriptEl.value);
+      } else if (algorithm === "tree-traversal") {
+        parseTreeInput(treeJsonEl.value); // валидация; на сервер уедет сырой текст
+        parseTreeOrder(treeOrderEl.value);
+        url = buildTreeTraversalRunURL(treeJsonEl.value, treeOrderEl.value);
       } else if (isSortAlgorithm(algorithm)) {
         const values = parseSortValues(sortValuesEl.value);
         url = buildSortRunURL(algorithm, values);

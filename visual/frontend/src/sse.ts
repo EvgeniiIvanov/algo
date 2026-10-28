@@ -153,6 +153,16 @@ export function buildSortRunURL(algorithm: SortAlgorithm, values: number[]): str
 }
 
 /**
+ * Построить URL запуска Run обхода бинарного дерева: вложенный JSON дерева
+ * и порядок обхода. JSON едет как есть — парсинг и валидация авторитетны
+ * на сервере.
+ */
+export function buildTreeTraversalRunURL(tree: string, order: string): string {
+  const params = new URLSearchParams({ tree, order });
+  return `/api/run/tree-traversal?${params.toString()}`;
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.
