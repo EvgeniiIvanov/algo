@@ -107,6 +107,36 @@ func TestPostOrder(t *testing.T) {
 	}
 }
 
+// TestLevelOrder — обход по уровням через FIFO-очередь: уровни сверху
+// вниз, слева направо внутри уровня. Тесты шва 1: только порядок
+// возвращённых значений на тех же формах дерева, что у DFS-порядков.
+func TestLevelOrder(t *testing.T) {
+	tests := []struct {
+		name string
+		root *trees.Node
+		want []int
+	}{
+		{"пустое дерево", nil, []int{}},
+		{"одноузловое", trees.NewNode(5), []int{5}},
+		{"асимметричное", buildSymmetric(), []int{1, 2, 3, 4, 5, 6, 7}},
+		// Перекошенное дерево: каждый уровень — один узел, поэтому
+		// level-order повторяет порядок от корня вниз.
+		{"перекошенное вправо", skewedRight(), []int{1, 2, 3}},
+		{"перекошенное влево", skewedLeft(), []int{1, 2, 3}},
+		// Порядок относится к узлам, а не к значениям: уровни разделяют
+		// одинаковые значения (LL:7, L:7 на глубинах 2 и 3).
+		{"повторяющиеся значения", buildDuplicates(), []int{2, 7, 2, 7, 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := trees.LevelOrder(tt.root)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("trees.LevelOrder = %v, ожидается %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // buildDuplicates — дерево с повторяющимися значениями:
 //
 //	     2

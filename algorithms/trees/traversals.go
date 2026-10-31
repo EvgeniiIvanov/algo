@@ -2,9 +2,11 @@
 //
 // Quiet-версии (node.go) остаются обычными функциями библиотеки; здесь —
 // их режим наблюдения: рекурсия и результат те же, перед посещением узла
-// в эмиттер стреляется событие DFSVisit. Идентичность узла не выводится
-// из значения: узел задаётся путём от корня (Path, символы L/R), поэтому
-// узлы с повторяющимися значениями различимы.
+// в эмиттер стреляется событие DFSVisit (глубинные обходы) или
+// LevelOrderVisit с состоянием FIFO-очереди (обход по уровням).
+// Идентичность узла не выводится из значения: узел задаётся путём от
+// корня (Path, символы L/R), поэтому узлы с повторяющимися значениями
+// различимы.
 
 package trees
 
@@ -98,4 +100,85 @@ func emitDFS(em algorithms.Emitter[DFSEvent], event DFSEvent) {
 		return
 	}
 	em.Emit(event)
+}
+
+// LevelOrderEvent — маркер-интерфейс событий обхода по уровням: вне пакета
+// свои события реализовать нельзя.
+type LevelOrderEvent interface{ isLevelOrderEvent() }
+
+// LevelOrderVisit — узел снят с головы FIFO-очереди и посещён.
+// Path — путь узла от корня (NodeID), как в DFSVisit; повторяющиеся
+// значения остаются различимыми. Queue — состояние FIFO-очереди сразу
+// после этого шага: посещённый узел уже снят с головы, его существующие
+// потомки уже добавлены в конец; идентификаторы идут от головы к хвосту.
+// Снимок — своя копия: очередь обхода дальше живёт своей жизнью.
+type LevelOrderVisit struct {
+	Path  string   // путь узла от корня ("": корень, "L", "LR", ...)
+	Value int      // значение посещённого узла
+	Queue []string // очередь после шага (путь к хвосту; пустая — очередь опустела)
+}
+
+func (LevelOrderVisit) isLevelOrderEvent() {}
+
+// LevelOrderWithEmitter — LevelOrder в режиме наблюдения: на каждый
+// посещённый узел в эмиттер уходит LevelOrderVisit с состоянием очереди.
+// Поведение и результат — те же, что у тихого LevelOrder.
+func LevelOrderWithEmitter(n *Node, em algorithms.Emitter[LevelOrderEvent]) []int {
+	return levelOrder(n, em)
+}
+
+// levelOrder — общий цикл тихого и наблюдающего режимов обхода по
+// уровням: FIFO-очередь с индексом головы (черновик автора — перемещение
+// head вместо пересборки слайса — сохранён как есть). Учебная идея:
+// узел посещается, когда доходит до головы очереди, его потомки
+// становятся в конец — сначала левый, потом правый, поэтому уровни
+// идут слева направо.
+func levelOrder(n *Node, em algorithms.Emitter[LevelOrderEvent]) []int {
+	if n == nil {
+		return []int{}
+	}
+	// Очередь хранит пары узел/путь: идентичность узла не выводится
+	// из значения (значения могут повторяться).
+	queue := []queueNode{{node: n, path: ""}}
+	head := 0
+	result := []int{}
+
+	for head < len(queue) {
+		cur := queue[head]
+		head++
+
+		if cur.node.Left != nil {
+			queue = append(queue, queueNode{node: cur.node.Left, path: cur.path + "L"})
+		}
+		if cur.node.Right != nil {
+			queue = append(queue, queueNode{node: cur.node.Right, path: cur.path + "R"})
+		}
+
+		result = append(result, cur.node.Value)
+		if em != nil {
+			em.Emit(LevelOrderVisit{
+				Path:  cur.path,
+				Value: cur.node.Value,
+				Queue: queuePaths(queue, head),
+			})
+		}
+	}
+	return result
+}
+
+// queueNode — элемент FIFO-очереди обхода по уровням: узел и его путь
+// от корня (идентичность узла не выводится из значения).
+type queueNode struct {
+	node *Node
+	path string
+}
+
+// queuePaths — оставшиеся в очереди пути от позиции head до хвоста:
+// свежий слайс, чтобы событие не aliased на живую очередь обхода.
+func queuePaths(queue []queueNode, head int) []string {
+	paths := []string{}
+	for i := head; i < len(queue); i++ {
+		paths = append(paths, queue[i].path)
+	}
+	return paths
 }

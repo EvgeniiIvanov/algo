@@ -228,7 +228,7 @@ export interface SortSnapshot {
  * значениями различимы.
  */
 export interface TreeSnapshot {
-  /** Порядок обхода: "in-order" / "pre-order" / "post-order". */
+  /** Порядок обхода: "in-order" / "pre-order" / "post-order" / "level-order". */
   order: string;
   /** Все узлы дерева: полный снимок топологии (пустой массив — пустое дерево). */
   nodes: TreeNodeData[];
@@ -238,6 +238,12 @@ export interface TreeSnapshot {
   activeId: string;
   /** Уже посещённые узлы с порядковыми номерами, с 1. */
   visited: TreeVisit[];
+  /**
+   * FIFO-очередь обхода по уровням: идентификаторы узлов от головы
+   * к хвосту ([] — очередь опустела; у DFS-порядков всегда []).
+   * Обратно совместимо: старые снимки без queue читаются как [].
+   */
+  queue: string[];
   /** Имя шага ("старт", "посещение LR"); пусто — стартовый кадр. */
   operation: string;
 }

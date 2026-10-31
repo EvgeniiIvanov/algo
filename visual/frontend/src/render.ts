@@ -392,7 +392,8 @@ export function isSortFrame(frame: Frame): boolean {
 }
 
 /**
- * Ветка kind="tree": бинарное дерево (обходы in/pre/post-order).
+ * Ветка kind="tree": бинарное дерево (обходы in/pre/post-order и
+ * по уровням level-order).
  * Полная топология redraw целиком (кадр самодостаточен), вложенная
  * структура: узел — ячейка со значением, потомки — ветки L и R ниже,
  * отступ растёт с глубиной. Подсветки: активный узел (activeId) —
@@ -474,6 +475,25 @@ function asTreeSnapshot(data: unknown): TreeSnapshot {
   if (typeof obj.operation !== "string") {
     throw new Error("снимок дерева: поле operation должно быть строкой");
   }
+  // Очередь level-order: необязательное поле (старые снимки без него
+  // читаются как [], как ranges у сортировок), непустой список обязан
+  // состоять из идентификаторов узлов дерева от головы к хвосту.
+  if (obj.queue === undefined) {
+    obj.queue = [];
+  }
+  if (!Array.isArray(obj.queue)) {
+    throw new Error("снимок дерева: поле queue должно быть массивом идентификаторов узлов");
+  }
+  for (const id of obj.queue) {
+    if (typeof id !== "string") {
+      throw new Error("снимок дерева: поле queue должно быть массивом идентификаторов узлов");
+    }
+    if (!byId.has(id)) {
+      throw new Error(
+        `снимок дерева: очередь ссылается на отсутствующий узел ${id}`,
+      );
+    }
+  }
   return obj as unknown as TreeSnapshot;
 }
 
@@ -493,6 +513,8 @@ export function isTreeFrame(frame: Frame): boolean {
  * Корень сверху, ветки L и R с отступами — форма читается глазами;
  * активный узел — класс active, посещённые — visited с номером позиции
  * (метка data.position). Пустое дерево рисуется пустым маркером.
+ * Непустая очередь level-order рисуется рядом: ячейки в FIFO-порядке,
+ * голова — первая.
  */
 function renderTree(snap: TreeSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");
@@ -514,7 +536,36 @@ function renderTree(snap: TreeSnapshot, containerEl: HTMLElement): void {
     wrap.appendChild(empty);
   }
 
+  if (snap.queue.length > 0) {
+    wrap.appendChild(treeQueue(snap));
+  }
+
   containerEl.replaceChildren(wrap);
+}
+
+/** FIFO-очередь обхода по уровням: ячейки от головы к хвосту, голова помечена. */
+function treeQueue(snap: TreeSnapshot): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "tree-queue";
+
+  const label = document.createElement("div");
+  label.className = "tree-queue-label";
+  label.textContent = "Очередь (FIFO, голова — первая):";
+  wrap.appendChild(label);
+
+  const items = document.createElement("div");
+  items.className = "tree-queue-items";
+  snap.queue.forEach((id, i) => {
+    const node = snap.nodes.find((n) => n.id === id) as TreeNodeData;
+    const item = document.createElement("div");
+    item.className = "cell tree-queue-item";
+    item.dataset.id = id;
+    item.textContent = String(node.value);
+    if (i === 0) item.classList.add("tree-queue-head");
+    items.appendChild(item);
+  });
+  wrap.appendChild(items);
+  return wrap;
 }
 
 /** Построить DOM-блок одного узла с ветками L и R. */

@@ -744,7 +744,7 @@ describe("isSignedDecimalInteger", () => {
 });
 
 describe("parseTreeOrder", () => {
-  it.each(["in-order", "pre-order", "post-order"] as const)(
+  it.each(["in-order", "pre-order", "post-order", "level-order"] as const)(
     "принимает порядок %s",
     (order) => {
       expect(parseTreeOrder(order)).toBe(order);
@@ -763,6 +763,7 @@ describe("parseTreeOrder", () => {
 
   it("isTreeOrder различает валидный порядок", () => {
     expect(isTreeOrder("in-order")).toBe(true);
+    expect(isTreeOrder("level-order")).toBe(true);
     expect(isTreeOrder("breadth-first")).toBe(false);
   });
 });
@@ -772,5 +773,9 @@ describe("buildTreeTraversalRunURL", () => {
     expect(
       buildTreeTraversalRunURL(`{"value":1}`, "pre-order"),
     ).toBe(`/api/run/tree-traversal?tree=${encodeURIComponent(`{"value":1}`)}&order=pre-order`);
+    // Обход по уровням идёт в тот же маршрут тем же параметром order.
+    expect(
+      buildTreeTraversalRunURL(`{"value":1}`, "level-order"),
+    ).toBe(`/api/run/tree-traversal?tree=${encodeURIComponent(`{"value":1}`)}&order=level-order`);
   });
 });

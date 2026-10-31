@@ -23,9 +23,9 @@ import (
 // визуализации: библиотечные обходы им не ограничены.
 const maxTreeNodes = 100
 
-// handleTreeTraversal — Run обходов in/pre/post-order: на выходе
-// SSE-поток кадров kind="tree" до конца обхода (исходный кадр + кадр
-// на каждое посещение). Обход по уровням — отдельный маршрут (тикет 32).
+// handleTreeTraversal — Run обходов in/pre/post-order и по уровням:
+// на выходе SSE-поток кадров kind="tree" до конца обхода (исходный кадр +
+// кадр на каждое посещение).
 func handleTreeTraversal(w http.ResponseWriter, r *http.Request) {
 	root, err := parseTreeJSON(r)
 	if err != nil {
@@ -45,11 +45,14 @@ func handleTreeTraversal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// treeOrders — множество валидных порядков для проверки входа.
+// treeOrders — множество валидных порядков для проверки входа: три
+// порядка в глубину и обход по уровням — один маршрут, совместимость
+// прежних порядков сохранена.
 var treeOrders = map[string]bool{
-	render.TreeOrderInOrder:   true,
-	render.TreeOrderPreOrder:  true,
-	render.TreeOrderPostOrder: true,
+	render.TreeOrderInOrder:    true,
+	render.TreeOrderPreOrder:   true,
+	render.TreeOrderPostOrder:  true,
+	render.TreeOrderLevelOrder: true,
 }
 
 // parseTreeJSON разбирает параметр tree — вложенный JSON дерева
@@ -271,14 +274,15 @@ func treeContext(p string) string {
 	return "(путь " + p + ")"
 }
 
-// parseTreeOrder разбирает параметр order — один из трёх порядков обхода.
+// parseTreeOrder разбирает параметр order — один из четырёх порядков
+// обхода.
 func parseTreeOrder(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", fmt.Errorf("параметр order обязателен: порядок обхода — in-order, pre-order или post-order")
+		return "", fmt.Errorf("параметр order обязателен: порядок обхода — in-order, pre-order, post-order или level-order")
 	}
 	if !treeOrders[raw] {
-		return "", fmt.Errorf("неизвестный порядок обхода %q: ожидается in-order, pre-order или post-order", raw)
+		return "", fmt.Errorf("неизвестный порядок обхода %q: ожидается in-order, pre-order, post-order или level-order", raw)
 	}
 	return raw, nil
 }

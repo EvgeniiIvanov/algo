@@ -17,6 +17,12 @@ type spyTreeEmitter []trees.DFSEvent
 
 func (s *spyTreeEmitter) Emit(event trees.DFSEvent) { *s = append(*s, event) }
 
+// spyLevelEmitter — тестовый Emitter обхода по уровням: собирает события
+// LevelOrderVisit (с состоянием очереди) в слайс.
+type spyLevelEmitter []trees.LevelOrderEvent
+
+func (s *spyLevelEmitter) Emit(event trees.LevelOrderEvent) { *s = append(*s, event) }
+
 // Известный порядок событий симметричного дерева (см. traversals_test.go):
 // один DFSVisit на каждый узел, путь различает одинаковые значения.
 func TestInOrderEvents(t *testing.T) {
@@ -130,6 +136,85 @@ func TestEventsEmptyTreeAndNodeID(t *testing.T) {
 	// Заглушка для алгоритмов.Emitter — проверяем статически, что тип
 	// событий удовлетворяет общему контракту (не даём лишних импортов умереть).
 	var _ algorithms.Emitter[trees.DFSEvent] = (*spyTreeEmitter)(nil)
+}
+
+// Level-order на симметричном дереве: порядок обхода — уровни сверху вниз
+// слева направо, а каждое событие несёт состояние FIFO-очереди после шага
+// (посещённый уже снят, дети уже добавлены).
+func TestLevelOrderEvents(t *testing.T) {
+	var em spyLevelEmitter
+	got := trees.LevelOrderWithEmitter(symTree(), &em)
+
+	wantResult := []int{1, 2, 3, 4, 5, 6, 7}
+	if !reflect.DeepEqual(got, wantResult) {
+		t.Fatalf("LevelOrderWithEmitter вернул %v, ожидается %v", got, wantResult)
+	}
+	want := []trees.LevelOrderEvent{
+		trees.LevelOrderVisit{Path: "", Value: 1, Queue: []string{"L", "R"}},
+		trees.LevelOrderVisit{Path: "L", Value: 2, Queue: []string{"R", "LL", "LR"}},
+		trees.LevelOrderVisit{Path: "R", Value: 3, Queue: []string{"LL", "LR", "RR"}},
+		trees.LevelOrderVisit{Path: "LL", Value: 4, Queue: []string{"LR", "RR"}},
+		trees.LevelOrderVisit{Path: "LR", Value: 5, Queue: []string{"RR", "LRL"}},
+		trees.LevelOrderVisit{Path: "RR", Value: 6, Queue: []string{"LRL"}},
+		trees.LevelOrderVisit{Path: "LRL", Value: 7, Queue: []string{}},
+	}
+	if !reflect.DeepEqual([]trees.LevelOrderEvent(em), want) {
+		t.Fatalf("события = %#v, ожидается %#v", []trees.LevelOrderEvent(em), want)
+	}
+	// Заглушка для контракта эмиттера — как у DFS-обходов.
+	var _ algorithms.Emitter[trees.LevelOrderEvent] = (*spyLevelEmitter)(nil)
+}
+
+// Повторяющиеся значения у level-order: события идут по узлам (путям),
+// в очереди различимы идентификаторами, а не значениями.
+func TestLevelOrderEventsDistinguishRepeatedValues(t *testing.T) {
+	root := repeatedValuesTree()
+
+	var em spyLevelEmitter
+	got := trees.LevelOrderWithEmitter(root, &em)
+	if !reflect.DeepEqual(got, []int{2, 7, 2, 7, 2}) {
+		t.Fatalf("LevelOrderWithEmitter вернул %v", got)
+	}
+	want := []trees.LevelOrderEvent{
+		trees.LevelOrderVisit{Path: "", Value: 2, Queue: []string{"L", "R"}},
+		trees.LevelOrderVisit{Path: "L", Value: 7, Queue: []string{"R", "LL"}},
+		trees.LevelOrderVisit{Path: "R", Value: 2, Queue: []string{"LL", "RR"}},
+		trees.LevelOrderVisit{Path: "LL", Value: 7, Queue: []string{"RR"}},
+		trees.LevelOrderVisit{Path: "RR", Value: 2, Queue: []string{}},
+	}
+	if !reflect.DeepEqual([]trees.LevelOrderEvent(em), want) {
+		t.Fatalf("события = %#v, ожидается %#v", []trees.LevelOrderEvent(em), want)
+	}
+}
+
+// Пустое дерево: событий нет, результат пустой; одноузловое — один визит,
+// очередь опустела сразу (корень снят, детей нет).
+func TestLevelOrderEventsEmptyAndSingleNode(t *testing.T) {
+	if got := trees.LevelOrderWithEmitter(nil, &spyLevelEmitter{}); len(got) != 0 {
+		t.Fatalf("пустое дерево: результат %v, ожидается пустой", got)
+	}
+	var em spyLevelEmitter
+	_ = trees.LevelOrderWithEmitter(trees.NewNode(5), &em)
+	want := []trees.LevelOrderEvent{
+		trees.LevelOrderVisit{Path: "", Value: 5, Queue: []string{}},
+	}
+	if !reflect.DeepEqual([]trees.LevelOrderEvent(em), want) {
+		t.Fatalf("одноузловое дерево: события %#v, ожидается %#v", []trees.LevelOrderEvent(em), want)
+	}
+}
+
+// Тот же узловой состав дерева с повторяющимися значениями, что и в
+// DFS-событийных тестах: порядок относится к узлам, а не к значениям.
+func repeatedValuesTree() *trees.Node {
+	root := trees.NewNode(2)
+	l := trees.NewNode(7)
+	r := trees.NewNode(2)
+	ll := trees.NewNode(7)
+	rr := trees.NewNode(2)
+	root.Left, root.Right = l, r
+	l.Left = ll
+	r.Right = rr
+	return root
 }
 
 func symTree() *trees.Node {

@@ -190,3 +190,46 @@ describe("renderFrame kind=tree", () => {
     expect(containerEl.children).toHaveLength(0);
   });
 });
+
+// Очередь level-order: кадр несёт FIFO-очередь с идентификаторами узлов
+// от головы к хвосту; DFS-кадры и пустая очередь рисуются без блока.
+describe("renderFrame kind=tree: очередь level-order", () => {
+  const queued: Record<string, unknown> = {
+    ...snapshot,
+    order: "level-order",
+    queue: ["LL", "RR"],
+  };
+
+  it("принимает кадр с очередью из существующих узлов", () => {
+    expect(isTreeFrame(treeFrame(queued))).toBe(true);
+  });
+
+  it("отвергает очередь с узлом вне дерева", () => {
+    expect(isTreeFrame(treeFrame({ ...queued, queue: ["XX"] }))).toBe(false);
+  });
+
+  it("отвергает нестроковый элемент очереди", () => {
+    expect(
+      isTreeFrame(treeFrame({ ...queued, queue: [null] })),
+    ).toBe(false);
+  });
+
+  it("рисует ячейки очереди в FIFO-порядке, голова — первая", () => {
+    const { containerEl } = renderToDOM(treeFrame(queued));
+    const items = Array.from(
+      containerEl.querySelectorAll<HTMLDivElement>(".tree-queue-item"),
+    );
+    expect(items.map((el) => el.dataset.id)).toEqual(["LL", "RR"]);
+    // Значения — из полного снимка топологии: 4 и 5.
+    expect(items.map((el) => el.textContent)).toEqual(["4", "5"]);
+    expect(items[0]?.classList.contains("tree-queue-head")).toBe(true);
+    expect(items[1]?.classList.contains("tree-queue-head")).toBe(false);
+  });
+
+  it("не рисует блок очереди без поля queue или с пустой очередью", () => {
+    const unset = renderToDOM(treeFrame(snapshot));
+    expect(unset.containerEl.querySelectorAll(".tree-queue-item")).toHaveLength(0);
+    const empty = renderToDOM(treeFrame({ ...snapshot, order: "level-order", queue: [] }));
+    expect(empty.containerEl.querySelectorAll(".tree-queue-item")).toHaveLength(0);
+  });
+});
