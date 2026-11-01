@@ -34,7 +34,7 @@ function outOfRangeError(context: string): Error {
 }
 
 /** Порядки обхода — как на сервере (render.TreeOrder*). */
-export const TREE_ORDERS = ["in-order", "pre-order", "post-order"] as const;
+export const TREE_ORDERS = ["in-order", "pre-order", "post-order", "level-order"] as const;
 export type TreeOrder = (typeof TREE_ORDERS)[number];
 
 /** Страж типа: выбран порядок обхода дерева. */
@@ -42,15 +42,21 @@ export function isTreeOrder(value: string): value is TreeOrder {
   return (TREE_ORDERS as readonly string[]).includes(value);
 }
 
-/** Разобрать порядок обхода: бросает Error для неизвестного или пустого. */
+/**
+ * Разобрать порядок обхода: бросает Error для неизвестного или пустого.
+ * Совместим с прежними тремя DFS-порядками; добавлен level-order
+ * (по уровням через FIFO-очередь).
+ */
 export function parseTreeOrder(raw: string): TreeOrder {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    throw new Error("выберите порядок обхода: in-order, pre-order или post-order");
+    throw new Error(
+      "выберите порядок обхода: in-order, pre-order, post-order или level-order",
+    );
   }
   if (!isTreeOrder(trimmed)) {
     throw new Error(
-      `неизвестный порядок обхода «${trimmed}»: ожидается in-order, pre-order или post-order`,
+      `неизвестный порядок обхода «${trimmed}»: ожидается in-order, pre-order, post-order или level-order`,
     );
   }
   return trimmed;

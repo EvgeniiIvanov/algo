@@ -134,6 +134,152 @@ func TestTreeTraversalPostOrderSSE(t *testing.T) {
 	assertTreePathOrder(t, frames, []string{"LL", "L", "RR", "R", "root"})
 }
 
+// assertTreeQueue — проверка FIFO-очереди в снимке кадра kind="tree"
+// (после JSON-кругосветки массив — []any из строк).
+func assertTreeQueue(t *testing.T, f frame.Frame, want []string) {
+	t.Helper()
+
+	data, ok := f.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	raw, ok := data["queue"].([]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: поле queue не массив: %#v", f.Step, data["queue"])
+	}
+	got := make([]string, 0, len(raw))
+	for _, e := range raw {
+		s, ok := e.(string)
+		if !ok {
+			t.Fatalf("кадр шага %d: элемент queue %v не строка", f.Step, e)
+		}
+		got = append(got, s)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("кадр шага %d: очередь = %v, ожидается %v", f.Step, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("кадр шага %d: очередь = %v, ожидается %v", f.Step, got, want)
+		}
+	}
+}
+
+// assertTreeVisited — посещённая последовательность кадра: точный порядок
+// идентификаторов и позиции с 1; пустой want — visited пуст.
+func assertTreeVisited(t *testing.T, f frame.Frame, wantIDs []string) {
+	t.Helper()
+
+	data, ok := f.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	raw, ok := data["visited"].([]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: поле visited не массив: %#v", f.Step, data["visited"])
+	}
+	if len(raw) != len(wantIDs) {
+		t.Fatalf("кадр шага %d: посещённых узлов %d, ожидается %d", f.Step, len(raw), len(wantIDs))
+	}
+	for i, e := range raw {
+		v, ok := e.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: элемент visited %d не объект: %#v", f.Step, i, e)
+		}
+		if id, _ := v["id"].(string); id != wantIDs[i] {
+			t.Fatalf("кадр шага %d: visited[%d].id = %q, ожидается %q", f.Step, i, id, wantIDs[i])
+		}
+		// Позиция сравнивается точно как число с плавающей точкой (без
+		// усечения int()): дробная или иная нецелая позиция не должна пройти.
+		if pos, ok := v["position"].(float64); !ok || pos != float64(i+1) {
+			t.Fatalf("кадр шага %d: visited[%d].position = %v, ожидается %d", f.Step, i, v["position"], i+1)
+		}
+	}
+}
+
+func TestTreeTraversalLevelOrderSSE(t *testing.T) {
+	// Level-order: уровни root(1); L(2), R(2); LL(4), RR(5) — слева
+	// направо, а очередь в каждом кадре отражает FIFO: посещённый снят
+	// с головы, его потомки уже в конце. Дети visit'ятся лево→право.
+	frames := doRunTreeSSE(t, knownTreeJSON, "level-order")
+	orderPaths := []string{"root", "L", "R", "LL", "RR"}
+	assertTreePathOrder(t, frames, orderPaths)
+
+	// Стартовый кадр: посещённых нет; далее visited растёт по одному —
+	// точный порядок идентификаторов и позиции с 1.
+	assertTreeVisited(t, frames[0], nil)
+	for i := 1; i < len(frames); i++ {
+		assertTreeVisited(t, frames[i], orderPaths[:i])
+	}
+
+	assertTreeQueue(t, frames[0], []string{"root"})    // исходный кадр: корень ждёт
+	assertTreeQueue(t, frames[1], []string{"L", "R"})  // дети корня встали в конец
+	assertTreeQueue(t, frames[2], []string{"R", "LL"}) // L сняли, его единственный ребёнок LL в конце
+	assertTreeQueue(t, frames[3], []string{"LL", "RR"})
+	assertTreeQueue(t, frames[4], []string{"RR"})
+	assertTreeQueue(t, frames[5], []string{})
+
+	// Пояснения levelExplanation на известных ветках:
+	// корень с двумя детьми — оба потомка названы по порядку.
+	if !strings.Contains(frames[1].Explanation, "снимаем с головы FIFO-очереди узел 1") {
+		t.Fatalf("пояснение не объясняет снятие с головы очереди: %q", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[1].Explanation, "потомки «L» и «R» встают в конец очереди") {
+		t.Fatalf("пояснение не называет обоих потомков корня: %q", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[1].Explanation, "В очереди сейчас: L, R") {
+		t.Fatalf("пояснение не показывает очередь после двух постановок: %q", frames[1].Explanation)
+	}
+	// Единственный ребёнок (левый у L, правый у R) назван отдельно.
+	if !strings.Contains(frames[2].Explanation, "потомок «LL» встаёт в конец очереди") {
+		t.Fatalf("пояснение не называет единственного левого потомка L: %q", frames[2].Explanation)
+	}
+	if !strings.Contains(frames[3].Explanation, "потомок «RR» встаёт в конец очереди") {
+		t.Fatalf("пояснение не называет единственного правого потомка R: %q", frames[3].Explanation)
+	}
+	// Лист при непустой очереди: следующая работа названа.
+	if !strings.Contains(frames[4].Explanation, "узел 4") {
+		t.Fatalf("пояснение листа LL не упоминает его значение 4: %q", frames[4].Explanation)
+	}
+	if !strings.Contains(frames[4].Explanation, "В очереди сейчас: RR") {
+		t.Fatalf("пояснение листа LL при непустой очереди не называет хвост: %q", frames[4].Explanation)
+	}
+	// Лист без детей не порождает постановок: фраз о постановке потомка
+	// в очередь быть не должно, независимо от состояния очереди.
+	for _, step := range []struct {
+		frame frame.Frame
+		name  string
+	}{
+		{frames[4], "лист LL"},
+		{frames[5], "последний лист RR"},
+	} {
+		if strings.Contains(step.frame.Explanation, "встаёт в конец очереди") ||
+			strings.Contains(step.frame.Explanation, "встают в конец очереди") {
+			t.Fatalf("пояснение %s ошибочно сообщает о постановке потомка в очередь: %q",
+				step.name, step.frame.Explanation)
+		}
+	}
+	// Последний лист: очередь опустела.
+	if !strings.Contains(frames[5].Explanation, "Очередь опустела") {
+		t.Fatalf("пояснение последнего листа не сообщает об опустевшей очереди: %q", frames[5].Explanation)
+	}
+}
+
+func TestTreeTraversalLevelOrderEmptyTreeSSE(t *testing.T) {
+	frames := doRunTreeSSE(t, "null", "level-order")
+	if len(frames) != 1 {
+		t.Fatalf("кадров = %d, ожидается 1 (только исходный кадр)", len(frames))
+	}
+	data, ok := frames[0].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data не является снимком: %#v", frames[0].Data)
+	}
+	assertTreeQueue(t, frames[0], []string{})
+	if len(mustSliceAny(t, data, "nodes")) != 0 {
+		t.Fatalf("узлов в снимке пустого дерева %d, ожидается 0", len(mustSliceAny(t, data, "nodes")))
+	}
+}
+
 func TestTreeTraversalEmptyTreeSSE(t *testing.T) {
 	frames := doRunTreeSSE(t, "null", "in-order")
 	if len(frames) != 1 {
@@ -185,6 +331,9 @@ func TestTreeTraversalRejections(t *testing.T) {
 		{"значение больше int64", `{"value":9223372036854775808}`, "in-order", "за пределами целого"},
 		{"значение меньше -int64", `{"value":-9223372036854775809}`, "pre-order", "за пределами целого"},
 		{"экспонента не целое", `{"value":1e-2}`, "in-order", "не целое"},
+		// level-order отвергает невалидный вход тем же потолком до SSE —
+		// регрессия на обход лимита выбранным порядком.
+		{"лимит узлов при level-order", deepTreeLikeJSON(101), "level-order", "разрешено не более 100 узлов"},
 		{"неизвестный порядок", knownTreeJSON, "breadth-first", "неизвестный порядок"},
 		{"лимит узлов", deepTreeLikeJSON(101), "in-order", "разрешено не более 100 узлов"},
 		// D1: строго одно JSON-значение — лишнее содержимое после дерева
@@ -223,7 +372,10 @@ func TestTreeTraversalRejections(t *testing.T) {
 			if resp.Code != http.StatusBadRequest {
 				t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
 			}
-			if resp.Header().Get("Content-Type") == "text/event-stream" {
+			// Content-Type сравнивается по префиксу: поток SSE стартует с
+			// «text/event-stream; charset=utf-8» (см. server.go), точное
+			// равенство не поймало бы частично начавшийся поток.
+			if strings.HasPrefix(resp.Header().Get("Content-Type"), "text/event-stream") {
 				t.Fatalf("отказ должен случиться до SSE, получен поток: %q", resp.Body.String())
 			}
 			if got := resp.Body.String(); !strings.Contains(got, tt.want) {

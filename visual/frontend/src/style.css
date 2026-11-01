@@ -610,3 +610,30 @@ code {
   background: #dbeafe;
   border-color: var(--accent);
 }
+
+/* Очередь level-order: подпись и ряд ячеек от головы к хвосту. */
+.tree-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tree-queue-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tree-queue-items {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Голова очереди: следующий узел, который будет посещён. */
+.tree-queue-item.tree-queue-head {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+}

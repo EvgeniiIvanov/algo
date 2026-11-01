@@ -1,12 +1,14 @@
 // Frame Renderer обходов бинарного дерева: снимок kind="tree" (ADR-0002).
 // Кадр самодостаточен: полная топология узлов, стабильные идентификаторы
 // (путь от корня, trees.NodeID — не зависят от значения), активный узел,
-// уже посещённые узлы с порядковыми номерами и пояснение на русском.
-// Запуск — с исходного кадра, далее по кадру на каждое событие DFSVisit.
+// уже посещённые узлы с порядковыми номерами, FIFO-очередь у обхода по
+// уровням и пояснение на русском. Запуск — с исходного кадра, далее по
+// кадру на каждое событие посещения (DFSVisit / LevelOrderVisit).
 package render
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/EvgeniiIvanov/algo/algorithms/trees"
 	"github.com/EvgeniiIvanov/algo/visual/frame"
@@ -14,11 +16,12 @@ import (
 
 // Порядки обхода — общие для маршрута, снимка и фронтенда.
 const (
-	TreeOrderInOrder   = "in-order"
-	TreeOrderPreOrder  = "pre-order"
-	TreeOrderPostOrder = "post-order"
+	TreeOrderInOrder    = "in-order"
+	TreeOrderPreOrder   = "pre-order"
+	TreeOrderPostOrder  = "post-order"
+	TreeOrderLevelOrder = "level-order"
 
-	treeOrderUnknownMsg = "неизвестный порядок обхода: ожидается in-order, pre-order или post-order"
+	treeOrderUnknownMsg = "неизвестный порядок обхода: ожидается in-order, pre-order, post-order или level-order"
 )
 
 // TreeNodeData — один узел в снимке: значение и связи соседей по ID
@@ -40,19 +43,23 @@ type TreeVisit struct {
 // TreeSnapshot — снимок дерева в кадре kind="tree": полная топология,
 // активный узел текущего шага и посещённая последовательность. Форма
 // произвольная: снимок не предполагает свойств BST. Пустое дерево —
-// пустой список Nodes и пустой RootID.
+// пустой список Nodes и пустой RootID. Queue — FIFO-очередь обхода
+// по уровням (идентификаторы от головы к хвосту); у глубинных порядков
+// очередь всегда пустая ([]).
 type TreeSnapshot struct {
-	Order     string         `json:"order"`     // порядок обхода: in-order / pre-order / post-order
+	Order     string         `json:"order"`     // порядок обхода: in-order / pre-order / post-order / level-order
 	Nodes     []TreeNodeData `json:"nodes"`     // все узлы дерева: полный снимок топологии (не nil: пустое дерево — [])
 	RootID    string         `json:"rootId"`    // идентификатор корня; "" — пустое дерево
 	ActiveID  string         `json:"activeId"`  // посещаемый узел шага; "" — стартовый кадр
 	Visited   []TreeVisit    `json:"visited"`   // посещённые узлы с порядковыми номерами, с 1 (не nil)
+	Queue     []string       `json:"queue"`     // FIFO-очередь level-order, идентификаторы от головы к хвосту (не nil)
 	Operation string         `json:"operation"` // имя шага ("старт", "посещение LR"); пусто — стартовый кадр
 }
 
-// TreeTraversalRun — Frame Renderer глубинных обходов: прогоняет обход
-// дерева порядка order (in-order, pre-order, post-order) в режиме
-// наблюдения (ADR-0001) и строит кадры по событиям.
+// TreeTraversalRun — Frame Renderer обходов дерева: прогоняет обход
+// порядка order (in-order, pre-order, post-order, level-order) в режиме
+// наблюдения (ADR-0001) и строит кадры по событиям. События двух семейств
+// (DFSVisit и LevelOrderVisit) адаптируются к общему сборщику кадров.
 // Порядок валидируется маршрутом до Run; здесь неизвестный порядок —
 // ошибка конструктора, кадры не создаются.
 func TreeTraversalRun(root *trees.Node, order string, emit func(frame.Frame)) error {
@@ -67,15 +74,24 @@ func TreeTraversalRun(root *trees.Node, order string, emit func(frame.Frame)) er
 		nodes: collectTreeNodes(root),
 		emit:  emit,
 	}
-	r.frame(fmt.Sprintf("Обход дерева: %s. Узлов в дереве: %d. Каждый шаг — посещение очередного узла.", name, len(r.nodes)))
+	startText := fmt.Sprintf("Обход дерева: %s. Узлов в дереве: %d. Каждый шаг — посещение очередного узла.", name, len(r.nodes))
+	if order == TreeOrderLevelOrder {
+		startText = fmt.Sprintf("Обход дерева: %s. Узлов в дереве: %d. Каждый шаг — снять узел с головы FIFO-очереди, посетить его и добавить в конец очереди его потомков.", name, len(r.nodes))
+		if root != nil {
+			r.queue = []string{trees.NodeID("")} // корень ждёт в очереди с первого кадра
+		}
+	}
+	r.frame(startText)
 
 	switch order {
 	case TreeOrderInOrder:
-		trees.InOrderWithEmitter(root, r)
+		trees.InOrderWithEmitter(root, treeDFSEmitter{r})
 	case TreeOrderPreOrder:
-		trees.PreOrderWithEmitter(root, r)
+		trees.PreOrderWithEmitter(root, treeDFSEmitter{r})
+	case TreeOrderPostOrder:
+		trees.PostOrderWithEmitter(root, treeDFSEmitter{r})
 	default:
-		trees.PostOrderWithEmitter(root, r)
+		trees.LevelOrderWithEmitter(root, treeLevelEmitter{r})
 	}
 	return nil
 }
@@ -90,6 +106,8 @@ func treeOrderName(order string) (string, bool) {
 		return "pre-order (узел, левое поддерево, правое поддерево)", true
 	case TreeOrderPostOrder:
 		return "post-order (левое поддерево, правое поддерево, узел)", true
+	case TreeOrderLevelOrder:
+		return "level-order (по уровням: сверху вниз, слева направо; FIFO-очередь)", true
 	}
 	return "", false
 }
@@ -129,28 +147,96 @@ func collectFrom(n *trees.Node, path string, nodes *[]TreeNodeData) {
 	collectFrom(n.Right, path+"R", nodes)
 }
 
-// treeFrames — накапливает посещённую последовательность между событиями
-// и строит кадры. Реализует algorithms.Emitter[trees.DFSEvent].
+// treeFrames — накапливает состояние между событиями (активный узел,
+// посещённая последовательность, очередь level-order) и строит кадры.
+// Общий сборщик для двух семейств событий; адаптеры-эмиттеры ниже
+// переводят DFSVisit и LevelOrderVisit в изменения этого состояния.
 type treeFrames struct {
 	order    string         // порядок обхода, как в маршруте
 	name     string         // человеческое имя порядка для пояснений
 	nodes    []TreeNodeData // полный снимок топологии, собранный один раз
 	activeID string         // активный узел текущего шага; "" — стартовый кадр
 	visited  []TreeVisit    // посещённая последовательность
+	queue    []string       // FIFO-очередь level-order от головы к хвосту; у DFS — пустая
 	step     int
 	emit     func(frame.Frame)
 }
 
-// Emit — одно событие посещения → один кадр (ADR-0002).
-func (r *treeFrames) Emit(ev trees.DFSEvent) {
-	switch e := ev.(type) {
-	case trees.DFSVisit:
-		id := trees.NodeID(e.Path)
-		r.activeID = id
-		r.visited = append(r.visited, TreeVisit{ID: id, Position: len(r.visited) + 1})
-		r.frame(fmt.Sprintf("%s: посещаем узел %d (путь от корня «%s») — %d-й по порядку.",
-			r.orderPrefix(), e.Value, treePathLabel(e.Path), len(r.visited)))
+// treeDFSEmitter — адаптер algorithms.Emitter[trees.DFSEvent] к сборщику
+// кадров: одно событие посещения → одно изменение состояния и один кадр.
+type treeDFSEmitter struct{ f *treeFrames }
+
+func (e treeDFSEmitter) Emit(ev trees.DFSEvent) {
+	visit, ok := ev.(trees.DFSVisit)
+	if !ok {
+		return
 	}
+	r := e.f
+	id := trees.NodeID(visit.Path)
+	r.activeID = id
+	r.visited = append(r.visited, TreeVisit{ID: id, Position: len(r.visited) + 1})
+	r.frame(fmt.Sprintf("%s: посещаем узел %d (путь от корня «%s») — %d-й по порядку.",
+		r.orderPrefix(), visit.Value, treePathLabel(visit.Path), len(r.visited)))
+}
+
+// treeLevelEmitter — адаптер algorithms.Emitter[trees.LevelOrderEvent]:
+// узел снят с головы очереди и посещён, потомки встали в конец; состояние
+// очереди снимка берётся из события, пояснение объясняет оба движения.
+type treeLevelEmitter struct{ f *treeFrames }
+
+func (e treeLevelEmitter) Emit(ev trees.LevelOrderEvent) {
+	visit, ok := ev.(trees.LevelOrderVisit)
+	if !ok {
+		return
+	}
+	r := e.f
+	id := trees.NodeID(visit.Path)
+	r.activeID = id
+	r.visited = append(r.visited, TreeVisit{ID: id, Position: len(r.visited) + 1})
+	r.queue = append([]string{}, visit.Queue...)
+	r.frame(r.levelExplanation(visit))
+}
+
+// levelExplanation — пояснение шага обхода по уровням: снятие с головы
+// очереди, добавление существующих потомков в конец (отдельно каждый) и
+// состояние очереди после шага. Потомки берутся из топологии снимка:
+// существующие потомки активного узла — это ровно те, что встали в
+// конец очереди на этом шаге.
+func (r *treeFrames) levelExplanation(ev trees.LevelOrderVisit) string {
+	id := trees.NodeID(ev.Path)
+	text := fmt.Sprintf("%s: снимаем с головы FIFO-очереди узел %d (путь от корня «%s») и посещаем его — %d-й по порядку.",
+		r.orderPrefix(), ev.Value, treePathLabel(ev.Path), len(r.visited))
+	children := childIDs(r.nodes, id)
+	switch len(children) {
+	case 1:
+		text += fmt.Sprintf(" Его потомок «%s» встаёт в конец очереди.", children[0])
+	case 2:
+		text += fmt.Sprintf(" Его потомки «%s» и «%s» встают в конец очереди.", children[0], children[1])
+	}
+	if len(r.queue) == 0 {
+		return text + " Очередь опустела: все узлы посещены."
+	}
+	return fmt.Sprintf("%s В очереди сейчас: %s.", text, strings.Join(r.queue, ", "))
+}
+
+// childIDs — идентификаторы существующих потомков узла id по топологии
+// снимка, слева направо (у level-order это ровно потомки, вставшие в
+// конец очереди на этом шаге).
+func childIDs(nodes []TreeNodeData, id string) []string {
+	for _, n := range nodes {
+		if n.ID != id {
+			continue
+		}
+		var children []string
+		if n.LeftID != "" {
+			children = append(children, n.LeftID)
+		}
+		if n.RightID != "" {
+			children = append(children, n.RightID)
+		}
+		return children
+	}
+	return nil
 }
 
 // orderPrefix — человеческое имя порядка с большой буквы для начала фразы.
@@ -160,6 +246,8 @@ func (r *treeFrames) orderPrefix() string {
 		return "In-order"
 	case TreeOrderPreOrder:
 		return "Pre-order"
+	case TreeOrderLevelOrder:
+		return "Level-order"
 	default:
 		return "Post-order"
 	}
@@ -193,6 +281,7 @@ func (r *treeFrames) frame(explanation string) {
 			RootID:    rootID,
 			ActiveID:  r.activeID,
 			Visited:   append([]TreeVisit{}, r.visited...), // не nil: пустая последовательность — []
+			Queue:     append([]string{}, r.queue...),      // не nil: пустая очередь — []
 			Operation: operation,
 		},
 	})
