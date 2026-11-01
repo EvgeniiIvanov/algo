@@ -128,38 +128,34 @@ func LevelOrderWithEmitter(n *Node, em algorithms.Emitter[LevelOrderEvent]) []in
 }
 
 // levelOrder — общий цикл тихого и наблюдающего режимов обхода по
-// уровням: FIFO-очередь с индексом головы (черновик автора — перемещение
-// head вместо пересборки слайса — сохранён как есть). Учебная идея:
-// узел посещается, когда доходит до головы очереди, его потомки
+// уровням. Очередь — кольцевой буфер: снятые с головы слоты освобождаются
+// сразу, обработанный префикс не накапливается, живых элементов всегда
+// не больше пары соседних уровней. Учебная идея черновика сохранена:
+// узел посещается, когда доходит до головы FIFO-очереди, его потомки
 // становятся в конец — сначала левый, потом правый, поэтому уровни
 // идут слева направо.
 func levelOrder(n *Node, em algorithms.Emitter[LevelOrderEvent]) []int {
 	if n == nil {
 		return []int{}
 	}
-	// Очередь хранит пары узел/путь: идентичность узла не выводится
-	// из значения (значения могут повторяться).
-	queue := []queueNode{{node: n, path: ""}}
-	head := 0
+	queue := newNodeQueue()
+	queue.push(queueNode{node: n, path: ""})
 	result := []int{}
 
-	for head < len(queue) {
-		cur := queue[head]
-		head++
-
+	for queue.size > 0 {
+		cur := queue.pop()
 		if cur.node.Left != nil {
-			queue = append(queue, queueNode{node: cur.node.Left, path: cur.path + "L"})
+			queue.push(queueNode{node: cur.node.Left, path: cur.path + "L"})
 		}
 		if cur.node.Right != nil {
-			queue = append(queue, queueNode{node: cur.node.Right, path: cur.path + "R"})
+			queue.push(queueNode{node: cur.node.Right, path: cur.path + "R"})
 		}
-
 		result = append(result, cur.node.Value)
 		if em != nil {
 			em.Emit(LevelOrderVisit{
 				Path:  cur.path,
 				Value: cur.node.Value,
-				Queue: queuePaths(queue, head),
+				Queue: queue.paths(),
 			})
 		}
 	}
@@ -173,12 +169,58 @@ type queueNode struct {
 	path string
 }
 
-// queuePaths — оставшиеся в очереди пути от позиции head до хвоста:
-// свежий слайс, чтобы событие не aliased на живую очередь обхода.
-func queuePaths(queue []queueNode, head int) []string {
+// nodeQueue — FIFO-очередь обхода по уровням на кольцевом буфере.
+// Освобождённые слоты очищаются сразу при снятии с головы, чтобы
+// обработанные узлы не удерживались; буфер удваивается только при
+// переполнении живыми элементами, поэтому ёмкость соизмерима с шириной
+// дерева. size — число живых элементов; buf ненулевой всегда.
+type nodeQueue struct {
+	buf  []queueNode // кольцевой буфер (сделан с запасом, нулевые слоты — свободны)
+	head int         // индекс головы в buf
+	size int         // живые элементы, подряд с позиции head (с заворачиванием)
+}
+
+// newNodeQueue — пустая очередь с минимальным запасом ёмкости.
+func newNodeQueue() *nodeQueue {
+	return &nodeQueue{buf: make([]queueNode, 4)}
+}
+
+// push — поставить элемент в конец очереди; при полном живом буфере
+// ёмкость удваивается (старые элементы переписываются с головы новой).
+func (q *nodeQueue) push(n queueNode) {
+	if q.size == len(q.buf) {
+		q.grow()
+	}
+	q.buf[(q.head+q.size)%len(q.buf)] = n
+	q.size++
+}
+
+// pop — снять элемент с головы очереди; слот очищается, чтобы уже
+// обработанную пару (включая указатель на узел) не удерживал буфер.
+func (q *nodeQueue) pop() queueNode {
+	cur := q.buf[q.head]
+	q.buf[q.head] = queueNode{} // освободившийся слот — нулевой
+	q.head = (q.head + 1) % len(q.buf)
+	q.size--
+	return cur
+}
+
+// grow — удвоить буфер, переписав живые элементы подряд от головы;
+// после роста head обнуляется, свободного хвоста нет.
+func (q *nodeQueue) grow() {
+	buf := make([]queueNode, 2*len(q.buf))
+	for i := 0; i < q.size; i++ {
+		buf[i] = q.buf[(q.head+i)%len(q.buf)]
+	}
+	q.buf, q.head = buf, 0
+}
+
+// paths — живые элементы от головы к хвосту путями от корня: свежий
+// слайс, чтобы событие было независимым снимком очереди обхода.
+func (q *nodeQueue) paths() []string {
 	paths := []string{}
-	for i := head; i < len(queue); i++ {
-		paths = append(paths, queue[i].path)
+	for i := 0; i < q.size; i++ {
+		paths = append(paths, q.buf[(q.head+i)%len(q.buf)].path)
 	}
 	return paths
 }
