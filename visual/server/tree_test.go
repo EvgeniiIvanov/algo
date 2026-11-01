@@ -189,8 +189,9 @@ func assertTreeVisited(t *testing.T, f frame.Frame, wantIDs []string) {
 		if id, _ := v["id"].(string); id != wantIDs[i] {
 			t.Fatalf("кадр шага %d: visited[%d].id = %q, ожидается %q", f.Step, i, id, wantIDs[i])
 		}
-		pos, ok := v["position"].(float64)
-		if !ok || int(pos) != i+1 {
+		// Позиция сравнивается точно как число с плавающей точкой (без
+		// усечения int()): дробная или иная нецелая позиция не должна пройти.
+		if pos, ok := v["position"].(float64); !ok || pos != float64(i+1) {
 			t.Fatalf("кадр шага %d: visited[%d].position = %v, ожидается %d", f.Step, i, v["position"], i+1)
 		}
 	}
@@ -242,6 +243,21 @@ func TestTreeTraversalLevelOrderSSE(t *testing.T) {
 	}
 	if !strings.Contains(frames[4].Explanation, "В очереди сейчас: RR") {
 		t.Fatalf("пояснение листа LL при непустой очереди не называет хвост: %q", frames[4].Explanation)
+	}
+	// Лист без детей не порождает постановок: фраз о постановке потомка
+	// в очередь быть не должно, независимо от состояния очереди.
+	for _, step := range []struct {
+		frame frame.Frame
+		name  string
+	}{
+		{frames[4], "лист LL"},
+		{frames[5], "последний лист RR"},
+	} {
+		if strings.Contains(step.frame.Explanation, "встаёт в конец очереди") ||
+			strings.Contains(step.frame.Explanation, "встают в конец очереди") {
+			t.Fatalf("пояснение %s ошибочно сообщает о постановке потомка в очередь: %q",
+				step.name, step.frame.Explanation)
+		}
 	}
 	// Последний лист: очередь опустела.
 	if !strings.Contains(frames[5].Explanation, "Очередь опустела") {
