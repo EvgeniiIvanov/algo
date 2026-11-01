@@ -294,7 +294,10 @@ func TestTreeTraversalRejections(t *testing.T) {
 			if resp.Code != http.StatusBadRequest {
 				t.Fatalf("статус = %d, ожидается 400: %s", resp.Code, resp.Body.String())
 			}
-			if resp.Header().Get("Content-Type") == "text/event-stream" {
+			// Content-Type сравнивается по префиксу: поток SSE стартует с
+			// «text/event-stream; charset=utf-8» (см. server.go), точное
+			// равенство не поймало бы частично начавшийся поток.
+			if strings.HasPrefix(resp.Header().Get("Content-Type"), "text/event-stream") {
 				t.Fatalf("отказ должен случиться до SSE, получен поток: %q", resp.Body.String())
 			}
 			if got := resp.Body.String(); !strings.Contains(got, tt.want) {

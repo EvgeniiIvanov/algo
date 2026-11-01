@@ -5,6 +5,7 @@ package trees_test
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/EvgeniiIvanov/algo/algorithms"
@@ -201,6 +202,112 @@ func TestLevelOrderEventsEmptyAndSingleNode(t *testing.T) {
 	if !reflect.DeepEqual([]trees.LevelOrderEvent(em), want) {
 		t.Fatalf("одноузловое дерево: события %#v, ожидается %#v", []trees.LevelOrderEvent(em), want)
 	}
+}
+
+// Growth-тест через публичный API: полное широкое дерево 31 узел из 5
+// уровней переполняет начальную 4-слотовую очередь (росты 4→8 и 8→16 при
+// заполнении живыми элементами к границам уровней), вставки и снятия идут
+// с заворотом по модулю ёмкости — вплоть до съёма листьев с полностью
+// обёрнутого 16-слотового буфера. Проверяются результат, полный
+// порядок путей и точные состояния FIFO-очереди на критичных шагах
+// роста/заворота; приватный nodeQueue напрямую не трогается.
+func TestLevelOrderEventsRingBufferGrowth(t *testing.T) {
+	root := perfectTree31()
+
+	// Тихий обход: полнота и порядок уровней сохраняются после роста и
+	// заворачивания буфера (значения узлов 1..31 по уровням).
+	wantValues := make([]int, 31)
+	for v := 1; v <= 31; v++ {
+		wantValues[v-1] = v
+	}
+	if got := trees.LevelOrder(root); !reflect.DeepEqual(got, wantValues) {
+		t.Fatalf("trees.LevelOrder вернул %v, ожидается 1..31", got)
+	}
+
+	var em spyLevelEmitter
+	if got := trees.LevelOrderWithEmitter(root, &em); len(got) != 31 {
+		t.Fatalf("LevelOrderWithEmitter вернул %d значений, ожидается 31", len(got))
+	}
+
+	// Путь узла v: двоичная запись v без ведущей единицы, бит 0 → L,
+	// бит 1 → R (пути идут по уровням слева направо).
+	pathOf := func(v int) string {
+		path := ""
+		for _, digit := range strconv.FormatInt(int64(v), 2)[1:] {
+			if digit == '0' {
+				path += "L"
+			} else {
+				path += "R"
+			}
+		}
+		return path
+	}
+	// visitOf — извлечение проверки из события: тестовый эмиттер хранит
+	// содержимое как маркер-интерфейс.
+	visitOf := func(i int) trees.LevelOrderVisit {
+		visit, ok := em[i].(trees.LevelOrderVisit)
+		if !ok {
+			t.Fatalf("шаг %d: событие не LevelOrderVisit: %#v", i+1, em[i])
+		}
+		return visit
+	}
+	for i := range em {
+		if want := pathOf(i + 1); visitOf(i).Path != want {
+			t.Fatalf("шаг %d: путь = %q, ожидается %q", i+1, visitOf(i).Path, want)
+		}
+	}
+
+	// Существенная последовательность очереди: границы начальной ёмкости,
+	// каждый рост буфера и порядок живых записей после заворотов.
+	wantQueues := []struct {
+		step  int // индекс события (0 — первый визит)
+		queue []string
+	}{
+		{0, []string{"L", "R"}},
+		{1, []string{"R", "LL", "LR"}},
+		// Очередь ровно на начальную ёмкость (4), без роста.
+		{2, []string{"LL", "LR", "RL", "RR"}},
+		// Первый рост (4→8) при постановке LLR: переполнение + вставка.
+		{3, []string{"LR", "RL", "RR", "LLL", "LLR"}},
+		// Очередь ровно на ёмкость 8.
+		{6, []string{"LLL", "LLR", "LRL", "LRR", "RLL", "RLR", "RRL", "RRR"}},
+		// Второй рост (8→16): вставка LLLL с заворотом по модулю 8, затем рост.
+		{7, []string{"LLR", "LRL", "LRR", "RLL", "RLR", "RRL", "RRR", "LLLL", "LLLR"}},
+		// Очередь ровно на ёмкость 16 (все листья пятого уровня).
+		{14, []string{"LLLL", "LLLR", "LLRL", "LLRR", "LRLL", "LRLR", "LRRL", "LRRR",
+			"RLLL", "RLLR", "RLRL", "RLRR", "RRLL", "RRLR", "RRRL", "RRRR"}},
+		// Снятие листьев идёт с головы по обёрнутому кругу буфера: LLLL
+		// снята первой, порядок хвоста сохранён.
+		{15, []string{"LLLR", "LLRL", "LLRR", "LRLL", "LRLR", "LRRL", "LRRR", "RLLL",
+			"RLLR", "RLRL", "RLRR", "RRLL", "RRLR", "RRRL", "RRRR"}},
+		// Итог: очередь опустела ровно в порядке постановки листьев —
+		// порядок живых записей сохранён через все росты и завороты.
+		{30, []string{}},
+	}
+
+	for _, c := range wantQueues {
+		if !reflect.DeepEqual(visitOf(c.step).Queue, c.queue) {
+			t.Fatalf("шаг %d: очередь = %v, ожидается %v", c.step+1, visitOf(c.step).Queue, c.queue)
+		}
+	}
+}
+
+// perfectTree31 — полное широкое дерево 31 узел из 5 уровней: значение
+// узла v = его номер по уровням (родитель v/2, левый 2v, правый 2v+1).
+// Местная сборка fixture, не общий helper: нужна только этому тесту.
+func perfectTree31() *trees.Node {
+	nodes := make([]*trees.Node, 32) // индекс — значение узла
+	for v := 1; v <= 31; v++ {
+		nodes[v] = trees.NewNode(v)
+	}
+	for v := 2; v <= 31; v++ {
+		if v%2 == 0 {
+			nodes[v/2].Left = nodes[v]
+		} else {
+			nodes[v/2].Right = nodes[v]
+		}
+	}
+	return nodes[1]
 }
 
 // Тот же узловой состав дерева с повторяющимися значениями, что и в
