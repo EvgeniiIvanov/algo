@@ -165,12 +165,51 @@ func assertTreeQueue(t *testing.T, f frame.Frame, want []string) {
 	}
 }
 
+// assertTreeVisited — посещённая последовательность кадра: точный порядок
+// идентификаторов и позиции с 1; пустой want — visited пуст.
+func assertTreeVisited(t *testing.T, f frame.Frame, wantIDs []string) {
+	t.Helper()
+
+	data, ok := f.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: data не является снимком: %#v", f.Step, f.Data)
+	}
+	raw, ok := data["visited"].([]any)
+	if !ok {
+		t.Fatalf("кадр шага %d: поле visited не массив: %#v", f.Step, data["visited"])
+	}
+	if len(raw) != len(wantIDs) {
+		t.Fatalf("кадр шага %d: посещённых узлов %d, ожидается %d", f.Step, len(raw), len(wantIDs))
+	}
+	for i, e := range raw {
+		v, ok := e.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: элемент visited %d не объект: %#v", f.Step, i, e)
+		}
+		if id, _ := v["id"].(string); id != wantIDs[i] {
+			t.Fatalf("кадр шага %d: visited[%d].id = %q, ожидается %q", f.Step, i, id, wantIDs[i])
+		}
+		pos, ok := v["position"].(float64)
+		if !ok || int(pos) != i+1 {
+			t.Fatalf("кадр шага %d: visited[%d].position = %v, ожидается %d", f.Step, i, v["position"], i+1)
+		}
+	}
+}
+
 func TestTreeTraversalLevelOrderSSE(t *testing.T) {
 	// Level-order: уровни root(1); L(2), R(2); LL(4), RR(5) — слева
 	// направо, а очередь в каждом кадре отражает FIFO: посещённый снят
 	// с головы, его потомки уже в конце. Дети visit'ятся лево→право.
 	frames := doRunTreeSSE(t, knownTreeJSON, "level-order")
-	assertTreePathOrder(t, frames, []string{"root", "L", "R", "LL", "RR"})
+	orderPaths := []string{"root", "L", "R", "LL", "RR"}
+	assertTreePathOrder(t, frames, orderPaths)
+
+	// Стартовый кадр: посещённых нет; далее visited растёт по одному —
+	// точный порядок идентификаторов и позиции с 1.
+	assertTreeVisited(t, frames[0], nil)
+	for i := 1; i < len(frames); i++ {
+		assertTreeVisited(t, frames[i], orderPaths[:i])
+	}
 
 	assertTreeQueue(t, frames[0], []string{"root"})    // исходный кадр: корень ждёт
 	assertTreeQueue(t, frames[1], []string{"L", "R"})  // дети корня встали в конец
@@ -179,11 +218,34 @@ func TestTreeTraversalLevelOrderSSE(t *testing.T) {
 	assertTreeQueue(t, frames[4], []string{"RR"})
 	assertTreeQueue(t, frames[5], []string{})
 
-	if !strings.Contains(frames[1].Explanation, "с головы") {
+	// Пояснения levelExplanation на известных ветках:
+	// корень с двумя детьми — оба потомка названы по порядку.
+	if !strings.Contains(frames[1].Explanation, "снимаем с головы FIFO-очереди узел 1") {
 		t.Fatalf("пояснение не объясняет снятие с головы очереди: %q", frames[1].Explanation)
 	}
-	if !strings.Contains(frames[1].Explanation, "конец очереди") {
-		t.Fatalf("пояснение не объясняет добавление потомков в конец: %q", frames[1].Explanation)
+	if !strings.Contains(frames[1].Explanation, "потомки «L» и «R» встают в конец очереди") {
+		t.Fatalf("пояснение не называет обоих потомков корня: %q", frames[1].Explanation)
+	}
+	if !strings.Contains(frames[1].Explanation, "В очереди сейчас: L, R") {
+		t.Fatalf("пояснение не показывает очередь после двух постановок: %q", frames[1].Explanation)
+	}
+	// Единственный ребёнок (левый у L, правый у R) назван отдельно.
+	if !strings.Contains(frames[2].Explanation, "потомок «LL» встаёт в конец очереди") {
+		t.Fatalf("пояснение не называет единственного левого потомка L: %q", frames[2].Explanation)
+	}
+	if !strings.Contains(frames[3].Explanation, "потомок «RR» встаёт в конец очереди") {
+		t.Fatalf("пояснение не называет единственного правого потомка R: %q", frames[3].Explanation)
+	}
+	// Лист при непустой очереди: следующая работа названа.
+	if !strings.Contains(frames[4].Explanation, "узел 4") {
+		t.Fatalf("пояснение листа LL не упоминает его значение 4: %q", frames[4].Explanation)
+	}
+	if !strings.Contains(frames[4].Explanation, "В очереди сейчас: RR") {
+		t.Fatalf("пояснение листа LL при непустой очереди не называет хвост: %q", frames[4].Explanation)
+	}
+	// Последний лист: очередь опустела.
+	if !strings.Contains(frames[5].Explanation, "Очередь опустела") {
+		t.Fatalf("пояснение последнего листа не сообщает об опустевшей очереди: %q", frames[5].Explanation)
 	}
 }
 
