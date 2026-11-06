@@ -253,11 +253,16 @@ func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
 		t.Errorf("блок block-2 (индекс %d) должен идти после block-1 (индекс %d)", block2Idx, block1Idx)
 	}
 
-	// Первый модуль Блока 2 — tree-traversals.
+	// Первый модуль Блока 2 — tree-traversals; модули Блока 1 в него
+	// попадать не должны. Ниже проверяется один представитель block-1
+	// (big-o), остальные модули block-1 этим тестом не проверяются.
 	if len(block2.Modules) == 0 {
 		t.Fatal("в блоке block-2 нет модулей")
 	}
 	if got := block2.Modules[0].ID; got != "tree-traversals" {
 		t.Errorf("первый модуль block-2 %q, ожидали tree-traversals", got)
+	}
+	if idx := moduleIndexByID(block2.Modules, "big-o"); idx != -1 {
+		t.Errorf("модуль big-o из block-1 найден в block-2 (индекс %d)", idx)
 	}
 }
