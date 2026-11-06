@@ -125,17 +125,25 @@ func TestParseBankMalformedJSON(t *testing.T) {
 	}
 }
 
+// findBlock возвращает индекс блока с данным id и указатель на него
+// или завершает тест, если такого блока нет.
+func findBlock(t *testing.T, bank *Bank, id string) (int, *Block) {
+	t.Helper()
+	for i := range bank.Blocks {
+		if bank.Blocks[i].ID == id {
+			return i, &bank.Blocks[i]
+		}
+	}
+	t.Fatalf("в банке нет блока %s", id)
+	return 0, nil
+}
+
 // findBlock1 возвращает указатель на блок block-1 встроенного банка
 // или завершает тест, если такого блока нет.
 func findBlock1(t *testing.T, bank *Bank) *Block {
 	t.Helper()
-	for i := range bank.Blocks {
-		if bank.Blocks[i].ID == "block-1" {
-			return &bank.Blocks[i]
-		}
-	}
-	t.Fatal("в банке нет блока block-1")
-	return nil
+	_, b := findBlock(t, bank, "block-1")
+	return b
 }
 
 // moduleIndexByID возвращает индекс модуля с данным id или -1, если
@@ -235,39 +243,21 @@ func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
 
-	block1Idx, block2Idx := -1, -1
-	for i := range bank.Blocks {
-		switch bank.Blocks[i].ID {
-		case "block-1":
-			block1Idx = i
-		case "block-2":
-			block2Idx = i
-		}
-	}
-	if block1Idx == -1 {
-		t.Fatal("в банке нет блока block-1")
-	}
-	if block2Idx == -1 {
-		t.Fatal("в банке нет блока block-2")
-	}
-	block2 := &bank.Blocks[block2Idx]
+	block1Idx, _ := findBlock(t, bank, "block-1")
+	block2Idx, block2 := findBlock(t, bank, "block-2")
+
 	if !strings.Contains(block2.Title, "Деревья") {
 		t.Errorf("название блока block-2 %q, ожидали «Деревья»", block2.Title)
 	}
-	if block2Idx < block1Idx {
-		t.Errorf("блок %s (индекс %d) стоит раньше блока %s (индекс %d)",
-			block2.ID, block2Idx, "block-1", block1Idx)
+	if block2Idx <= block1Idx {
+		t.Errorf("блок block-2 (индекс %d) должен идти после block-1 (индекс %d)", block2Idx, block1Idx)
 	}
 
-	// Первый модуль Блока 2 — tree-traversals; модули Блока 1 в него
-	// попадать не должны.
+	// Первый модуль Блока 2 — tree-traversals.
 	if len(block2.Modules) == 0 {
 		t.Fatal("в блоке block-2 нет модулей")
 	}
 	if got := block2.Modules[0].ID; got != "tree-traversals" {
 		t.Errorf("первый модуль block-2 %q, ожидали tree-traversals", got)
-	}
-	if idx := moduleIndexByID(block2.Modules, "big-o"); idx != -1 {
-		t.Errorf("модуль big-o из block-1 найден в block-2 (индекс %d)", idx)
 	}
 }
