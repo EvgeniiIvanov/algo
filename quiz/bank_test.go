@@ -225,3 +225,49 @@ func TestEmbeddedBankBlock1DivideAndConquerAfterSimpleSorts(t *testing.T) {
 	block1, _ := embeddedBlock1WithModules(t, "simple-sorts", "divide-and-conquer-sorts")
 	assertModulesInOrder(t, block1.Modules, "simple-sorts", "divide-and-conquer-sorts")
 }
+
+// Тест порядка блоков и модулей Блока 2 (тикет 33): блок block-2
+// («Деревья») идёт после block-1, и первым модулем в нём стоит
+// tree-traversals.
+func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+
+	block1Idx, block2Idx := -1, -1
+	for i := range bank.Blocks {
+		switch bank.Blocks[i].ID {
+		case "block-1":
+			block1Idx = i
+		case "block-2":
+			block2Idx = i
+		}
+	}
+	if block1Idx == -1 {
+		t.Fatal("в банке нет блока block-1")
+	}
+	if block2Idx == -1 {
+		t.Fatal("в банке нет блока block-2")
+	}
+	block2 := &bank.Blocks[block2Idx]
+	if !strings.Contains(block2.Title, "Деревья") {
+		t.Errorf("название блока block-2 %q, ожидали «Деревья»", block2.Title)
+	}
+	if block2Idx < block1Idx {
+		t.Errorf("блок %s (индекс %d) стоит раньше блока %s (индекс %d)",
+			block2.ID, block2Idx, "block-1", block1Idx)
+	}
+
+	// Первый модуль Блока 2 — tree-traversals; модули Блока 1 в него
+	// попадать не должны.
+	if len(block2.Modules) == 0 {
+		t.Fatal("в блоке block-2 нет модулей")
+	}
+	if got := block2.Modules[0].ID; got != "tree-traversals" {
+		t.Errorf("первый модуль block-2 %q, ожидали tree-traversals", got)
+	}
+	if idx := moduleIndexByID(block2.Modules, "big-o"); idx != -1 {
+		t.Errorf("модуль big-o из block-1 найден в block-2 (индекс %d)", idx)
+	}
+}

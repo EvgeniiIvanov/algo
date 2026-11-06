@@ -4,7 +4,7 @@
 
 **Blocked by:** 31 (DFS-обходы), 32 (обход по уровням).
 
-**Status:** draft (Ч2 pending)
+**Status:** in progress
 
 Спека: `docs/SPEC.md`, модуль «Обходы бинарного дерева».
 
