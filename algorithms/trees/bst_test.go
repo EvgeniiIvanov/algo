@@ -203,15 +203,22 @@ func TestDeleteTwoChildren(t *testing.T) {
 		}
 	})
 	t.Run("преемник не лист, не корень", func(t *testing.T) {
-		root := buildBST(t, 10, 5, 20, 15, 30, 17, 25)
-		newRoot := deleteKey(t, root, 20, true)
-		// Преемник узла 20 — минимум правого поддерева: 15 (с правым
-		// потомком 17). Значение 15 переходит узлу, сам преемник удалён.
-		if node, found := trees.Search(newRoot, 20); found || node != nil {
-			t.Fatalf("узел 20 должен быть удалён, найден %+v", node)
+		root := buildBST(t, 10, 5, 20, 15, 30, 17)
+		newRoot := deleteKey(t, root, 10, true)
+		// Преемник корня 10 — минимум правого поддерева: 15 (с правым
+		// потомком 17). Значение 15 переходит корню, узел-преемник удалён,
+		// его место занимает правый потомок 17.
+		if newRoot == nil || newRoot.Value != 15 {
+			t.Fatalf("после удаления корня 10: корень = %+v, ожидается узел 15 (преемник)", newRoot)
 		}
-		if got := trees.InOrder(newRoot); !reflect.DeepEqual(got, []int{5, 10, 15, 17, 25, 30}) {
-			t.Fatalf("InOrder = %v, ожидается [5 10 15 17 25 30]", got)
+		if node, found := trees.Search(newRoot, 10); found || node != nil {
+			t.Fatalf("значение 10 должно быть удалено, найдено %+v", node)
+		}
+		if newRoot.Right == nil || newRoot.Right.Value != 20 || newRoot.Right.Left == nil || newRoot.Right.Left.Value != 17 {
+			t.Fatalf("после удаления корня 10: правое поддерево = %+v, ожидается узел 20 с левым потомком 17", newRoot.Right)
+		}
+		if got := trees.InOrder(newRoot); !reflect.DeepEqual(got, []int{5, 15, 17, 20, 30}) {
+			t.Fatalf("InOrder = %v, ожидается [5 15 17 20 30]", got)
 		}
 	})
 	t.Run("преемник — сам правый потомок", func(t *testing.T) {
@@ -290,5 +297,27 @@ func TestSequenceOnLeftSkewedTree(t *testing.T) {
 	root = deleteKey(t, root, 5, true) // корень с одним потомком
 	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{2, 3, 4}) {
 		t.Fatalf("InOrder = %v, ожидается [2 3 4]", got)
+	}
+}
+
+// Асимметричное дерево — правое поддерево глубже левого. Отдельный пункт
+// критериев тикета наряду с пустым, одноузловым и перекошенными деревьями:
+// операции работают на форме произвольного вида, инвариант сохраняется.
+// Фокус — сама форма дерева, без широких сценариев последовательностей.
+func TestSequenceOnAsymmetricTree(t *testing.T) {
+	root := buildBST(t, 5, 3, 8, 7, 9, 6)
+	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{3, 5, 6, 7, 8, 9}) {
+		t.Fatalf("InOrder = %v, ожидается [3 5 6 7 8 9]", got)
+	}
+	if node, found := trees.Search(root, 6); !found || node == nil || node.Value != 6 {
+		t.Fatalf("Search(6) в асимметричном дереве: found = %v, узел = %+v", found, node)
+	}
+
+	root = deleteKey(t, root, 8, true) // узел с двумя потомками: преемник — 9
+	if root.Right == nil || root.Right.Value != 9 {
+		t.Fatalf("после удаления 8: правый потомок корня = %+v, ожидается узел 9 (преемник)", root.Right)
+	}
+	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{3, 5, 6, 7, 9}) {
+		t.Fatalf("InOrder после удаления = %v, ожидается [3 5 6 7 9]", got)
 	}
 }

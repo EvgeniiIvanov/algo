@@ -167,6 +167,32 @@ func TestDeleteRootSingleEvents(t *testing.T) {
 	}
 }
 
+// Удаление узла с единственным потомком: сравнения до узла, затем
+// удаление — на место узла встаёт его поддерево целиком.
+func TestDeleteOneChildEvents(t *testing.T) {
+	root := buildBST(t, 5, 7, 9, 8) // узел 7 — только правый потомок 9 (у 9 левый потомок 8)
+
+	var em spyBSTEmitter
+	root, _ = trees.DeleteWithEmitter(root, 7, &em)
+
+	want := []trees.BSTEvent{
+		trees.BSTCompare{Path: "", Key: 7, Value: 5, Branch: "R"},
+		trees.BSTCompare{Path: "R", Key: 7, Value: 7, Branch: ""},
+		trees.BSTRemoved{Path: "R", Key: 7},
+	}
+	if !reflect.DeepEqual([]trees.BSTEvent(em), want) {
+		t.Fatalf("события = %#v, ожидается %#v", []trees.BSTEvent(em), want)
+	}
+	// Поддерево заняло место удалённого узла целиком: узел 9 с левым
+	// потомком 8.
+	if root.Right == nil || root.Right.Value != 9 || root.Right.Left == nil || root.Right.Left.Value != 8 {
+		t.Fatalf("после удаления 7: правое поддерево корня = %+v, ожидается узел 9 с левым потомком 8", root.Right)
+	}
+	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{5, 8, 9}) {
+		t.Fatalf("InOrder = %v, ожидается [5 8 9]", got)
+	}
+}
+
 // Удаление корня с двумя потомками: поиск преемника начинается с правого
 // потомка, значение преемника переходит корню, узел-преемник удалён.
 func TestDeleteRootTwoChildrenEvents(t *testing.T) {
@@ -192,28 +218,49 @@ func TestDeleteRootTwoChildrenEvents(t *testing.T) {
 
 // Удаление корня с двумя потомками и глубоким преемником: полная цепочка
 // поиска минимума (левые переходы), замещение и удаление преемника.
+// Преемник 15 — не лист: его правый потомок 17 занимает место преемника.
+// Вырезание преемника — повторный рекурсивный спуск remove по правому
+// поддереву (деталь реализации): его сравнения не ассертим, значимый
+// контракт — поиск преемника, замещение и факт его вырезания.
 func TestDeleteTwoChildrenDeepSuccessorEvents(t *testing.T) {
-	root := buildBST(t, 10, 5, 20, 15, 30)
+	root := buildBST(t, 10, 5, 20, 15, 30, 17)
 
 	var em spyBSTEmitter
 	root, _ = trees.DeleteWithEmitter(root, 10, &em)
 
-	want := []trees.BSTEvent{
+	got := []trees.BSTEvent(em)
+	wantHead := []trees.BSTEvent{
 		trees.BSTCompare{Path: "", Key: 10, Value: 10, Branch: ""},
 		// Поиск преемника — минимум правого поддерева: 20 → 15.
 		trees.BSTMinStep{Path: "R", Value: 20},
 		trees.BSTMinStep{Path: "RL", Value: 15},
 		trees.BSTSuccessor{Path: "", SuccessorPath: "RL", Value: 15},
-		// Удаление узла-преемника: спуск по правому поддереву.
-		trees.BSTCompare{Path: "R", Key: 15, Value: 20, Branch: "L"},
-		trees.BSTCompare{Path: "RL", Key: 15, Value: 15, Branch: ""},
-		trees.BSTRemoved{Path: "RL", Key: 15},
 	}
-	if !reflect.DeepEqual([]trees.BSTEvent(em), want) {
-		t.Fatalf("события = %#v, ожидается %#v", []trees.BSTEvent(em), want)
+	if len(got) <= len(wantHead) || !reflect.DeepEqual(got[:len(wantHead)], wantHead) {
+		t.Fatalf("события до замещения = %#v, ожидается начало %#v", got, wantHead)
 	}
-	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{5, 15, 20, 30}) {
-		t.Fatalf("InOrder = %v, ожидается [5 15 20 30]", got)
+	// Хвост — вырезание преемника: единственное структурное событие —
+	// BSTRemoved на пути преемника; перед ним возможны BSTCompare
+	// повторного спуска — их точный набор не ассертим.
+	tail := got[len(wantHead):]
+	if last := tail[len(tail)-1]; last != trees.BSTEvent(trees.BSTRemoved{Path: "RL", Key: 15}) {
+		t.Fatalf("последнее событие = %#v, ожидается BSTRemoved{Path: RL, Key: 15}", last)
+	}
+	for _, ev := range tail[:len(tail)-1] {
+		if _, ok := ev.(trees.BSTCompare); !ok {
+			t.Fatalf("событие после замещения = %#v, ожидается только BSTCompare повторного спуска к преемнику", ev)
+		}
+	}
+	// Итоговая топология: узел 15 с потомками 5 и 20; у 20 слева 17 —
+	// место преемника занял его правый потомок, справа 30.
+	if root == nil || root.Value != 15 || root.Left == nil || root.Left.Value != 5 {
+		t.Fatalf("корень после удаления = %+v, ожидается узел 15 с левым 5", root)
+	}
+	if root.Right == nil || root.Right.Value != 20 || root.Right.Left == nil || root.Right.Left.Value != 17 || root.Right.Right == nil || root.Right.Right.Value != 30 {
+		t.Fatalf("правое поддерево = %+v, ожидается узел 20 с потомками 17 и 30", root.Right)
+	}
+	if got := trees.InOrder(root); !reflect.DeepEqual(got, []int{5, 15, 17, 20, 30}) {
+		t.Fatalf("InOrder = %v, ожидается [5 15 17 20 30]", got)
 	}
 }
 
