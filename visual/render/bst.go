@@ -165,7 +165,12 @@ func (b *bstFrames) Emit(ev trees.BSTEvent) {
 		// Дальше до конца операции — сравнения и вырезание преемника:
 		// их пояснения говорят о преемнике, а не о повторном удалении ключа.
 		b.cleanup = true
-		b.deferFrame(trees.NodeID(e.Path), "преемник «"+trees.NodeID(e.SuccessorPath)+"»", fmt.Sprintf(
+		// Активный узел кадра — выбранный преемник (SuccessorPath), а не
+		// удаляемый узел: подсветка показывает, кого выбрали в преемники.
+		// К моменту выпуска отложенного кадра преемник ещё жив в снимке:
+		// перенос значения выполняется сразу после события, а вырезание —
+		// на следующих шагах.
+		b.deferFrame(trees.NodeID(e.SuccessorPath), "преемник «"+trees.NodeID(e.SuccessorPath)+"»", fmt.Sprintf(
 			"%s: у узла (путь «%s») два потомка — inorder-successor: узел %d (путь «%s»), минимум правого поддерева. Значение %d переходит на место удаляемого ключа; узел-преемник будет удалён на следующих шагах.",
 			b.subject, treePathLabel(e.Path), e.Value, treePathLabel(e.SuccessorPath), e.Value))
 	}

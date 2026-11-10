@@ -441,6 +441,12 @@ func TestBSTRunTwoChildrenDeleteStepsSSE(t *testing.T) {
 		t.Fatalf("кадров выбора преемника = %d, ожидается 1", len(successorFrame))
 	}
 	bstExplanationHas(t, successorFrame[0], "inorder-successor", "узел 15 (путь «RL»)", "Значение 15")
+	// Активный узел кадра выбора — сам преемник: подсветка стоит на пути
+	// «RL», а не на удаляемом узле-корне (присутствие в снимке проверяет
+	// bstNodeValue ниже и общая assertBSTFrames).
+	if active := bstActive(t, successorFrame[0]); active != "RL" {
+		t.Fatalf("кадр выбора преемника: activeId = %q, ожидается %q (путь преемника)", active, "RL")
+	}
 	data, ok := successorFrame[0].Data.(map[string]any)
 	if !ok {
 		t.Fatalf("кадр выбора преемника: data не снимок: %#v", successorFrame[0].Data)
@@ -536,6 +542,9 @@ func TestBSTRunDeepSuccessorCleanupSSE(t *testing.T) {
 		t.Fatalf("кадров выбора преемника = %d, ожидается 1", len(successorFrame))
 	}
 	bstExplanationHas(t, successorFrame[0], "inorder-successor", "узел 22 (путь «RLLL»)", "Значение 22")
+	if active := bstActive(t, successorFrame[0]); active != "RLLL" {
+		t.Fatalf("кадр выбора преемника: activeId = %q, ожидается %q (путь преемника)", active, "RLLL")
+	}
 	data, ok = successorFrame[0].Data.(map[string]any)
 	if !ok {
 		t.Fatalf("кадр выбора преемника: data не снимок: %#v", successorFrame[0].Data)
@@ -581,6 +590,55 @@ func TestBSTRunDeepSuccessorCleanupSSE(t *testing.T) {
 	// сжался — 22(5, 40(30(25))).
 	assertBSTTopology(t, frames[len(frames)-1], &wantBSTNode{value: 22, left: &wantBSTNode{value: 5},
 		right: &wantBSTNode{value: 40, left: &wantBSTNode{value: 30, left: &wantBSTNode{value: 25}}}})
+}
+
+// TestBSTRunNonRootTwoChildrenSuccessorActiveSSE — регрессия активного
+// узла кадра выбора преемника у некорневого удаляемого узла: подсветка
+// стоит на пути преемника, а не на удаляемом узле; узел-преемник жив
+// в снимке (значение уже перенесено, вырезание — на следующих шагах).
+func TestBSTRunNonRootTwoChildrenSuccessorActiveSSE(t *testing.T) {
+	// Дерево: 20(10(5, 15), 30); delete 10 — удаляемый узел на пути «L»,
+	// преемник 15 на пути «LR».
+	frames := doRunBSTSSE(t, "insert 20\ninsert 10\ninsert 30\ninsert 5\ninsert 15\ndelete 10")
+	assertBSTFrames(t, frames)
+
+	// Кадр выбора преемника находим по имени шага (как в тесте удаления
+	// корня с двумя потомками выше).
+	var successorFrame []frame.Frame
+	for _, f := range frames {
+		data, ok := f.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: data не снимок: %#v", f.Step, f.Data)
+		}
+		if op, _ := data["operation"].(string); strings.HasPrefix(op, "преемник «") {
+			successorFrame = append(successorFrame, f)
+		}
+	}
+	if len(successorFrame) != 1 {
+		t.Fatalf("кадров выбора преемника = %d, ожидается 1", len(successorFrame))
+	}
+	bstExplanationHas(t, successorFrame[0], "inorder-successor", "узел 15 (путь «LR»)", "Значение 15")
+	// Активный узел — путь преемника «LR», а не удаляемый узел «L».
+	if active := bstActive(t, successorFrame[0]); active != "LR" {
+		t.Fatalf("кадр выбора преемника: activeId = %q, ожидается %q (путь преемника)", active, "LR")
+	}
+	// Узел-преемник присутствует в снимке; удаляемый узел «L» уже держит
+	// перенесённое значение 15.
+	data, ok := successorFrame[0].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр выбора преемника: data не снимок: %#v", successorFrame[0].Data)
+	}
+	if got := bstNodeValue(t, data, "LR"); got != 15 {
+		t.Fatalf("в кадре выбора преемника узел «LR» = %d, ожидается 15 (преемник ещё не вырезан)", got)
+	}
+	if got := bstNodeValue(t, data, "L"); got != 15 {
+		t.Fatalf("в кадре выбора преемника узел «L» = %d, ожидается 15 (значение перенесено)", got)
+	}
+
+	// Финал: 10 удалён через перенос значения — 20(15(5), 30).
+	assertBSTTopology(t, frames[len(frames)-1], &wantBSTNode{value: 20,
+		left:  &wantBSTNode{value: 15, left: &wantBSTNode{value: 5}},
+		right: &wantBSTNode{value: 30}})
 }
 
 // TestBSTRunEmptyTreeOperationSSE — операции над пустым деревом: промах —

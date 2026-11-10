@@ -228,7 +228,11 @@ export interface SortSnapshot {
  * значениями различимы.
  */
 export interface TreeSnapshot {
-  /** Порядок обхода: "in-order" / "pre-order" / "post-order" / "level-order". */
+  /**
+   * Порядок обхода: "in-order" / "pre-order" / "post-order" / "level-order".
+   * У кадров сценария BST значение "bst" — не порядок обхода, а маркер
+   * семейства кадров BST: visited и queue в таких кадрах всегда пустые.
+   */
   order: string;
   /** Все узлы дерева: полный снимок топологии (пустой массив — пустое дерево). */
   nodes: TreeNodeData[];
