@@ -346,7 +346,9 @@ func TestBSTRunDeleteCasesSSE(t *testing.T) {
 			script: "insert 10\ninsert 5\ninsert 20\ninsert 15\ninsert 30\ninsert 17\ndelete 10",
 			wantFinal: &wantBSTNode{value: 15, left: &wantBSTNode{value: 5},
 				right: &wantBSTNode{value: 20, left: &wantBSTNode{value: 17}, right: &wantBSTNode{value: 30}}},
-			wantLast: "удалён",
+			// Последний кадр двухпотомочного удаления — вырезание
+			// преемника, а не удаление первоначального ключа.
+			wantLast: "узел-преемник",
 		},
 		{
 			name:      "корень — единственный узел",
@@ -365,7 +367,7 @@ func TestBSTRunDeleteCasesSSE(t *testing.T) {
 			script: "insert 5\ninsert 3\ninsert 8\ninsert 7\ninsert 9\ndelete 5",
 			wantFinal: &wantBSTNode{value: 7, left: &wantBSTNode{value: 3},
 				right: &wantBSTNode{value: 8, right: &wantBSTNode{value: 9}}},
-			wantLast: "удалён",
+			wantLast: "узел-преемник",
 		},
 		{
 			// Преемник — сам правый потомок: у правого поддерева нет левой
@@ -373,7 +375,7 @@ func TestBSTRunDeleteCasesSSE(t *testing.T) {
 			name:      "два потомка — преемник сам правый потомок",
 			script:    "insert 5\ninsert 3\ninsert 7\ndelete 5",
 			wantFinal: &wantBSTNode{value: 7, left: &wantBSTNode{value: 3}},
-			wantLast:  "удалён",
+			wantLast:  "узел-преемник",
 		},
 		{
 			name:      "промах удаления",
@@ -410,13 +412,17 @@ func TestBSTRunTwoChildrenDeleteStepsSSE(t *testing.T) {
 		op, _ := data["operation"].(string)
 		return op
 	}
-	var minSteps, successorFrame []frame.Frame
+	var minSteps, successorFrame, cleanupCompares, cleanupRemoved []frame.Frame
 	for _, f := range frames {
-		if strings.HasPrefix(stepName(f), "поиск преемника") {
+		switch name := stepName(f); {
+		case strings.HasPrefix(name, "поиск преемника"):
 			minSteps = append(minSteps, f)
-		}
-		if strings.HasPrefix(stepName(f), "преемник «") {
+		case strings.HasPrefix(name, "вырезание преемника: сравнение с"):
+			cleanupCompares = append(cleanupCompares, f)
+		case strings.HasPrefix(name, "преемник «"):
 			successorFrame = append(successorFrame, f)
+		case strings.HasPrefix(name, "вырезание преемника «"):
+			cleanupRemoved = append(cleanupRemoved, f)
 		}
 	}
 	if len(minSteps) != 2 {
@@ -429,7 +435,8 @@ func TestBSTRunTwoChildrenDeleteStepsSSE(t *testing.T) {
 	}
 
 	// Выбор преемника: значение 15 переходит узлу, которое держало 10;
-	// в самом кадре снимок уже показывает дерево после переноса.
+	// в самом кадре снимок уже показывает дерево после переноса, а узел-
+	// преемник ещё жив — его вырежут на следующих шагах.
 	if len(successorFrame) != 1 {
 		t.Fatalf("кадров выбора преемника = %d, ожидается 1", len(successorFrame))
 	}
@@ -441,10 +448,158 @@ func TestBSTRunTwoChildrenDeleteStepsSSE(t *testing.T) {
 	if got := bstNodeValue(t, data, "root"); got != 15 {
 		t.Fatalf("в кадре выбора преемника корень = %d, ожидается 15 (значение перенесено)", got)
 	}
+	if got := bstNodeValue(t, data, "RL"); got != 15 {
+		t.Fatalf("в кадре выбора преемника узел «RL» = %d, ожидается 15 (преемник ещё не вырезан)", got)
+	}
+
+	// Сравнения вырезания преемника: названы вырезанием преемника, а не
+	// выглядят повторным удалением ключа 10; снимок уже с переносом
+	// значения, преемник ещё жив.
+	if len(cleanupCompares) != 2 {
+		t.Fatalf("кадров сравнения вырезания преемника = %d, ожидается 2 (узлы 20 и 15)", len(cleanupCompares))
+	}
+	bstExplanationHas(t, cleanupCompares[0], "Удаление ключа 10", "вырезаем узел-преемник 15", "сравниваем с узлом 20 (путь «R»)", "15 < 20 — спускаемся влево")
+	bstExplanationHas(t, cleanupCompares[1], "ключ равен значению узла — нашли узел-преемник")
+	data, ok = cleanupCompares[0].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр сравнения вырезания: data не снимок: %#v", cleanupCompares[0].Data)
+	}
+	if got := bstNodeValue(t, data, "root"); got != 15 {
+		t.Fatalf("в кадре сравнения вырезания корень = %d, ожидается 15 (значение перенесено)", got)
+	}
+	if got := bstNodeValue(t, data, "RL"); got != 15 {
+		t.Fatalf("в кадре сравнения вырезания узел «RL» = %d, ожидается 15 (преемник ещё не вырезан)", got)
+	}
+
+	// Вырезание преемника названо преемником, перенесённое значение
+	// остаётся на месте ключа 10 — кадр не читается как удаление ключа 10.
+	if len(cleanupRemoved) != 1 {
+		t.Fatalf("кадров вырезания преемника = %d, ожидается 1", len(cleanupRemoved))
+	}
+	bstExplanationHas(t, cleanupRemoved[0], "Удаление ключа 10", "узел-преемник 15 (путь «RL»)", "перенесено на место ключа 10")
 
 	// Финальная структура: 10 удалён, преемник вырезан.
 	assertBSTTopology(t, frames[len(frames)-1], &wantBSTNode{value: 15, left: &wantBSTNode{value: 5},
 		right: &wantBSTNode{value: 20, left: &wantBSTNode{value: 17}, right: &wantBSTNode{value: 30}}})
+}
+
+// TestBSTRunDeepSuccessorCleanupSSE — регрессия объяснений вложенного
+// удаления преемника: сравнения и вырезание узла-преемника названы
+// преемником и не выглядят удалением первоначального ключа. Преемник
+// глубокий (путь «RLLL»), поэтому фаза вырезания несёт несколько сравнений.
+// Заодно фиксируются промежуточные кадры структурных событий: шаги поиска
+// минимума — до переноса значения, кадр преемника и сравнения вырезания —
+// после переноса, но с ещё живым узлом-преемником.
+func TestBSTRunDeepSuccessorCleanupSSE(t *testing.T) {
+	// Дерево: 20(5, 40(30(25(22)))); delete 20 — преемник 22 на пути «RLLL».
+	frames := doRunBSTSSE(t, "insert 20\ninsert 5\ninsert 40\ninsert 30\ninsert 25\ninsert 22\ndelete 20")
+	assertBSTFrames(t, frames)
+
+	stepName := func(f frame.Frame) string {
+		data, ok := f.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр шага %d: data не снимок: %#v", f.Step, f.Data)
+		}
+		op, _ := data["operation"].(string)
+		return op
+	}
+	var minSteps, successorFrame, cleanupCompares, cleanupRemoved []frame.Frame
+	for _, f := range frames {
+		switch name := stepName(f); {
+		case strings.HasPrefix(name, "поиск преемника"):
+			minSteps = append(minSteps, f)
+		case strings.HasPrefix(name, "вырезание преемника: сравнение с"):
+			cleanupCompares = append(cleanupCompares, f)
+		case strings.HasPrefix(name, "преемник «"):
+			successorFrame = append(successorFrame, f)
+		case strings.HasPrefix(name, "вырезание преемника «"):
+			cleanupRemoved = append(cleanupRemoved, f)
+		}
+	}
+
+	// Поиск минимума правого поддерева: четыре шага (40, 30, 25, 22);
+	// в снимках ещё исходное дерево — корень 20, переноса значения нет.
+	if len(minSteps) != 4 {
+		t.Fatalf("шагов поиска минимума = %d, ожидается 4 (узлы 40, 30, 25, 22)", len(minSteps))
+	}
+	data, ok := minSteps[0].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр поиска минимума: data не снимок: %#v", minSteps[0].Data)
+	}
+	if got := bstNodeValue(t, data, "root"); got != 20 {
+		t.Fatalf("в кадре поиска минимума корень = %d, ожидается 20 (значение ещё не перенесено)", got)
+	}
+
+	// Выбор преемника: значение 22 перенесено корню, узел-преемник на
+	// пути «RLLL» ещё жив.
+	if len(successorFrame) != 1 {
+		t.Fatalf("кадров выбора преемника = %d, ожидается 1", len(successorFrame))
+	}
+	bstExplanationHas(t, successorFrame[0], "inorder-successor", "узел 22 (путь «RLLL»)", "Значение 22")
+	data, ok = successorFrame[0].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("кадр выбора преемника: data не снимок: %#v", successorFrame[0].Data)
+	}
+	if got := bstNodeValue(t, data, "root"); got != 22 {
+		t.Fatalf("в кадре выбора преемника корень = %d, ожидается 22 (значение перенесено)", got)
+	}
+	if got := bstNodeValue(t, data, "RLLL"); got != 22 {
+		t.Fatalf("в кадре выбора преемника узел «RLLL» = %d, ожидается 22 (преемник ещё не вырезан)", got)
+	}
+
+	// Сравнения вырезания: каждое названо вырезанием преемника 22; в
+	// снимках значение уже перенесено, преемник ещё жив. Последнее
+	// сравнение — равенство: узел-преемник найден.
+	if len(cleanupCompares) != 4 {
+		t.Fatalf("кадров сравнения вырезания преемника = %d, ожидается 4 (узлы 40, 30, 25, 22)", len(cleanupCompares))
+	}
+	for i, f := range cleanupCompares {
+		bstExplanationHas(t, f, "Удаление ключа 20", "вырезаем узел-преемник 22")
+		data, ok := f.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("кадр сравнения вырезания %d: data не снимок: %#v", i, f.Data)
+		}
+		if got := bstNodeValue(t, data, "root"); got != 22 {
+			t.Fatalf("в кадре сравнения вырезания %d корень = %d, ожидается 22 (значение перенесено)", i, got)
+		}
+		if got := bstNodeValue(t, data, "RLLL"); got != 22 {
+			t.Fatalf("в кадре сравнения вырезания %d узел «RLLL» = %d, ожидается 22 (преемник ещё не вырезан)", i, got)
+		}
+	}
+	bstExplanationHas(t, cleanupCompares[0], "сравниваем с узлом 40 (путь «R»)", "22 < 40 — спускаемся влево")
+	bstExplanationHas(t, cleanupCompares[3], "ключ равен значению узла — нашли узел-преемник")
+
+	// Вырезание преемника названо преемником и объясняет, что значение
+	// 22 осталось в дереве на месте ключа 20: кадр не читается как
+	// удаление ключа 20.
+	if len(cleanupRemoved) != 1 {
+		t.Fatalf("кадров вырезания преемника = %d, ожидается 1", len(cleanupRemoved))
+	}
+	bstExplanationHas(t, cleanupRemoved[0], "Удаление ключа 20", "узел-преемник 22 (путь «RLLL»)", "перенесено на место ключа 20")
+
+	// Финальная структура: 20 удалён, значение 22 у корня, путь к преемнику
+	// сжался — 22(5, 40(30(25))).
+	assertBSTTopology(t, frames[len(frames)-1], &wantBSTNode{value: 22, left: &wantBSTNode{value: 5},
+		right: &wantBSTNode{value: 40, left: &wantBSTNode{value: 30, left: &wantBSTNode{value: 25}}}})
+}
+
+// TestBSTRunEmptyTreeOperationSSE — операции над пустым деревом: промах —
+// штатный исход (SPEC), снимки кадров пустые, сравнений нет (сравнивать
+// не с чем). Проверяет сборку снимков сразу из живого дерева без
+// структурных событий.
+func TestBSTRunEmptyTreeOperationSSE(t *testing.T) {
+	frames := doRunBSTSSE(t, "delete 7\nsearch 7")
+	assertBSTFrames(t, frames)
+	bstFramesCount(t, frames, 3) // 1 старт + промах удаления + промах поиска
+
+	for i, want := range []string{"штатный исход удаления", "штатный исход поиска"} {
+		f := frames[i+1]
+		assertBSTTopology(t, f, nil)
+		if active := bstActive(t, f); active != "" {
+			t.Fatalf("кадр %d: activeId = %q, ожидается пустая строка", f.Step, active)
+		}
+		bstExplanationHas(t, f, "дерево пустое", "ключа 7 в дереве нет", want)
+	}
 }
 
 // TestBSTRunMixedScenarioSSE — сценарий со вперемешку успешными/неуспешными
