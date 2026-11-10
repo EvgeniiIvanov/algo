@@ -45,9 +45,11 @@ type TreeVisit struct {
 // произвольная: снимок не предполагает свойств BST. Пустое дерево —
 // пустой список Nodes и пустой RootID. Queue — FIFO-очередь обхода
 // по уровням (идентификаторы от головы к хвосту); у глубинных порядков
-// очередь всегда пустая ([]).
+// очередь всегда пустая ([]). Поле Order задаёт порядок обхода, а у
+// сценария BST — маркер семейства кадров "bst" (BSTSnapshotOrder):
+// visited и queue у BST всегда пустые.
 type TreeSnapshot struct {
-	Order     string         `json:"order"`     // порядок обхода: in-order / pre-order / post-order / level-order
+	Order     string         `json:"order"`     // порядок обхода или маркер семейства кадров: in-order / pre-order / post-order / level-order (обходы), "bst" (BSTSnapshotOrder) — сценарий BST
 	Nodes     []TreeNodeData `json:"nodes"`     // все узлы дерева: полный снимок топологии (не nil: пустое дерево — [])
 	RootID    string         `json:"rootId"`    // идентификатор корня; "" — пустое дерево
 	ActiveID  string         `json:"activeId"`  // посещаемый узел шага; "" — стартовый кадр
