@@ -49,7 +49,7 @@ export const MAX_SORT_VALUES = 100;
 /** Ограничения входа BST — как на сервере (visual/server/bst.go): лимит
  * команд сценария. Лимит живых узлов визуального Run — MAX_TREE_NODES
  * из tree.ts: сервер для BST проверяет тот же лимит maxTreeNodes
- * (visual/server/tree.go, checkBSTNodeLimit). */
+ * (visual/server/tree.go) через checkBSTNodeLimit (visual/server/bst.go). */
 export const MAX_BST_OPS = 500;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
