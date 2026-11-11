@@ -266,3 +266,14 @@ func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
 		t.Errorf("модуль big-o из block-1 найден в block-2 (индекс %d)", idx)
 	}
 }
+
+// Тест порядка модулей Блока 2 (тикет 37): модуль bst присутствует в
+// block-2 и идёт после tree-traversals.
+func TestEmbeddedBankBlock2BSTAfterTreeTraversals(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	_, block2 := findBlock(t, bank, "block-2")
+	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst")
+}
