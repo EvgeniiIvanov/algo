@@ -4,11 +4,8 @@
 // целых ±(2^53−1), лимит 500 команд и лимит 100 живых узлов.
 import { describe, expect, it } from "vitest";
 import { buildBSTRunURL } from "../src/sse";
-import {
-  MAX_BST_NODES,
-  MAX_BST_OPS,
-  parseBSTScenario,
-} from "../src/scenario";
+import { MAX_TREE_NODES } from "../src/tree";
+import { MAX_BST_OPS, parseBSTScenario } from "../src/scenario";
 
 describe("parseBSTScenario — удачный разбор", () => {
   it("разбирает сценарий с insert, search и delete", () => {
@@ -127,20 +124,20 @@ describe("parseBSTScenario — лимит живых узлов", () => {
     Array.from({ length: n }, (_, i) => `insert ${start + i}`).join("\n");
 
   it("ровно 100 живых узлов принимается", () => {
-    expect(() => parseBSTScenario(inserts(MAX_BST_NODES))).not.toThrow();
+    expect(() => parseBSTScenario(inserts(MAX_TREE_NODES))).not.toThrow();
   });
 
   it("101-й уникальный узел отвергается до Run", () => {
-    expect(() => parseBSTScenario(inserts(MAX_BST_NODES + 1))).toThrow(
+    expect(() => parseBSTScenario(inserts(MAX_TREE_NODES + 1))).toThrow(
       new RegExp(
-        `лимит живых узлов.*не более ${MAX_BST_NODES}.*команда №${MAX_BST_NODES + 1} \\(insert ${MAX_BST_NODES}\\)`,
+        `лимит живых узлов.*не более ${MAX_TREE_NODES}.*команда №${MAX_TREE_NODES + 1} \\(insert ${MAX_TREE_NODES}\\)`,
       ),
     );
   });
 
   it("повторная вставка дубликата не растит дерево", () => {
     const script = Array.from(
-      { length: MAX_BST_NODES + 1 },
+      { length: MAX_TREE_NODES + 1 },
       () => "insert 5",
     ).join("\n");
     expect(() => parseBSTScenario(script)).not.toThrow();
@@ -148,20 +145,20 @@ describe("parseBSTScenario — лимит живых узлов", () => {
 
   it("удаление освобождает место под новые вставки", () => {
     const script = [
-      inserts(MAX_BST_NODES),
+      inserts(MAX_TREE_NODES),
       "delete 0",
       "insert 1000",
     ].join("\n");
     expect(() => parseBSTScenario(script)).not.toThrow();
     // А без удаления 101-й узел не влезает.
     expect(() =>
-      parseBSTScenario([inserts(MAX_BST_NODES), "insert 1000"].join("\n")),
+      parseBSTScenario([inserts(MAX_TREE_NODES), "insert 1000"].join("\n")),
     ).toThrow(/лимит живых узлов/);
   });
 
   it("промахи search/delete не занимают место", () => {
     const script = [
-      inserts(MAX_BST_NODES),
+      inserts(MAX_TREE_NODES),
       "search -1\ndelete -1\nsearch -2\ndelete -2",
       "delete 0",
       "insert 1000",

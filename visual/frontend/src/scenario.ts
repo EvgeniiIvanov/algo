@@ -10,6 +10,7 @@
 // клиент не пропустит формы, которые отвергнет сервер.
 
 import { parseDecimalInteger } from "./decimalInteger";
+import { MAX_TREE_NODES } from "./tree";
 
 /** Одна операция сценария стека: push со значением или pop. */
 export interface StackOp {
@@ -46,9 +47,10 @@ export const MAX_HASH_TABLE_ENTRIES = 100;
 /** Ограничения входа сортировки — как на сервере (visual/server/sort.go). */
 export const MAX_SORT_VALUES = 100;
 /** Ограничения входа BST — как на сервере (visual/server/bst.go): лимит
- * команд сценария и лимит живых узлов визуального Run (не библиотеки). */
+ * команд сценария. Лимит живых узлов визуального Run — MAX_TREE_NODES
+ * из tree.ts: сервер для BST проверяет тот же лимит maxTreeNodes
+ * (visual/server/tree.go, checkBSTNodeLimit). */
 export const MAX_BST_OPS = 500;
-export const MAX_BST_NODES = 100;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
  * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
@@ -56,6 +58,40 @@ export const MAX_BST_NODES = 100;
 function parseDecimalInt(raw: string): number | null {
   const result = parseDecimalInteger(raw);
   return result.ok ? result.value : null;
+}
+
+/** Действие одного шага прогона по множеству ключей. */
+type KeySetAction = "add" | "delete" | "skip";
+
+/**
+ * Общий каркас смысловой проверки лимита хранящихся ключей прогоном
+ * (хеш-таблица, BST): add растит множество новым ключом (повторный ключ
+ * места не занимает), delete освобождает ключ (промах нормален), skip
+ * на множество не влияет. При превышении лимита бросает Error — сообщение
+ * собирает caller по номеру операции, получившемуся числу ключей и самой
+ * операции.
+ */
+function checkStoredKeysLimit<T extends { key: number }>(
+  ops: readonly T[],
+  actionOf: (op: T) => KeySetAction,
+  max: number,
+  errorMessage: (opIndex: number, count: number, op: T) => string,
+): void {
+  const keys = new Set<number>();
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    const action = actionOf(op);
+    if (action === "skip") continue;
+    if (action === "delete") {
+      keys.delete(op.key); // промах тоже нормален: нечего освобождать
+      continue;
+    }
+    if (keys.has(op.key)) continue; // повторный ключ места не занимает
+    if (keys.size + 1 > max) {
+      throw new Error(errorMessage(i, keys.size + 1, op));
+    }
+    keys.add(op.key);
+  }
 }
 
 /** Разобрать ёмкость стека: целое от 1 до MAX_STACK_CAPACITY. */
@@ -564,25 +600,13 @@ export function parseHashTableScenario(raw: string): HashTableOp[] {
   }
 
   // Смысловая проверка прогоном по числу записей таблицы.
-  const keys = new Set<number>();
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i];
-    if (op.kind === "put") {
-      if (!keys.has(op.key)) {
-        if (keys.size + 1 > MAX_HASH_TABLE_ENTRIES) {
-          throw new Error(
-            `операция №${i + 1}: в таблице будет ${keys.size + 1} записей — максимум ${MAX_HASH_TABLE_ENTRIES}; сократите сценарий`,
-          );
-        }
-        keys.add(op.key);
-      }
-      continue;
-    }
-    if (op.kind === "delete") {
-      keys.delete(op.key); // промах тоже нормален: нечего освобождать
-    }
-    // get: отсутствующий ключ — легальный промах, кадр его покажет.
-  }
+  checkStoredKeysLimit(
+    ops,
+    (op) => (op.kind === "put" ? "add" : op.kind === "delete" ? "delete" : "skip"),
+    MAX_HASH_TABLE_ENTRIES,
+    (i, count) =>
+      `операция №${i + 1}: в таблице будет ${count} записей — максимум ${MAX_HASH_TABLE_ENTRIES}; сократите сценарий`,
+  );
   return ops;
 }
 
@@ -604,7 +628,7 @@ export interface BSTOp {
  * Дубликат при вставке и промахи search/delete — легальные шаги сценария,
  * а не ошибки ввода. Лимит живых узлов проверяется после разбора прогоном
  * по множеству ключей: вставка нового ключа растит дерево (не более
- * MAX_BST_NODES), повторная вставка и промахи search/delete его не меняют.
+ * MAX_TREE_NODES), повторная вставка и промахи search/delete его не меняют.
  */
 export function parseBSTScenario(raw: string): BSTOp[] {
   const ops: BSTOp[] = [];
@@ -663,24 +687,13 @@ export function parseBSTScenario(raw: string): BSTOp[] {
   // Смысловая проверка лимита живых узлов прогоном по множеству ключей:
   // insert нового ключа растит дерево, повторная вставка того же ключа
   // и промахи search/delete места не занимают.
-  const keys = new Set<number>();
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i];
-    if (op.kind === "insert") {
-      if (keys.has(op.key)) continue; // дубликат: дерево не меняется
-      if (keys.size + 1 > MAX_BST_NODES) {
-        throw new Error(
-          `сценарий превышает лимит живых узлов: разрешено не более ${MAX_BST_NODES}, а команда №${i + 1} (${op.kind} ${op.key}) даёт ${keys.size + 1} узлов; сократите сценарий`,
-        );
-      }
-      keys.add(op.key);
-      continue;
-    }
-    if (op.kind === "delete") {
-      keys.delete(op.key); // промах тоже нормален: нечего удалять
-    }
-    // search: отсутствующий ключ — легальный промах, кадр его покажет.
-  }
+  checkStoredKeysLimit(
+    ops,
+    (op) => (op.kind === "insert" ? "add" : op.kind === "delete" ? "delete" : "skip"),
+    MAX_TREE_NODES,
+    (i, count, op) =>
+      `сценарий превышает лимит живых узлов: разрешено не более ${MAX_TREE_NODES}, а команда №${i + 1} (${op.kind} ${op.key}) даёт ${count} узлов; сократите сценарий`,
+  );
   return ops;
 }
 
