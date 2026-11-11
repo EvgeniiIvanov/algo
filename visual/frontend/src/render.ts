@@ -6,9 +6,10 @@
 // (стек "stack", очередь "queue", список "list", односвязный список
 // "linked-list" — узлы со стрелками next), kind="hash-table"
 // (корзины с цепочками записей), kind="sort" (маршруты сортировок —
-// bubble sort и далее) и kind="tree" (бинарное дерево, обходы
-// in-/pre-/post-order). Новые kind'ы — новая ветка без правок
-// существующих.
+// bubble sort и далее) и kind="tree" (бинарное дерево: обходы
+// in-/pre-/post-order и по уровням level-order, а также кадры сценария
+// BST — маркер order="bst" при пустых visited/queue). Новые kind'ы —
+// новая ветка без правок существующих.
 
 import {
   KIND_ARRAY,
@@ -393,11 +394,16 @@ export function isSortFrame(frame: Frame): boolean {
 
 /**
  * Ветка kind="tree": бинарное дерево (обходы in/pre/post-order и
- * по уровням level-order).
+ * по уровням level-order, а также кадры сценария BST — снимок с
+ * order="bst", пустыми visited/queue и подсветкой активного узла).
  * Полная топология redraw целиком (кадр самодостаточен), вложенная
  * структура: узел — ячейка со значением, потомки — ветки L и R ниже,
  * отступ растёт с глубиной. Подсветки: активный узел (activeId) —
  * класс active, посещённые — класс visited с номером позиции.
+ * Идентификаторы — пути от корня в пределах одного кадра; кадр BST
+ * после структурного изменения несёт новую топологию и корень, поэтому
+ * рендер каждый раз строит дерево заново и не предполагает постоянства
+ * идентификаторов между кадрами.
  */
 function asTreeSnapshot(data: unknown): TreeSnapshot {
   if (data === null || typeof data !== "object") {
@@ -514,7 +520,9 @@ export function isTreeFrame(frame: Frame): boolean {
  * активный узел — класс active, посещённые — visited с номером позиции
  * (метка data.position). Пустое дерево рисуется пустым маркером.
  * Непустая очередь level-order рисуется рядом: ячейки в FIFO-порядке,
- * голова — первая.
+ * голова — первая. Кадры BST (order="bst") рисуются тем же кодом:
+ * дерево перестраивается из снимка целиком на каждом кадре, visited
+ * и queue у них всегда пустые.
  */
 function renderTree(snap: TreeSnapshot, containerEl: HTMLElement): void {
   const wrap = document.createElement("div");

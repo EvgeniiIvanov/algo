@@ -7,6 +7,7 @@ import { createPlayer } from "./player";
 import { createStream } from "./stream";
 import { renderFrame } from "./render";
 import {
+  buildBSTRunURL,
   buildHashTableRunURL,
   buildLinkedListRunURL,
   buildListRunURL,
@@ -20,6 +21,7 @@ import {
 } from "./sse";
 import { parseValues, parseTarget } from "./binarysearch";
 import {
+  parseBSTScenario,
   parseHashTableBucketCount,
   parseHashTableScenario,
   parseLinkedListScenario,
@@ -41,6 +43,7 @@ const ALGORITHMS = [
   "linked-list",
   "hash-table",
   "tree-traversal",
+  "bst",
   // Маршруты сортировок — канонический список из sse.ts.
   ...SORT_ALGORITHMS,
 ] as const;
@@ -69,6 +72,7 @@ function init(): void {
   const sortValuesEl = getElement<HTMLInputElement>("sort-values");
   const treeJsonEl = getElement<HTMLTextAreaElement>("tree-json");
   const treeOrderEl = getElement<HTMLSelectElement>("tree-order");
+  const bstScriptEl = getElement<HTMLTextAreaElement>("bst-script");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
@@ -77,6 +81,7 @@ function init(): void {
   const hashTableInputsEl = getElement<HTMLElement>("hash-table-inputs");
   const sortInputsEl = getElement<HTMLElement>("sort-inputs");
   const treeInputsEl = getElement<HTMLElement>("tree-inputs");
+  const bstInputsEl = getElement<HTMLElement>("bst-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -99,6 +104,7 @@ function init(): void {
     // Простые сортировки пользуются общим блоком ввода массива.
     sortInputsEl.hidden = !isSortAlgorithm(algorithm);
     treeInputsEl.hidden = algorithm !== "tree-traversal";
+    bstInputsEl.hidden = algorithm !== "bst";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -158,6 +164,9 @@ function init(): void {
         parseTreeInput(treeJsonEl.value); // валидация; на сервер уедет сырой текст
         parseTreeOrder(treeOrderEl.value);
         url = buildTreeTraversalRunURL(treeJsonEl.value, treeOrderEl.value);
+      } else if (algorithm === "bst") {
+        parseBSTScenario(bstScriptEl.value); // валидация; на сервер уедет сырой текст
+        url = buildBSTRunURL(bstScriptEl.value);
       } else if (isSortAlgorithm(algorithm)) {
         const values = parseSortValues(sortValuesEl.value);
         url = buildSortRunURL(algorithm, values);

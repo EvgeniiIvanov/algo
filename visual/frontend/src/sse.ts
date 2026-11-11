@@ -54,6 +54,14 @@ function validateFrame(value: unknown): Frame {
 }
 
 /**
+ * Общий хвост всех URL-билдеров Run: маршрут под /api/run + строка запроса.
+ * Кодирование параметров у всех маршрутов одинаковое — URLSearchParams.
+ */
+function runURL(route: string, params: URLSearchParams): string {
+  return `/api/run/${route}?${params.toString()}`;
+}
+
+/**
  * Построить URL запроса Run для бэкенда.
  * Вынесено из main.ts, чтобы было что тестировать и переиспользовать.
  */
@@ -62,7 +70,7 @@ export function buildRunURL(algorithm: string, values: number[], target: number)
     values: values.join(","),
     target: String(target),
   });
-  return `/api/run/${algorithm}?${params.toString()}`;
+  return runURL(algorithm, params);
 }
 
 /**
@@ -74,7 +82,7 @@ export function buildStackRunURL(capacity: number, script: string): string {
     capacity: String(capacity),
     script,
   });
-  return `/api/run/stack?${params.toString()}`;
+  return runURL("stack", params);
 }
 
 /**
@@ -86,7 +94,7 @@ export function buildQueueRunURL(capacity: number, script: string): string {
     capacity: String(capacity),
     script,
   });
-  return `/api/run/queue?${params.toString()}`;
+  return runURL("queue", params);
 }
 
 /**
@@ -96,7 +104,7 @@ export function buildQueueRunURL(capacity: number, script: string): string {
  */
 export function buildListRunURL(script: string): string {
   const params = new URLSearchParams({ script });
-  return `/api/run/list?${params.toString()}`;
+  return runURL("list", params);
 }
 
 /**
@@ -106,7 +114,7 @@ export function buildListRunURL(script: string): string {
  */
 export function buildLinkedListRunURL(script: string): string {
   const params = new URLSearchParams({ script });
-  return `/api/run/linked-list?${params.toString()}`;
+  return runURL("linked-list", params);
 }
 
 /**
@@ -119,7 +127,7 @@ export function buildHashTableRunURL(buckets: number, script: string): string {
     buckets: String(buckets),
     script,
   });
-  return `/api/run/hash-table?${params.toString()}`;
+  return runURL("hash-table", params);
 }
 
 /** Канонический список маршрутов сортировок визуального Run: единый источник имён
@@ -149,7 +157,7 @@ export function isSortAlgorithm(value: string): value is SortAlgorithm {
  */
 export function buildSortRunURL(algorithm: SortAlgorithm, values: number[]): string {
   const params = new URLSearchParams({ values: values.join(",") });
-  return `/api/run/${algorithm}?${params.toString()}`;
+  return runURL(algorithm, params);
 }
 
 /**
@@ -159,7 +167,17 @@ export function buildSortRunURL(algorithm: SortAlgorithm, values: number[]): str
  */
 export function buildTreeTraversalRunURL(tree: string, order: string): string {
   const params = new URLSearchParams({ tree, order });
-  return `/api/run/tree-traversal?${params.toString()}`;
+  return runURL("tree-traversal", params);
+}
+
+/**
+ * Построить URL запуска Run сценария BST: сырой текст сценария (по одной
+ * команде insert N, search N или delete N на строку). Сценарий едет как
+ * есть — парсинг и валидация авторитетны на сервере.
+ */
+export function buildBSTRunURL(script: string): string {
+  const params = new URLSearchParams({ script });
+  return runURL("bst", params);
 }
 
 /**
