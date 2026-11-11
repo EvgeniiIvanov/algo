@@ -23,6 +23,7 @@
             <option value="linked-list">Связный список</option>
             <option value="hash-table">Хеш-таблица</option>
             <option value="tree-traversal">Обход бинарного дерева</option>
+            <option value="bst">Бинарное дерево поиска (BST)</option>
             <option value="bubble-sort">Сортировка пузырьком</option>
             <option value="selection-sort">Сортировка выбором</option>
             <option value="insertion-sort">Сортировка вставками</option>
@@ -124,6 +125,16 @@ delete 9</textarea>
               <option value="post-order">Post-order (лево, право, узел)</option>
               <option value="level-order">Level-order (по уровням, FIFO-очередь)</option>
             </select>
+          </label>
+        </div>
+        <div id="bst-inputs" class="inputs" hidden>
+          <label>
+            Сценарий операций BST (по одной на строку)
+            <textarea id="bst-script" rows="6">insert 5
+insert 3
+insert 7
+search 7
+delete 5</textarea>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>

@@ -1,7 +1,9 @@
 // Парсинг сценария операций стека, очереди, списка на слайсе,
-// односвязного списка и входа массива сортировки на клиенте (зеркало
-// visual/server/stack.go, visual/server/queue.go, visual/server/list.go,
-// visual/server/linkedlist.go и visual/server/sort.go): ловим ошибки
+// односвязного списка, хеш-таблицы, сценария BST и входа массива
+// сортировки на клиенте (зеркало visual/server/stack.go,
+// visual/server/queue.go, visual/server/list.go,
+// visual/server/linkedlist.go, visual/server/hashtable.go,
+// visual/server/bst.go и visual/server/sort.go): ловим ошибки
 // ввода до Run; сервер перепроверяет — он авторитетен.
 // ёмкость и значения push/enqueue — грамматика Go strconv.Atoi, реализованная
 // в общем модуле decimalInteger.ts (см. parseDecimalInteger):
@@ -43,6 +45,10 @@ export const MAX_HASH_TABLE_OPS = 500;
 export const MAX_HASH_TABLE_ENTRIES = 100;
 /** Ограничения входа сортировки — как на сервере (visual/server/sort.go). */
 export const MAX_SORT_VALUES = 100;
+/** Ограничения входа BST — как на сервере (visual/server/bst.go): лимит
+ * команд сценария и лимит живых узлов визуального Run (не библиотеки). */
+export const MAX_BST_OPS = 500;
+export const MAX_BST_NODES = 100;
 
 /** Адаптер общего parseDecimalInteger под контракт сценария: null при любой
  * ошибке (синтаксис или небезопасный диапазон); контекстные сообщения
@@ -576,6 +582,104 @@ export function parseHashTableScenario(raw: string): HashTableOp[] {
       keys.delete(op.key); // промах тоже нормален: нечего освобождать
     }
     // get: отсутствующий ключ — легальный промах, кадр его покажет.
+  }
+  return ops;
+}
+
+/** Вид операции сценария BST: действие над ключом. */
+export type BSTOpKind = "insert" | "search" | "delete";
+
+/** Одна операция сценария BST. */
+export interface BSTOp {
+  kind: BSTOpKind;
+  key: number; // ключ операции
+}
+
+/**
+ * Разобрать сценарий BST: одна на строку — «insert N», «search N» или
+ * «delete N». Пустые строки пропускаются. Бросает Error с понятным
+ * сообщением. Зеркало parseBSTScript сервера (visual/server/bst.go):
+ * грамматика строки, ключ — десятичное целое в безопасном диапазоне
+ * JavaScript (от −(2^53−1) до 2^53−1, см. decimalInteger.ts), лимит команд.
+ * Дубликат при вставке и промахи search/delete — легальные шаги сценария,
+ * а не ошибки ввода. Лимит живых узлов проверяется после разбора прогоном
+ * по множеству ключей: вставка нового ключа растит дерево (не более
+ * MAX_BST_NODES), повторная вставка и промахи search/delete его не меняют.
+ */
+export function parseBSTScenario(raw: string): BSTOp[] {
+  const ops: BSTOp[] = [];
+  const lines = raw.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const fields = lines[i]
+      .trim()
+      .split(/\s+/)
+      .filter((f) => f.length > 0);
+    if (fields.length === 0) continue; // пустая строка — не операция
+    const lineNo = i + 1;
+
+    const verb = fields[0];
+    if (verb !== "insert" && verb !== "search" && verb !== "delete") {
+      throw new Error(
+        `строка ${lineNo}: неизвестная команда «${verb}»: ожидается insert, search или delete`,
+      );
+    }
+    if (fields.length === 1) {
+      throw new Error(
+        `строка ${lineNo}: команда «${verb}»: не хватает целого числа — ожидается «${verb} N», например ${verb} 5`,
+      );
+    }
+    if (fields.length > 2) {
+      throw new Error(
+        `строка ${lineNo}: лишние аргументы — ожидается действие и одно целое число, например «${verb} 5»`,
+      );
+    }
+    const result = parseDecimalInteger(fields[1]);
+    if (!result.ok) {
+      if (result.reason === "unsafe-range") {
+        throw new Error(
+          `строка ${lineNo}: значение ${result.input} вне безопасного диапазона: допустимо от −(2^53−1) до 2^53−1`,
+        );
+      }
+      throw new Error(
+        `строка ${lineNo}: не удалось разобрать «${result.input}» как целое число: ключ — десятичное целое`,
+      );
+    }
+    // Лимит команд проверяется на лету: сценарий-перегрузка не копит
+    // команды (как на сервере).
+    if (ops.length === MAX_BST_OPS) {
+      throw new Error(
+        `сценарий слишком длинный: разрешено не более ${MAX_BST_OPS} команд; первую лишнюю команду видим на строке ${lineNo}`,
+      );
+    }
+    ops.push({ kind: verb, key: result.value });
+  }
+
+  if (ops.length === 0) {
+    throw new Error(
+      "сценарий пуст: пустые строки игнорируются, нужен хотя бы один непустой шаг (insert N, search N или delete N)",
+    );
+  }
+
+  // Смысловая проверка лимита живых узлов прогоном по множеству ключей:
+  // insert нового ключа растит дерево, повторная вставка того же ключа
+  // и промахи search/delete места не занимают.
+  const keys = new Set<number>();
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    if (op.kind === "insert") {
+      if (keys.has(op.key)) continue; // дубликат: дерево не меняется
+      if (keys.size + 1 > MAX_BST_NODES) {
+        throw new Error(
+          `сценарий превышает лимит живых узлов: разрешено не более ${MAX_BST_NODES}, а команда №${i + 1} (${op.kind} ${op.key}) даёт ${keys.size + 1} узлов; сократите сценарий`,
+        );
+      }
+      keys.add(op.key);
+      continue;
+    }
+    if (op.kind === "delete") {
+      keys.delete(op.key); // промах тоже нормален: нечего удалять
+    }
+    // search: отсутствующий ключ — легальный промах, кадр его покажет.
   }
   return ops;
 }
