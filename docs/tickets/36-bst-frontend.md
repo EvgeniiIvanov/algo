@@ -4,7 +4,7 @@
 
 **Blocked by:** 35 (нужен контракт серверного Run и снимков).
 
-**Status:** planned
+**Status:** done
 
 Спека: `docs/SPEC.md`, модуль «BST: вставка, поиск и удаление».
 
