@@ -288,3 +288,15 @@ func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
 	_, block2 := findBlock(t, bank, "block-2")
 	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst", "bst-balancing")
 }
+
+// Тест порядка модулей Блока 2 (тикет 39): модуль b-trees присутствует
+// в block-2 и идёт после bst-balancing — концептуальный обзор B-деревьев
+// завершает последовательность модулей деревьев.
+func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	_, block2 := findBlock(t, bank, "block-2")
+	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst", "bst-balancing", "b-trees")
+}
