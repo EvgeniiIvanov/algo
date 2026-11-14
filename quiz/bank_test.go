@@ -290,13 +290,71 @@ func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
 }
 
 // Тест порядка модулей Блока 2 (тикет 39): модуль b-trees присутствует
-// в block-2 и идёт после bst-balancing — концептуальный обзор B-деревьев
-// завершает последовательность модулей деревьев.
+// в block-2 и идёт после bst-balancing; остальная цепочка
+// tree-traversals → bst → bst-balancing покрыта тестами тикетов 37 и 38.
 func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
 	bank, err := EmbeddedBank()
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
 	_, block2 := findBlock(t, bank, "block-2")
-	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst", "bst-balancing", "b-trees")
+	assertModulesInOrder(t, block2.Modules, "bst-balancing", "b-trees")
+}
+
+// Регрессия тикета 39 (ревью): семантически нагруженные формулировки
+// вопросов модуля b-trees. Связь «k ключей — k + 1 потомок» обязана
+// оговаривать внутренний узел (у листа потомков нет), а вопрос о
+// расщеплении заполненного узла обязан быть про корень-лист, у которого
+// нет родителя: продвинутый разделитель сам становится родителем
+// (новым корнем). Проверки идут по коротким маркерам у публичного шва
+// банка, а не повторяют формулировки целиком.
+func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	_, block2 := findBlock(t, bank, "block-2")
+	idx := moduleIndexByID(block2.Modules, "b-trees")
+	if idx == -1 {
+		t.Fatal("в block-2 нет модуля b-trees")
+	}
+	questions := block2.Modules[idx].Questions
+
+	// questionByMarker возвращает первый вопрос, в тексте которого
+	// встречается маркер, или завершает тест.
+	questionByMarker := func(marker string) *Question {
+		for i := range questions {
+			if strings.Contains(questions[i].Text, marker) {
+				return &questions[i]
+			}
+		}
+		t.Fatalf("в модуле b-trees нет вопроса с маркером %q", marker)
+		return nil
+	}
+
+	// Вопрос о числе потомков оговаривает внутренний узел, а не любой
+	// узел: универсальное «k ключей — k + 1 потомок» было бы ложным для
+	// листа.
+	q := questionByMarker("внутренн")
+	if !strings.Contains(q.Text, "потомк") {
+		t.Errorf("вопрос про k ключей не спрашивает про потомков: %q", q.Text)
+	}
+	if got := q.Options[q.Correct]; !strings.Contains(got, "6 потомк") {
+		t.Errorf("правильный ответ должен давать k + 1 = 6 потомков, получено: %q", got)
+	}
+	if !strings.Contains(q.Explanation, "внутренн") {
+		t.Errorf("пояснение не оговаривает внутренний узел: %q", q.Explanation)
+	}
+
+	// Вопрос о расщеплении заполненного узла описывает корень-лист:
+	// продвинутый разделитель сам становится родителем (новым корнем),
+	// «продвинется в родителя» для корня было бы неверно.
+	q = questionByMarker("корень-лист")
+	correct := q.Options[q.Correct]
+	if !strings.Contains(correct, "родител") || !strings.Contains(correct, "корн") {
+		t.Errorf("правильный ответ должен назначать продвинутый ключ родителем (новым корнем), получено: %q", correct)
+	}
+	if !strings.Contains(q.Explanation, "новым корн") {
+		t.Errorf("пояснение не проговаривает появление нового корня: %q", q.Explanation)
+	}
 }
