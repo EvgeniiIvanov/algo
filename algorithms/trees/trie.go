@@ -54,16 +54,18 @@ func (t *Trie) uninitialized() bool {
 
 // Insert добавляет слово и сообщает, добавлено ли оно: повторная вставка
 // идемпотентна — дерево и Len не меняются, результат false. Пустое слово
-// и невалидный UTF-8 — ошибки до любых изменений и событий.
+// и невалидный UTF-8 — ошибки до любых изменений и событий. nil-приёмник
+// и нулевое значение Trie{} — неинициализированный Trie: Insert возвращает
+// (false, ErrUninitializedTrie) до проверки входа и до любых событий.
 func (t *Trie) Insert(word string) (inserted bool, err error) {
 	return t.insert(word, nil)
 }
 
-// Search ищет точное слово: true, nil только если путь по всем рунам
+// Search ищет точное слово: (true, nil), только если путь по всем рунам
 // существует и конечный узел отмечен концом слова. Пустое слово — валидный
-// запрос на инициализированном Trie (`NewTrie()`): всегда false, nil —
-// пустое слово не хранится. nil-приёмник и нулевое значение Trie{}
-// возвращают ErrUninitializedTrie.
+// запрос на инициализированном Trie (`NewTrie()`): всегда (false, nil) —
+// пустое слово не хранится. nil-приёмник и нулевое значение Trie{} —
+// неинициализированный Trie: Search возвращает (false, ErrUninitializedTrie).
 func (t *Trie) Search(word string) (found bool, err error) {
 	return t.search(word, nil)
 }
@@ -71,9 +73,10 @@ func (t *Trie) Search(word string) (found bool, err error) {
 // StartsWith проверяет существование пути префикса: идёт ли от корня путь
 // по рунам префикса, независимо от того, образует ли он конец слова.
 // Пустой префикс соответствует корню, поэтому StartsWith("") на
-// инициализированном Trie (`NewTrie()`) — всегда true, nil, в том числе
-// в пустом Trie. nil-приёмник и нулевое значение Trie{} возвращают
-// ErrUninitializedTrie.
+// инициализированном Trie (`NewTrie()`) — всегда (true, nil), в том числе
+// в пустом Trie. nil-приёмник и нулевое значение Trie{} —
+// неинициализированный Trie: StartsWith возвращает (false,
+// ErrUninitializedTrie).
 func (t *Trie) StartsWith(prefix string) (found bool, err error) {
 	return t.startsWith(prefix, nil)
 }
@@ -81,6 +84,9 @@ func (t *Trie) StartsWith(prefix string) (found bool, err error) {
 // Delete удаляет слово и сообщает, удалено ли оно: промах — не ошибка,
 // дерево не меняется, результат false. Удаляются только больше не нужные
 // узлы (pruning): ветвления и сохранённые слова-префиксы остаются.
+// nil-приёмник и нулевое значение Trie{} — неинициализированный Trie:
+// Delete возвращает (false, ErrUninitializedTrie) до проверки входа и до
+// любых событий.
 func (t *Trie) Delete(word string) (deleted bool, err error) {
 	return t.delete(word, nil)
 }
