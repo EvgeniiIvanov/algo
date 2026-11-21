@@ -65,7 +65,8 @@ func (t *Trie) Insert(word string) (inserted bool, err error) {
 // существует и конечный узел отмечен концом слова. Пустое слово — валидный
 // запрос на инициализированном Trie (`NewTrie()`): всегда (false, nil) —
 // пустое слово не хранится. nil-приёмник и нулевое значение Trie{} —
-// неинициализированный Trie: Search возвращает (false, ErrUninitializedTrie).
+// неинициализированный Trie: Search возвращает (false, ErrUninitializedTrie)
+// до проверки входа и до любых событий.
 func (t *Trie) Search(word string) (found bool, err error) {
 	return t.search(word, nil)
 }
@@ -76,7 +77,7 @@ func (t *Trie) Search(word string) (found bool, err error) {
 // инициализированном Trie (`NewTrie()`) — всегда (true, nil), в том числе
 // в пустом Trie. nil-приёмник и нулевое значение Trie{} —
 // неинициализированный Trie: StartsWith возвращает (false,
-// ErrUninitializedTrie).
+// ErrUninitializedTrie) до проверки входа и до любых событий.
 func (t *Trie) StartsWith(prefix string) (found bool, err error) {
 	return t.startsWith(prefix, nil)
 }
