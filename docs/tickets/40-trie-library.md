@@ -30,7 +30,7 @@
 - `func (t *Trie) StartsWithWithEmitter(prefix string, em algorithms.Emitter[TrieEvent]) (bool, error)`
 - `func (t *Trie) DeleteWithEmitter(word string, em algorithms.Emitter[TrieEvent]) (bool, error)`
 
-Решение Ч3 (2026-11-21): nil-приёмник и нулевое значение `Trie{}` (корень не создан) не паникуют — все операции выше возвращают exported sentinel `ErrUninitializedTrie` до проверки входа (не `ErrInsertEmptyWord`/`ErrDeleteEmptyWord`/`ErrInvalidUTF8`) и до любых событий; `Len()` для такого Trie — `0`, без паники.
+Решение Ч3 (2026-11-21): nil-приёмник и нулевое значение `Trie{}` (корень не создан) не паникуют — все операции выше с ошибочным результатом возвращают exported sentinel `ErrUninitializedTrie` до проверки входа (не `ErrInsertEmptyWord`/`ErrDeleteEmptyWord`/`ErrInvalidUTF8`) и до любых событий; `Len()` для такого Trie — `0`, без паники.
 
 ## Acceptance Criteria
 
