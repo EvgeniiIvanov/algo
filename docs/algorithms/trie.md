@@ -48,7 +48,8 @@ O(m), где m — длина слова/префикса, независимо 
   событий, `Len()` возвращает 0.
 - Пустое слово не хранится: `Insert("")` и `Delete("")` — ошибки
   (`ErrInsertEmptyWord`, `ErrDeleteEmptyWord`); `Search("")` — всегда false;
-  `StartsWith("")` — всегда true, даже в пустом Trie.
+  `StartsWith("")` — всегда true, даже в инициализированном пустом Trie,
+  созданном `NewTrie()`.
 - Невалидный UTF-8 (например, `string([]byte{0xFF})`) отклоняется каждой
   операцией различимой ошибкой `ErrInvalidUTF8` — это не промах Search и не
   «найденный префикс» StartsWith; Trie и `Len` при этом не меняются.
@@ -92,4 +93,5 @@ pruning узел даёт одно событие `TriePrune` (руна ребр
 валидная операция — ровно одно событие результата: `TrieInserted` /
 `TrieAlreadyExisted`, `TrieFound` / `TrieNotFound`, `TriePrefixFound` /
 `TriePrefixNotFound`, `TrieDeleted` / `TrieNotDeleted`. Ошибочные вызовы
-(пустое слово, невалидный UTF-8) возвращают ошибку до любых событий.
+(пустое слово, невалидный UTF-8) и неинициализированный Trie
+(`ErrUninitializedTrie`) возвращают ошибку до любых событий.
