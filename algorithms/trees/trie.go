@@ -60,16 +60,20 @@ func (t *Trie) Insert(word string) (inserted bool, err error) {
 }
 
 // Search ищет точное слово: true только если путь по всем рунам существует
-// и конечный узел отмечен концом слова. Пустое слово — валидный запрос,
-// всегда false (пустое слово не хранится).
+// и конечный узел отмечен концом слова. Пустое слово — валидный запрос на
+// инициализированном Trie (создан NewTrie): всегда false, пустое слово
+// не хранится. nil-приёмник и нулевое значение Trie{} отклоняются ошибкой
+// ErrUninitializedTrie.
 func (t *Trie) Search(word string) (found bool, err error) {
 	return t.search(word, nil)
 }
 
 // StartsWith проверяет существование пути префикса: идёт ли от корня путь
 // по рунам префикса, независимо от того, образует ли он конец слова.
-// Пустой префикс соответствует корню, поэтому StartsWith("") — всегда true,
-// в том числе в пустом Trie.
+// Пустой префикс соответствует корню, поэтому StartsWith("") — всегда true
+// на инициализированном Trie (создан NewTrie), в том числе пустом.
+// nil-приёмник и нулевое значение Trie{} отклоняются ошибкой
+// ErrUninitializedTrie.
 func (t *Trie) StartsWith(prefix string) (found bool, err error) {
 	return t.startsWith(prefix, nil)
 }
