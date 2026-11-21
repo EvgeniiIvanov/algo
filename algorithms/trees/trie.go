@@ -64,10 +64,11 @@ func (t *Trie) Insert(word string) (inserted bool, err error) {
 // Search ищет точное слово: (true, nil), только если путь по всем рунам
 // существует и конечный узел отмечен концом слова. Пустое слово — валидный
 // запрос на инициализированном Trie (`NewTrie()`): всегда (false, nil) —
-// пустое слово не хранится. Невалидный UTF-8 — (false, ErrInvalidUTF8)
-// до любых событий. nil-приёмник и нулевое значение Trie{} —
-// неинициализированный Trie: Search возвращает (false, ErrUninitializedTrie)
-// до проверки входа и до любых событий.
+// пустое слово не хранится. Невалидный UTF-8 на инициализированном Trie
+// (`NewTrie()`) — (false, ErrInvalidUTF8) до любых событий. nil-приёмник
+// и нулевое значение Trie{} — неинициализированный Trie: Search
+// возвращает (false, ErrUninitializedTrie) до проверки входа и до любых
+// событий.
 func (t *Trie) Search(word string) (found bool, err error) {
 	return t.search(word, nil)
 }
@@ -76,10 +77,11 @@ func (t *Trie) Search(word string) (found bool, err error) {
 // по рунам префикса, независимо от того, образует ли он конец слова.
 // Пустой префикс соответствует корню, поэтому StartsWith("") на
 // инициализированном Trie (`NewTrie()`) — всегда (true, nil), в том числе
-// в пустом Trie. Невалидный UTF-8 — (false, ErrInvalidUTF8) до любых
-// событий. nil-приёмник и нулевое значение Trie{} —
-// неинициализированный Trie: StartsWith возвращает (false,
-// ErrUninitializedTrie) до проверки входа и до любых событий.
+// в пустом Trie. Невалидный UTF-8 на инициализированном Trie
+// (`NewTrie()`) — (false, ErrInvalidUTF8) до любых событий. nil-приёмник
+// и нулевое значение Trie{} — неинициализированный Trie:
+// StartsWith возвращает (false, ErrUninitializedTrie) до проверки входа
+// и до любых событий.
 func (t *Trie) StartsWith(prefix string) (found bool, err error) {
 	return t.startsWith(prefix, nil)
 }
