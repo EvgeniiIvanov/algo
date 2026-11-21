@@ -1,6 +1,7 @@
 package trees_test
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"unicode/utf8"
@@ -87,6 +88,52 @@ func TestTrieEventsDuplicateInsert(t *testing.T) {
 	}, `повторный Insert("аб")`)
 	if got := trie.Len(); got != 1 {
 		t.Fatalf("Len() = %d, ожидалось 1", got)
+	}
+}
+
+func TestTrieEventsInsertExistingPath(t *testing.T) {
+	trie := trees.NewTrie()
+	if _, err := trie.Insert("абв"); err != nil {
+		t.Fatalf("Insert err = %v, ожидалось nil", err)
+	}
+	var spy spyTrieEmitter
+
+	// Вставка слова, путь которого уже существует в Trie («аб» — путь к
+	// «абв», конец слова не отмечен): все рёбра reused, на последнем
+	// посещении ставится флаг конца слова, затем ровно один результат.
+	inserted, err := trie.InsertWithEmitter("аб", &spy)
+	if !inserted || err != nil {
+		t.Fatalf(`InsertWithEmitter("аб") = (%v, %v), ожидалось (true, nil)`, inserted, err)
+	}
+	wantEvents(t, spy, []trees.TrieEvent{
+		trees.TrieVisit{Rune: 'а', Edge: trees.EdgeReused},
+		trees.TrieVisit{Rune: 'б', Edge: trees.EdgeReused, EndFlag: bPtr(true)},
+		trees.TrieInserted{},
+	}, `Insert("аб") по существующему пути`)
+	if got := trie.Len(); got != 2 {
+		t.Fatalf("Len() = %d, ожидалось 2", got)
+	}
+}
+
+func TestTrieEventsUninitializedNoEvents(t *testing.T) {
+	// Неинициализированный Trie (nil и нулевое значение) отклоняет вызовы
+	// ошибкой ErrUninitializedTrie до любых событий — шпион пуст.
+	uninitialized := []*trees.Trie{nil, {}}
+	for i, trie := range uninitialized {
+		var spy spyTrieEmitter
+		if _, err := trie.InsertWithEmitter("а", &spy); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: InsertWithEmitter err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.SearchWithEmitter("а", &spy); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: SearchWithEmitter err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.StartsWithWithEmitter("а", &spy); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: StartsWithWithEmitter err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.DeleteWithEmitter("а", &spy); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: DeleteWithEmitter err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		wantEvents(t, spy, nil, "неинициализированный Trie")
 	}
 }
 

@@ -23,6 +23,9 @@ type NodeTrie struct {
 }
 
 // Trie — префиксное дерево с корнем-заглушкой и счётчиком разных слов.
+// Создавайте через NewTrie: операции над nil-приёмником и нулевым значением
+// Trie{} (без корня) не паникуют — они отклоняются ошибкой
+// ErrUninitializedTrie, а Len() возвращает 0.
 type Trie struct {
 	root *NodeTrie
 	size int
@@ -33,9 +36,20 @@ func NewTrie() *Trie {
 	return &Trie{root: &NodeTrie{children: make(map[rune]*NodeTrie)}}
 }
 
-// Len возвращает число разных сохранённых слов.
+// Len возвращает число разных сохранённых слов. Для nil-приёмника и нулевого
+// значения Trie — 0, без паники.
 func (t *Trie) Len() int {
+	if t == nil {
+		return 0
+	}
 	return t.size
+}
+
+// uninitialized — true для nil-приёмника и нулевого значения Trie{} (root
+// не создан NewTrie): такой Trie не готов к обходу, операции отклоняются
+// ErrUninitializedTrie до проверки входа и до любых событий — без паники.
+func (t *Trie) uninitialized() bool {
+	return t == nil || t.root == nil
 }
 
 // Insert добавляет слово и сообщает, добавлено ли оно: повторная вставка
@@ -68,6 +82,9 @@ func (t *Trie) Delete(word string) (deleted bool, err error) {
 }
 
 func (t *Trie) insert(word string, em algorithms.Emitter[TrieEvent]) (bool, error) {
+	if t.uninitialized() {
+		return false, ErrUninitializedTrie
+	}
 	if word == "" {
 		return false, ErrInsertEmptyWord
 	}
@@ -106,6 +123,9 @@ func (t *Trie) insert(word string, em algorithms.Emitter[TrieEvent]) (bool, erro
 }
 
 func (t *Trie) search(word string, em algorithms.Emitter[TrieEvent]) (bool, error) {
+	if t.uninitialized() {
+		return false, ErrUninitializedTrie
+	}
 	if !utf8.ValidString(word) {
 		return false, ErrInvalidUTF8
 	}
@@ -130,6 +150,9 @@ func (t *Trie) search(word string, em algorithms.Emitter[TrieEvent]) (bool, erro
 }
 
 func (t *Trie) startsWith(prefix string, em algorithms.Emitter[TrieEvent]) (bool, error) {
+	if t.uninitialized() {
+		return false, ErrUninitializedTrie
+	}
 	if !utf8.ValidString(prefix) {
 		return false, ErrInvalidUTF8
 	}
@@ -149,6 +172,9 @@ func (t *Trie) startsWith(prefix string, em algorithms.Emitter[TrieEvent]) (bool
 }
 
 func (t *Trie) delete(word string, em algorithms.Emitter[TrieEvent]) (bool, error) {
+	if t.uninitialized() {
+		return false, ErrUninitializedTrie
+	}
 	if word == "" {
 		return false, ErrDeleteEmptyWord
 	}

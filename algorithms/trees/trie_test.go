@@ -301,6 +301,43 @@ func TestTrieNonBMPIsOneRune(t *testing.T) {
 	}
 }
 
+func TestTrieUninitialized(t *testing.T) {
+	// nil-приёмник и нулевое значение Trie{} — не паника: все операции
+	// отклоняются ErrUninitializedTrie, Len() — 0.
+	uninitialized := []*trees.Trie{nil, {}}
+	for i, trie := range uninitialized {
+		if got := trie.Len(); got != 0 {
+			t.Fatalf("trie %d: Len() = %d, ожидалось 0", i, got)
+		}
+		if inserted, err := trie.Insert("а"); inserted || !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Insert = (%v, %v), ожидалось (false, ErrUninitializedTrie)", i, inserted, err)
+		}
+		if found, err := trie.Search("а"); found || !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Search = (%v, %v), ожидалось (false, ErrUninitializedTrie)", i, found, err)
+		}
+		if found, err := trie.StartsWith("а"); found || !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: StartsWith = (%v, %v), ожидалось (false, ErrUninitializedTrie)", i, found, err)
+		}
+		if deleted, err := trie.Delete("а"); deleted || !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Delete = (%v, %v), ожидалось (false, ErrUninitializedTrie)", i, deleted, err)
+		}
+		// Ошибка неинициализированного Trie — раньше проверки входа: не
+		// ErrInsertEmptyWord и не ErrInvalidUTF8.
+		if _, err := trie.Insert(""); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Insert(\"\") err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.Insert(invalidUTF8); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Insert с невалидным UTF-8 err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.Delete(""); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Delete(\"\") err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+		if _, err := trie.Search(invalidUTF8); !errors.Is(err, trees.ErrUninitializedTrie) {
+			t.Fatalf("trie %d: Search с невалидным UTF-8 err = %v, ожидалось ErrUninitializedTrie", i, err)
+		}
+	}
+}
+
 func TestTrieExactComparison(t *testing.T) {
 	trie := trees.NewTrie()
 	// Регистр и NFC/NFD-форма символа («é»-руна U+00E9 против «e»+U+0301,

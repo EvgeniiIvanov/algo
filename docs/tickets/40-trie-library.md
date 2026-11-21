@@ -10,6 +10,28 @@
 
 `автор-черновик: человек` — пользователь пишет черновик Trie в `algorithms/trees` и явно подтверждает его на Ч2.5; черновик задаёт точные сигнатуры и формы ошибок, позволяющие отличить ошибку невалидного UTF-8 отдельно от Search-промаха `not-found` и отдельно от `StartsWith`-`prefix-found`; до этого реализация не начинается. Учебная документация `docs/algorithms/trie.md` добавляется после подтверждения черновика и до завершения тикета.
 
+## Утверждённые сигнатуры и семантика публичного API
+
+Утверждено на Ч2.5 и зафиксировано в тикете до реализации (SPEC, «Минимум API»); реализация следует без отклонений от утверждённой семантики.
+
+Тихий режим:
+
+- `func NewTrie() *Trie` — пустой Trie.
+- `func (t *Trie) Insert(word string) (inserted bool, err error)` — `true, nil` — слово добавлено; `false, nil` — повторная вставка (идемпотентность, Trie и Len не меняются); ошибки: `ErrInsertEmptyWord` (пустое слово), `ErrInvalidUTF8`.
+- `func (t *Trie) Search(word string) (found bool, err error)` — `true, nil` — точное слово найдено; `false, nil` — промах (не ошибка); ошибка: `ErrInvalidUTF8`.
+- `func (t *Trie) StartsWith(prefix string) (found bool, err error)` — `true, nil` — путь префикса существует (в т.ч. `StartsWith("")` — всегда true); `false, nil` — пути нет (не ошибка); ошибка: `ErrInvalidUTF8`.
+- `func (t *Trie) Delete(word string) (deleted bool, err error)` — `true, nil` — слово удалено (pruning); `false, nil` — промах (не ошибка, Trie и Len не меняются); ошибки: `ErrDeleteEmptyWord` (пустое слово), `ErrInvalidUTF8`.
+- `func (t *Trie) Len() int` — число разных слов.
+
+Режим наблюдения (утверждены на Ч2.5 вместе с гранулярностью событий; результаты и ошибки — те же, что в тихом режиме, ошибочные вызовы возвращают ошибку до любых событий):
+
+- `func (t *Trie) InsertWithEmitter(word string, em algorithms.Emitter[TrieEvent]) (bool, error)`
+- `func (t *Trie) SearchWithEmitter(word string, em algorithms.Emitter[TrieEvent]) (bool, error)`
+- `func (t *Trie) StartsWithWithEmitter(prefix string, em algorithms.Emitter[TrieEvent]) (bool, error)`
+- `func (t *Trie) DeleteWithEmitter(word string, em algorithms.Emitter[TrieEvent]) (bool, error)`
+
+Решение Ч3 (2026-11-21): nil-приёмник и нулевое значение `Trie{}` (корень не создан) не паникуют — все операции выше возвращают exported sentinel `ErrUninitializedTrie` до проверки входа (не `ErrInsertEmptyWord`/`ErrDeleteEmptyWord`/`ErrInvalidUTF8`) и до любых событий; `Len()` для такого Trie — `0`, без паники.
+
 ## Acceptance Criteria
 
 - [ ] В `algorithms/trees` реализован классический несжатый Trie: переходы по отдельным Unicode rune, узел помечен флагом конца слова; сравнение rune точное, без нормализации и смены регистра.
