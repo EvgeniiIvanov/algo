@@ -150,3 +150,14 @@ func writeError(w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
+
+// writeServerError — ошибка не входа клиента, а инварианта сервера (500):
+// сценарий прошёл валидацию маршрута, значит отклонить его рендерер не мог.
+// Ошибка видима дважды: JSON-тело клиенту и запись в журнал — путь защитный,
+// известными входами недостижим. Ошибку кодирования игнорируем осознанно.
+func writeServerError(w http.ResponseWriter, err error) {
+	log.Printf("сценарий прошёл валидацию, но рендерер его отклонил: %v", err)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusInternalServerError)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}

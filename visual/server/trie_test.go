@@ -724,6 +724,64 @@ func TestTrieRunMissOnEmptyTrieSSE(t *testing.T) {
 	assertEdgeCheckNull(t, frames[2])
 }
 
+// TestTrieRunMissingEdgePrefixDeleteSSE — промахи prefix и delete по
+// отсутствующему ребру: кадр посещения несёт ожидаемую руну и состояние
+// missing, активный путь — только существующие узлы до родителя,
+// отсутствующий потомок не попадает в топологию и идентификаторы;
+// промежуточные кадры несут result: null, кадр результата — значение
+// и edgeCheck: null.
+func TestTrieRunMissingEdgePrefixDeleteSSE(t *testing.T) {
+	t.Run("prefix по отсутствующей первой руне", func(t *testing.T) {
+		// п=U+043F: у корня нет ребра «п».
+		frames := doRunTrieSSE(t, "insert кот\nprefix п")
+		assertTrieFrames(t, frames)
+		if len(frames) != 7 { // 1 старт + 4 (insert) + 1 проверка + 1 результат
+			t.Fatalf("кадров = %d, ожидается 7", len(frames))
+		}
+
+		// Промежуточный кадр проверки не несёт result.
+		assertResultNull(t, frames[5])
+		assertEdgeCheck(t, frames[5], "п", "missing")
+		// Родитель отсутствующего ребра — корень: путь только из корня.
+		assertActivePath(t, frames[5], "root")
+		// Отсутствующий потомок не попал в топологию и идентификаторы.
+		if ids := trieNodeIDsOf(t, frames[5]); ids[trieID("п")] {
+			t.Fatalf("кадр шага %d: отсутствующий потомок «п» присутствует в снимке", frames[5].Step)
+		}
+		assertTrieTopology(t, frames[5], "кот")
+
+		assertResult(t, frames[6], "prefix-not-found")
+		assertEdgeCheckNull(t, frames[6])
+		assertTrieTopology(t, frames[6], "кот")
+	})
+
+	t.Run("delete по отсутствующему ребру после совпавшего префикса", func(t *testing.T) {
+		// р=U+0440: после ребра «к» пути «крот» нет.
+		frames := doRunTrieSSE(t, "insert кот\ndelete крот")
+		assertTrieFrames(t, frames)
+		if len(frames) != 8 { // 1 старт + 4 (insert) + 2 проверки + 1 результат
+			t.Fatalf("кадров = %d, ожидается 8", len(frames))
+		}
+
+		// Первая руна «к» нашлась: промежуточный кадр без result.
+		assertEdgeCheck(t, frames[5], "к", "reused")
+		assertResultNull(t, frames[5])
+
+		// Вторая руна «р» отсутствует: активный путь — только до родителя,
+		// отсутствующий потомок не попал в топологию и идентификаторы.
+		assertEdgeCheck(t, frames[6], "р", "missing")
+		assertActivePath(t, frames[6], "root", "root/U+043A")
+		if ids := trieNodeIDsOf(t, frames[6]); ids[trieID("кор")] {
+			t.Fatalf("кадр шага %d: отсутствующий потомок «кор» присутствует в снимке", frames[6].Step)
+		}
+		assertTrieTopology(t, frames[6], "кот")
+
+		assertResult(t, frames[7], "not-deleted")
+		assertEdgeCheckNull(t, frames[7])
+		assertTrieTopology(t, frames[7], "кот")
+	})
+}
+
 // TestTrieRunNonBMPRuneSSE — символ вне BMP: edgeCheck.rune — JSON-строка
 // ровно из одной руны «😀», идентификатор узла — root/U+1F600 (полный hex-код
 // руны, не surrogate-половина U+D83D).
@@ -766,6 +824,34 @@ func TestTrieRunBlankLinesIgnoredSSE(t *testing.T) {
 		t.Fatalf("кадров = %d, ожидается 12", len(frames))
 	}
 	assertTrieTopology(t, frames[len(frames)-1])
+}
+
+// TestTrieRunScriptContentLimitSSE — граница размера сценария отсчитывается
+// по содержимому (непустые строки после обрезки пробелов): игнорируемое
+// заполнение пустыми и пробельными строками не ограничено даже за пределами
+// прежней raw-границы, а раздувание содержимого команд всё ещё отвергается.
+func TestTrieRunScriptContentLimitSSE(t *testing.T) {
+	t.Run("заполнение пустыми строками за прежней границей принимается", func(t *testing.T) {
+		// Сырой размер параметра больше границы (256 КБ), но весь избыток —
+		// игнорируемые пустые/пробельные строки: сценарий валиден.
+		script := "insert кот\n" + strings.Repeat("\n \t\n", 70000)
+		if len(script) <= maxTrieScriptContent {
+			t.Fatalf("тест утратил смысл: сценарий уложился в границу %d (raw %d)", maxTrieScriptContent, len(script))
+		}
+		frames := doRunTrieSSE(t, script)
+		assertTrieFrames(t, frames)
+		if len(frames) != 5 { // 1 старт + 3 посещения + 1 результат
+			t.Fatalf("кадров = %d, ожидается 5", len(frames))
+		}
+		assertTrieTopology(t, frames[len(frames)-1], "кот")
+	})
+
+	t.Run("раздувание содержимого команды отвергается до SSE", func(t *testing.T) {
+		// Пробелы внутри непустой строки — содержимое, не игнорируемое
+		// заполнение: суммарный размер команд сверх границы отвергается.
+		script := "insert " + strings.Repeat(" ", maxTrieScriptContent+1) + "кот"
+		assertRejectedBeforeSSE(t, doRunTrie(t, script), "сценарий слишком длинный", "пустые строки и обрамляющие пробелы не считаются")
+	})
 }
 
 // TestTrieRunNodeLimitSSE — лимит живых rune-узлов применяется к пиковому

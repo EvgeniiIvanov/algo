@@ -30,11 +30,14 @@ const (
 	maxTrieNodes    = 100
 )
 
-// maxTrieScriptRaw — верхняя граница размера параметра script: худший
-// легальный сценарий — 500 команд по ~100 рун до 4 байт UTF-8 каждая
-// (≈ 204 КБ с обвязкой команды); граница отсекает чрезмерно крупные запросы
-// до какого-либо разбора.
-const maxTrieScriptRaw = 1 << 18
+// maxTrieScriptContent — верхняя граница суммарного размера команд сценария:
+// сумма длин непустых строк после обрезки пробелов. Пустые строки и строки
+// из пробелов игнорируются и границу не двигают: худший легальный сценарий —
+// 500 команд по ~100 рун до 4 байт UTF-8 каждая (≈ 204 КБ с обвязкой команды).
+// Граница применяется на лету и отсекает раздувание содержимого команд;
+// полный размер параметра ограничивает транспорт (лимит строки запроса
+// net/http), а разбор игнорируемого заполнения линейный и дешёвый.
+const maxTrieScriptContent = 1 << 18
 
 // trieOpsByVerb — допустимые действия сценария. Значения — те же строки
 // команд, что общие для рендерера и фронтенда (render.TrieOp*).
@@ -58,9 +61,20 @@ func handleTrie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Кадры рендерятся до старта SSE (один прогон, без повторного): сценарий
+	// валидирован выше, так что ошибка рендерера здесь — защитная (инвариант
+	// сервера, не вход клиента), и она обрабатывается до начала потока —
+	// клиент получает 500 вместо частично начатого SSE.
+	frames, err := render.TrieFrames(commands)
+	if err != nil {
+		writeServerError(w, err)
+		return
+	}
+
 	runStreaming(w, r, func(emit func(frame.Frame)) {
-		// Сценарий валидирован до Run: TrieRun ошибки входа не даёт.
-		_ = render.TrieRun(commands, emit)
+		for _, f := range frames {
+			emit(f)
+		}
 	})
 }
 
@@ -68,8 +82,8 @@ func handleTrie(w http.ResponseWriter, r *http.Request) {
 // и строки только из пробелов игнорируются, каждая непустая строка — ровно
 // «действие W» из четырёх допустимых действий; аргумент — один непустой
 // Unicode-токен без пробелов из валидного UTF-8 длиной не более 100 rune
-// (Unicode scalar values, не UTF-8 байты). Пустой сценарий и превышение
-// лимита команд отвергаются.
+// (Unicode scalar values, не UTF-8 байты). Пустой сценарий, превышение
+// суммарного размера команд и лимита команд отвергаются.
 func parseTrieScript(r *http.Request) ([]render.TrieCommand, error) {
 	script, present := r.URL.Query()["script"]
 	if !present {
@@ -82,18 +96,23 @@ func parseTrieScript(r *http.Request) ([]render.TrieCommand, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, fmt.Errorf("сценарий пуст: пустые строки игнорируются, нужен хотя бы один непустой шаг (insert W, search W, prefix W или delete W)")
 	}
-	if len(raw) > maxTrieScriptRaw {
-		return nil, fmt.Errorf("сценарий слишком длинный: разрешено не более %d символов параметра; сократите сценарий", maxTrieScriptRaw)
-	}
 
 	lines := strings.Split(raw, "\n")
 	commands := make([]render.TrieCommand, 0, len(lines))
+	content := 0 // суммарный размер команд: непустые строки после обрезки пробелов
 	for i, line := range lines {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) == 0 {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue // пустые строки и строки из пробелов игнорируются
 		}
-		cmd, err := parseTrieLine(fields, i+1)
+		content += len(trimmed)
+		// Лимит размера применяется на лету: игнорируемое заполнение (пустые
+		// строки, обрамляющие пробелы) границу не двигает, а перегрузка
+		// содержимым не успевает доехать до разбора аргументов.
+		if content > maxTrieScriptContent {
+			return nil, fmt.Errorf("сценарий слишком длинный: суммарно команды занимают больше %d символов (пустые строки и обрамляющие пробелы не считаются); превышение видно на строке %d", maxTrieScriptContent, i+1)
+		}
+		cmd, err := parseTrieLine(strings.Fields(trimmed), i+1)
 		if err != nil {
 			return nil, err
 		}
