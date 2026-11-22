@@ -22,6 +22,10 @@ func readSSEFrames(t *testing.T, resp *httptest.ResponseRecorder) []frame.Frame 
 
 	var frames []frame.Frame
 	scanner := bufio.NewScanner(bytes.NewReader(resp.Body.Bytes()))
+	// Кадры самодостаточных снимков больших структур (например, Trie на
+	// 100 rune-узлов с длинными идентификаторами-путями) длиннее дефолтного
+	// буфера Scanner — поднимаем потолок.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
