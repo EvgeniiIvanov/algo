@@ -8,6 +8,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -61,19 +62,13 @@ func handleTrie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Кадры рендерятся до старта SSE (один прогон, без повторного): сценарий
-	// валидирован выше, так что ошибка рендерера здесь — защитная (инвариант
-	// сервера, не вход клиента), и она обрабатывается до начала потока —
-	// клиент получает 500 вместо частично начатого SSE.
-	frames, err := render.TrieFrames(commands)
-	if err != nil {
-		writeServerError(w, err)
-		return
-	}
-
 	runStreaming(w, r, func(emit func(frame.Frame)) {
-		for _, f := range frames {
-			emit(f)
+		// Preflight-валидация маршрута уже выполнялась до старта SSE, так что
+		// ошибка рендерера здесь — защитный инвариантный fallback: известными
+		// входами недостижима. Поток уже начат — статус не поменять, скрыть
+		// ошибку нельзя, она записывается в журнал.
+		if err := render.TrieRun(commands, emit); err != nil {
+			log.Printf("сценарий прошёл валидацию, но рендерер его отклонил: %v", err)
 		}
 	})
 }
