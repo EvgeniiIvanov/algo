@@ -1017,29 +1017,28 @@ func TestTrieRunLengthBoundarySSE(t *testing.T) {
 	t.Run("101 руна отвергается до SSE", func(t *testing.T) {
 		tooLong := strings.Repeat("😀", 101)
 		resp := doRunTrie(t, "search "+tooLong)
-		assertRejectedBeforeSSE(t, resp, "длиннее 100 rune")
-		// Тело ошибки — JSON без эха полного токена: большой токен не должен
-		// раздувать диагностику ни полностью, ни усечённо. Небольшой
-		// стабильный предел размера тела (согласован с текущим коротким
-		// сообщением) не пропустит такую регрессию; это фиксация принятого
-		// поведения отказа, не новый проволочный контракт.
-		var body map[string]string
-		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-			t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
-		}
+		body := assertRejectedBeforeSSE(t, resp, "длиннее 100 rune")
+		// Отсутствие эха проверяется по разобранному полю error: в тексте
+		// нет даже одной исходной руны «😀» — это ловит и полный, и
+		// усечённый echo (размером тела одно от другого не отличить).
+		// Ограничение тела ≤256 байт — предел именно этого тестового
+		// отказа, согласован с текущим коротким сообщением и не является
+		// глобальным проволочным контрактом.
 		const maxErrorBody = 256 // байт
 		if got := len(resp.Body.Bytes()); got > maxErrorBody {
 			t.Fatalf("тело ошибки %d байт — больше предела %d: %s", got, maxErrorBody, resp.Body.String())
 		}
-		if strings.Contains(resp.Body.String(), tooLong) {
-			t.Fatalf("тело ошибки эхоит полный токен: %s", resp.Body.String())
+		if strings.Contains(body["error"], "😀") {
+			t.Fatalf("поле error эхоит исходную руну «😀»: %q", body["error"])
 		}
 	})
 }
 
 // assertRejectedBeforeSSE — ответ 400 с JSON-ошибкой, поток не начат;
-// тело ошибки содержит все перечисленные подстроки.
-func assertRejectedBeforeSSE(t *testing.T, resp *httptest.ResponseRecorder, want ...string) {
+// тело ошибки содержит все перечисленные подстроки. Возвращает разобранный
+// JSON-объект тела: вызовам, не нуждающимся в полях, результат можно
+// игнорировать.
+func assertRejectedBeforeSSE(t *testing.T, resp *httptest.ResponseRecorder, want ...string) map[string]string {
 	t.Helper()
 
 	if resp.Code != http.StatusBadRequest {
@@ -1057,6 +1056,7 @@ func assertRejectedBeforeSSE(t *testing.T, resp *httptest.ResponseRecorder, want
 			t.Fatalf("тело ошибки = %s, ожидается упоминание %q", got["error"], s)
 		}
 	}
+	return got
 }
 
 // TestTrieRunValidation — синтаксис, аргументы, невалидный UTF-8 и лимиты
