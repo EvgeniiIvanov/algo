@@ -513,13 +513,14 @@ func TestTrieRunScenarioSSE(t *testing.T) {
 	assertEdgeCheckNull(t, frames[12])
 
 	// Промах поиска «крот» (к-р-о-т): вторая руна «р» отсутствует — событие
-	// проверки с состоянием missing; отсутствующий потомок не в топологии
-	// и не имеет идентификатора, активный путь — только до родителя (к).
+	// проверки с состоянием missing; отсутствующий потомок пути «к-р» не в
+	// топологии и не имеет идентификатора, активный путь — только до
+	// родителя (к).
 	assertEdgeCheck(t, frames[13], "к", "reused")
 	assertEdgeCheck(t, frames[14], "р", "missing")
 	assertActivePath(t, frames[14], idRoot, idК)
-	if ids := trieNodeIDsOf(t, frames[14]); ids[trieID("кор")] {
-		t.Fatalf("кадр шага %d: отсутствующий потомок «кор» присутствует в снимке", frames[14].Step)
+	if ids := trieNodeIDsOf(t, frames[14]); ids[trieID("кр")] {
+		t.Fatalf("кадр шага %d: отсутствующий потомок пути «к-р» присутствует в снимке", frames[14].Step)
 	}
 	assertTrieTopology(t, frames[14], "кот", "код")
 	assertResult(t, frames[15], "not-found")
@@ -756,7 +757,7 @@ func TestTrieRunMissingEdgePrefixDeleteSSE(t *testing.T) {
 	})
 
 	t.Run("delete по отсутствующему ребру после совпавшего префикса", func(t *testing.T) {
-		// р=U+0440: после ребра «к» пути «крот» нет.
+		// р=U+0440: у узла пути «к» нет ребра «р» — путь «к-р» обрывается.
 		frames := doRunTrieSSE(t, "insert кот\ndelete крот")
 		assertTrieFrames(t, frames)
 		if len(frames) != 8 { // 1 старт + 4 (insert) + 2 проверки + 1 результат
@@ -768,11 +769,12 @@ func TestTrieRunMissingEdgePrefixDeleteSSE(t *testing.T) {
 		assertResultNull(t, frames[5])
 
 		// Вторая руна «р» отсутствует: активный путь — только до родителя,
-		// отсутствующий потомок не попал в топологию и идентификаторы.
+		// отсутствующий потомок пути «к-р» не попал в топологию
+		// и идентификаторы.
 		assertEdgeCheck(t, frames[6], "р", "missing")
 		assertActivePath(t, frames[6], "root", "root/U+043A")
-		if ids := trieNodeIDsOf(t, frames[6]); ids[trieID("кор")] {
-			t.Fatalf("кадр шага %d: отсутствующий потомок «кор» присутствует в снимке", frames[6].Step)
+		if ids := trieNodeIDsOf(t, frames[6]); ids[trieID("кр")] {
+			t.Fatalf("кадр шага %d: отсутствующий потомок пути «к-р» присутствует в снимке", frames[6].Step)
 		}
 		assertTrieTopology(t, frames[6], "кот")
 
@@ -826,31 +828,44 @@ func TestTrieRunBlankLinesIgnoredSSE(t *testing.T) {
 	assertTrieTopology(t, frames[len(frames)-1])
 }
 
-// TestTrieRunScriptContentLimitSSE — граница размера сценария отсчитывается
-// по содержимому (непустые строки после обрезки пробелов): игнорируемое
-// заполнение пустыми и пробельными строками не ограничено даже за пределами
-// прежней raw-границы, а раздувание содержимого команд всё ещё отвергается.
-func TestTrieRunScriptContentLimitSSE(t *testing.T) {
-	t.Run("заполнение пустыми строками за прежней границей принимается", func(t *testing.T) {
-		// Сырой размер параметра больше границы (256 КБ), но весь избыток —
-		// игнорируемые пустые/пробельные строки: сценарий валиден.
-		script := "insert кот\n" + strings.Repeat("\n \t\n", 70000)
-		if len(script) <= maxTrieScriptContent {
-			t.Fatalf("тест утратил смысл: сценарий уложился в границу %d (raw %d)", maxTrieScriptContent, len(script))
+// TestTrieRunSeparatorPaddingAcceptedSSE — пробелы-разделители между
+// действием и аргументом не ограничивают сценарий отдельным лимитом: парсер
+// нормализует произвольный whitespace (strings.Fields), и синтаксически
+// корректное сочетание команд и аргументов не отвергается из-за размера
+// разделителей; пустые строки и строки из пробелов по-прежнему игнорируются.
+func TestTrieRunSeparatorPaddingAcceptedSSE(t *testing.T) {
+	// Прежняя content-граница (256 КБ), удалённая из кода: разделители в
+	// каждом сценарии теста заведомо больше неё.
+	const formerCap = 1 << 18
+	padding := strings.Repeat(" ", formerCap+1)
+
+	t.Run("разделители больше прежней границы принимаются", func(t *testing.T) {
+		// Две валидные команды, каждая с разделителем сверх прежней границы.
+		script := "insert" + padding + "кот\ndelete" + padding + "кот"
+		if len(script) <= 2*formerCap {
+			t.Fatalf("тест утратил смысл: сценарий уложился в прежнюю границу %d (raw %d)", 2*formerCap, len(script))
 		}
 		frames := doRunTrieSSE(t, script)
 		assertTrieFrames(t, frames)
-		if len(frames) != 5 { // 1 старт + 3 посещения + 1 результат
-			t.Fatalf("кадров = %d, ожидается 5", len(frames))
+		if len(frames) != 12 { // как «insert кот\ndelete кот»
+			t.Fatalf("кадров = %d, ожидается 12", len(frames))
 		}
-		assertTrieTopology(t, frames[len(frames)-1], "кот")
+		last := frames[len(frames)-1]
+		assertResult(t, last, "deleted")
+		assertTrieTopology(t, last) // после delete кот дерево пусто
 	})
 
-	t.Run("раздувание содержимого команды отвергается до SSE", func(t *testing.T) {
-		// Пробелы внутри непустой строки — содержимое, не игнорируемое
-		// заполнение: суммарный размер команд сверх границы отвергается.
-		script := "insert " + strings.Repeat(" ", maxTrieScriptContent+1) + "кот"
-		assertRejectedBeforeSSE(t, doRunTrie(t, script), "сценарий слишком длинный", "пустые строки и обрамляющие пробелы не считаются")
+	t.Run("пустые и пробельные строки рядом с разделителями игнорируются", func(t *testing.T) {
+		// Совокупное игнорируемое заполнение тоже сверх прежней границы.
+		script := "insert" + padding + "кот\n" + strings.Repeat("\n \t\n", 70000) + "delete" + padding + "кот"
+		frames := doRunTrieSSE(t, script)
+		assertTrieFrames(t, frames)
+		if len(frames) != 12 { // как «insert кот\ndelete кот»
+			t.Fatalf("кадров = %d, ожидается 12", len(frames))
+		}
+		last := frames[len(frames)-1]
+		assertResult(t, last, "deleted")
+		assertTrieTopology(t, last)
 	})
 }
 
