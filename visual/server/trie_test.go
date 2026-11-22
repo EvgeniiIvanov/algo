@@ -1018,18 +1018,22 @@ func TestTrieRunLengthBoundarySSE(t *testing.T) {
 		tooLong := strings.Repeat("😀", 101)
 		resp := doRunTrie(t, "search "+tooLong)
 		body := assertRejectedBeforeSSE(t, resp, "длиннее 100 rune")
-		// Отсутствие эха проверяется по разобранному полю error: в тексте
-		// нет даже одной исходной руны «😀» — это ловит и полный, и
-		// усечённый echo (размером тела одно от другого не отличить).
-		// Ограничение тела ≤256 байт — предел именно этого тестового
-		// отказа, согласован с текущим коротким сообщением и не является
-		// глобальным проволочным контрактом.
+		// Отсутствие эха проверяется по разобранному полю error двумя
+		// проверками: в тексте нет ни одной исходной руны «😀» (ловит полный
+		// echo) и нет replacement rune U+FFFD, в которую превращается руна,
+		// усечённая посреди UTF-8 (ловит echo после повреждённого
+		// byte-level truncation). Ограничение тела ≤256 байт — локальная
+		// граница именно этого теста, согласованная с текущим коротким
+		// сообщением, и не является глобальным проволочным контрактом.
 		const maxErrorBody = 256 // байт
 		if got := len(resp.Body.Bytes()); got > maxErrorBody {
 			t.Fatalf("тело ошибки %d байт — больше предела %d: %s", got, maxErrorBody, resp.Body.String())
 		}
 		if strings.Contains(body["error"], "😀") {
 			t.Fatalf("поле error эхоит исходную руну «😀»: %q", body["error"])
+		}
+		if strings.Contains(body["error"], "\uFFFD") {
+			t.Fatalf("поле error содержит replacement rune U+FFFD: %q", body["error"])
 		}
 	})
 }
