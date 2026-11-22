@@ -1018,9 +1018,19 @@ func TestTrieRunLengthBoundarySSE(t *testing.T) {
 		tooLong := strings.Repeat("😀", 101)
 		resp := doRunTrie(t, "search "+tooLong)
 		assertRejectedBeforeSSE(t, resp, "длиннее 100 rune")
-		// Полный токен не эхоится в JSON-ошибке: большой токен не должен
-		// раздувать диагностику. Фиксирует принятое поведение отказа,
-		// не новый проволочный контракт.
+		// Тело ошибки — JSON без эха полного токена: большой токен не должен
+		// раздувать диагностику ни полностью, ни усечённо. Небольшой
+		// стабильный предел размера тела (согласован с текущим коротким
+		// сообщением) не пропустит такую регрессию; это фиксация принятого
+		// поведения отказа, не новый проволочный контракт.
+		var body map[string]string
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("тело ошибки не JSON: %v\n%s", err, resp.Body.String())
+		}
+		const maxErrorBody = 256 // байт
+		if got := len(resp.Body.Bytes()); got > maxErrorBody {
+			t.Fatalf("тело ошибки %d байт — больше предела %d: %s", got, maxErrorBody, resp.Body.String())
+		}
 		if strings.Contains(resp.Body.String(), tooLong) {
 			t.Fatalf("тело ошибки эхоит полный токен: %s", resp.Body.String())
 		}
