@@ -214,12 +214,14 @@ func parseTrieLine(verb, word string, extra bool, line int) (render.TrieCommand,
 	if !utf8.ValidString(word) {
 		return render.TrieCommand{}, fmt.Errorf("аргумент команды на строке %d — невалидный UTF-8: аргумент — последовательность Unicode scalar values", line)
 	}
-	// Явно чрезмерный токен отсекается верхней байтовой границей для 100 rune
-	// (100×utf8.UTFMax): буфера []rune нет, подсчёт ведёт utf8.RuneCountInString
-	// без аллокации — точная длина нужна только в сообщении об ошибке.
+	// Длина — одна проверка, две ветки: токен из валидного UTF-8 длиннее
+	// 100×utf8.UTFMax байт заведомо длиннее 100 rune и отсекается сразу,
+	// без подсчёта и без полного эха токена — большой токен не должен
+	// раздувать диагностику; в пределах границы руны считает
+	// utf8.RuneCountInString без аллокации, а эхо в ошибке ограничено
+	// 400 байтами.
 	if len(word) > maxTrieRunes*utf8.UTFMax {
-		return render.TrieCommand{}, fmt.Errorf("аргумент %q на строке %d длиннее %d rune (Unicode scalar values): длина %d",
-			word, line, maxTrieRunes, utf8.RuneCountInString(word))
+		return render.TrieCommand{}, fmt.Errorf("аргумент команды на строке %d длиннее %d rune (Unicode scalar values): сократите аргумент", line, maxTrieRunes)
 	}
 	if n := utf8.RuneCountInString(word); n > maxTrieRunes {
 		return render.TrieCommand{}, fmt.Errorf("аргумент %q на строке %d длиннее %d rune (Unicode scalar values): длина %d",
