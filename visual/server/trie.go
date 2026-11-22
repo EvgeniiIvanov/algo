@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/EvgeniiIvanov/algo/algorithms/trees"
@@ -101,11 +102,13 @@ func parseTrieScript(r *http.Request) ([]render.TrieCommand, error) {
 			rest = ""
 		}
 		lineNo++
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
+		// До трёх полей без массива пропорционально числу токенов: строка
+		// с сотнями тысяч токенов не порождает срез «поле на токен».
+		verb, word, extra := trieSplit3(line)
+		if verb == "" {
 			continue // пустые строки и строки из пробелов игнорируются
 		}
-		cmd, err := parseTrieLine(fields, lineNo)
+		cmd, err := parseTrieLine(verb, word, extra, lineNo)
 		if err != nil {
 			return nil, err
 		}
@@ -121,30 +124,106 @@ func parseTrieScript(r *http.Request) ([]render.TrieCommand, error) {
 	return commands, nil
 }
 
-// parseTrieLine — одна непустая строка сценария: «insert/search/prefix/
-// delete W». Информативные ошибки ведут номер строки, демонстрирующий первое
-// отклонение. Пустой аргумент сюда не доходит: strings.Fields рвёт строку
-// по пробелам, так что аргумент — всегда непустой токен.
-func parseTrieLine(fields []string, line int) (render.TrieCommand, error) {
-	verb := fields[0]
+// trieASCIISpace — ASCII whitespace по таблице strings.Fields ('\t', '\n',
+// '\v', '\f', '\r', ' '): для байтов < utf8.RuneSelf проверка без декодирования.
+var trieASCIISpace = [utf8.RuneSelf]bool{
+	'\t': true, '\n': true, '\v': true, '\f': true, '\r': true, ' ': true,
+}
+
+// trieSpaceSize — whitespace ли байт на позиции i и сколько байт он занимает:
+// ASCII — по таблице strings.Fields, прочее — по unicode.IsSpace после
+// декодирования руны (в том числе CRLF и Unicode whitespace вроде NBSP).
+// Невалидные байты полем не рвут — как в strings.Fields (RuneError не
+// whitespace); их ловит utf8.ValidString на аргументе.
+func trieSpaceSize(line string, i int) (space bool, size int) {
+	c := line[i]
+	if c < utf8.RuneSelf {
+		return trieASCIISpace[c], 1
+	}
+	r, n := utf8.DecodeRuneInString(line[i:])
+	return unicode.IsSpace(r), n
+}
+
+// trieSkipSpace — индекс первого не-whitespace байта с позиции i.
+func trieSkipSpace(line string, i int) int {
+	for i < len(line) {
+		space, size := trieSpaceSize(line, i)
+		if !space {
+			return i
+		}
+		i += size
+	}
+	return i
+}
+
+// trieFieldEnd — индекс конца поля, начавшегося с позиции i (первый
+// whitespace-байт или конец строки).
+func trieFieldEnd(line string, i int) int {
+	for i < len(line) {
+		space, size := trieSpaceSize(line, i)
+		if space {
+			return i
+		}
+		i += size
+	}
+	return i
+}
+
+// trieSplit3 — распознаёт первые три whitespace-разделённых поля строки
+// без массива пропорционально числу полей (в отличие от strings.Fields,
+// строящего срез «поле на токен»): verb, аргумент и только факт лишних
+// полей — сканирование останавливается на первом байте третьего поля.
+// Семантика whitespace — как у strings.Fields (см. trieSpaceSize). Пустая
+// строка или строка из пробелов даёт пустой verb.
+func trieSplit3(line string) (verb, word string, extra bool) {
+	i := trieSkipSpace(line, 0)
+	if i == len(line) {
+		return "", "", false
+	}
+	j := trieFieldEnd(line, i)
+	verb = line[i:j]
+
+	i = trieSkipSpace(line, j)
+	if i == len(line) {
+		return verb, "", false
+	}
+	j = trieFieldEnd(line, i)
+	word = line[i:j]
+
+	// Лишние поля: достаточно первого байта третьего поля, дальше не сканируем.
+	return verb, word, trieSkipSpace(line, j) < len(line)
+}
+
+// parseTrieLine — одна непустая строка сценария, разобранная trieSplit3
+// на действие, аргумент и факт лишних полей: «insert/search/prefix/delete W».
+// Информативные ошибки ведут номер строки, демонстрирующий первое отклонение.
+// Порядок диагностик: сначала грамматика (вид, отсутствие и лишние поля),
+// затем валидный UTF-8 и длина аргумента.
+func parseTrieLine(verb, word string, extra bool, line int) (render.TrieCommand, error) {
 	op, ok := trieOpsByVerb[verb]
 	if !ok {
 		return render.TrieCommand{}, fmt.Errorf("неизвестная команда %q на строке %d: ожидается insert, search, prefix или delete", verb, line)
 	}
-	if len(fields) == 1 {
+	if word == "" {
 		return render.TrieCommand{}, fmt.Errorf("команда %q на строке %d: не хватает аргумента — ожидается «%s W», например %s кот", verb, line, verb, verb)
 	}
-	if len(fields) > 2 {
+	if extra {
 		return render.TrieCommand{}, fmt.Errorf("команда на строке %d: лишние аргументы — ожидается действие и один непустой аргумент, например «%s кот»", line, verb)
 	}
-	word := fields[1]
+	// Валидный UTF-8 проверяется до подсчёта рун.
 	if !utf8.ValidString(word) {
 		return render.TrieCommand{}, fmt.Errorf("аргумент команды на строке %d — невалидный UTF-8: аргумент — последовательность Unicode scalar values", line)
 	}
-	runes := []rune(word)
-	if len(runes) > maxTrieRunes {
+	// Явно чрезмерный токен отсекается верхней байтовой границей для 100 rune
+	// (100×utf8.UTFMax): буфера []rune нет, подсчёт ведёт utf8.RuneCountInString
+	// без аллокации — точная длина нужна только в сообщении об ошибке.
+	if len(word) > maxTrieRunes*utf8.UTFMax {
 		return render.TrieCommand{}, fmt.Errorf("аргумент %q на строке %d длиннее %d rune (Unicode scalar values): длина %d",
-			word, line, maxTrieRunes, len(runes))
+			word, line, maxTrieRunes, utf8.RuneCountInString(word))
+	}
+	if n := utf8.RuneCountInString(word); n > maxTrieRunes {
+		return render.TrieCommand{}, fmt.Errorf("аргумент %q на строке %d длиннее %d rune (Unicode scalar values): длина %d",
+			word, line, maxTrieRunes, n)
 	}
 	return render.TrieCommand{Op: op, Word: word}, nil
 }

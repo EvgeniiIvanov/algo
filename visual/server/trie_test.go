@@ -14,6 +14,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -830,42 +831,57 @@ func TestTrieRunBlankLinesIgnoredSSE(t *testing.T) {
 
 // TestTrieRunSeparatorPaddingAcceptedSSE — пробелы-разделители между
 // действием и аргументом не ограничивают сценарий отдельным лимитом: парсер
-// нормализует произвольный whitespace (strings.Fields), и синтаксически
+// нормализует произвольный whitespace (trieSplit3), и синтаксически
 // корректное сочетание команд и аргументов не отвергается из-за размера
 // разделителей; пустые строки и строки из пробелов по-прежнему игнорируются.
+// Сценарии не комбинируют оба раздувания в одном запросе и укладываются
+// URL-кодированными в стандартный лимит строки запроса net/http — иначе
+// настоящий транспорт отверг бы их до обработчика.
 func TestTrieRunSeparatorPaddingAcceptedSSE(t *testing.T) {
-	// Прежняя content-граница (256 КБ), удалённая из кода: разделители в
-	// каждом сценарии теста заведомо больше неё.
+	// Прежняя content-граница (256 КБ), удалённая из кода: заполнение в
+	// каждом сценарии заведомо больше неё.
 	const formerCap = 1 << 18
-	padding := strings.Repeat(" ", formerCap+1)
+	// Стандартный лимит строки запроса net/http (DefaultMaxHeaderBytes).
+	const requestLineLimit = 1 << 20
 
-	t.Run("разделители больше прежней границы принимаются", func(t *testing.T) {
-		// Две валидные команды, каждая с разделителем сверх прежней границы.
-		script := "insert" + padding + "кот\ndelete" + padding + "кот"
-		if len(script) <= 2*formerCap {
-			t.Fatalf("тест утратил смысл: сценарий уложился в прежнюю границу %d (raw %d)", 2*formerCap, len(script))
+	// assertRequestLineFits — URL-кодированный запрос (как его строит
+	// doRunTrie) умещается в строку запроса с запасом.
+	assertRequestLineFits := func(t *testing.T, script string) {
+		t.Helper()
+		encoded := url.Values{"script": {script}}.Encode()
+		got := len("GET /api/run/trie?" + encoded + " HTTP/1.1\r\n")
+		if got >= requestLineLimit {
+			t.Fatalf("URL-кодированный запрос %d байт — вне лимита строки запроса %d", got, requestLineLimit)
 		}
+	}
+
+	t.Run("валидная команда с длинным разделителем", func(t *testing.T) {
+		// Один валидный шаг, разделитель между действием и аргументом
+		// больше прежней границы.
+		script := "insert" + strings.Repeat(" ", formerCap+1) + "кот"
+		assertRequestLineFits(t, script)
 		frames := doRunTrieSSE(t, script)
 		assertTrieFrames(t, frames)
-		if len(frames) != 12 { // как «insert кот\ndelete кот»
-			t.Fatalf("кадров = %d, ожидается 12", len(frames))
+		if len(frames) != 5 { // 1 старт + 3 посещения + 1 результат
+			t.Fatalf("кадров = %d, ожидается 5", len(frames))
 		}
 		last := frames[len(frames)-1]
-		assertResult(t, last, "deleted")
-		assertTrieTopology(t, last) // после delete кот дерево пусто
+		assertResult(t, last, "insert")
+		assertTrieTopology(t, last, "кот")
 	})
 
-	t.Run("пустые и пробельные строки рядом с разделителями игнорируются", func(t *testing.T) {
-		// Совокупное игнорируемое заполнение тоже сверх прежней границы.
-		script := "insert" + padding + "кот\n" + strings.Repeat("\n \t\n", 70000) + "delete" + padding + "кот"
+	t.Run("игнорируемые пустые и пробельные строки", func(t *testing.T) {
+		// ~280 КБ raw пустых/пробельных строк поверх одной валидной команды.
+		script := "insert кот\n" + strings.Repeat("\n \t\n", 70000)
+		assertRequestLineFits(t, script)
 		frames := doRunTrieSSE(t, script)
 		assertTrieFrames(t, frames)
-		if len(frames) != 12 { // как «insert кот\ndelete кот»
-			t.Fatalf("кадров = %d, ожидается 12", len(frames))
+		if len(frames) != 5 { // 1 старт + 3 посещения + 1 результат
+			t.Fatalf("кадров = %d, ожидается 5", len(frames))
 		}
 		last := frames[len(frames)-1]
-		assertResult(t, last, "deleted")
-		assertTrieTopology(t, last)
+		assertResult(t, last, "insert")
+		assertTrieTopology(t, last, "кот")
 	})
 }
 
@@ -994,6 +1010,14 @@ func TestTrieRunValidation(t *testing.T) {
 		// Сыро закодированный невалидный байт %FF доезжает байтом 0xFF:
 		// аргумент — не последовательность Unicode scalar values.
 		assertRejectedBeforeSSE(t, doRunTrieRaw(t, "script=insert%20%FF"), "невалидный UTF-8")
+	})
+
+	t.Run("сотни тысяч токенов на строке — лишние аргументы до SSE", func(t *testing.T) {
+		// Строка с сотнями тысяч односимвольных токенов: третье поле
+		// распознаётся без массива «поле на токен», сценарий отвергается
+		// до SSE по грамматике строки (лишние аргументы).
+		script := "insert кот " + strings.Repeat("x ", 250000)
+		assertRejectedBeforeSSE(t, doRunTrie(t, script), "лишние аргументы", "на строке 1")
 	})
 
 	t.Run("параметр script задан дважды", func(t *testing.T) {
