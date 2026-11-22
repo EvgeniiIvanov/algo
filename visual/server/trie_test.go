@@ -1015,9 +1015,15 @@ func TestTrieRunLengthBoundarySSE(t *testing.T) {
 	})
 
 	t.Run("101 руна отвергается до SSE", func(t *testing.T) {
-		script := "search " + strings.Repeat("😀", 101)
-		resp := doRunTrie(t, script)
+		tooLong := strings.Repeat("😀", 101)
+		resp := doRunTrie(t, "search "+tooLong)
 		assertRejectedBeforeSSE(t, resp, "длиннее 100 rune")
+		// Полный токен не эхоится в JSON-ошибке: большой токен не должен
+		// раздувать диагностику. Фиксирует принятое поведение отказа,
+		// не новый проволочный контракт.
+		if strings.Contains(resp.Body.String(), tooLong) {
+			t.Fatalf("тело ошибки эхоит полный токен: %s", resp.Body.String())
+		}
 	})
 }
 
