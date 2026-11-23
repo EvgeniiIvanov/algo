@@ -55,6 +55,21 @@ describe("parseHashTableScenario — удачный разбор", () => {
     // Удаление отсутствующего ключа не растит таблицу и не проверяется по лимиту.
     expect(() => parseHashTableScenario("put 1 10\ndelete 99\ndelete 99")).not.toThrow();
   });
+
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель между командой
+  // и ключом/значением: возвращение Go-токенизатора склеило бы
+  // «put\uFEFF1\uFEFF10» в один токен и разбор упал бы на неизвестной
+  // операции «put\uFEFF1\uFEFF10».
+  it("BOM U+FEFF отделяет команду и аргументы — прежняя JS-токенизация", () => {
+    expect(parseHashTableScenario("put\uFEFF1\uFEFF10")).toEqual([
+      { kind: "put", key: 1, value: 10 },
+    ]);
+    expect(parseHashTableScenario("\uFEFFget 9")).toEqual([
+      { kind: "get", key: 9, value: 0 },
+    ]);
+  });
 });
 
 describe("parseHashTableScenario — ошибки ввода до Run", () => {
@@ -109,19 +124,5 @@ describe("parseHashTableScenario — ошибки ввода до Run", () => {
     expect(() => parseHashTableScenario(script(MAX_HASH_TABLE_OPS + 1))).toThrow(
       new RegExp(`слишком длинный.*максимум ${MAX_HASH_TABLE_OPS}`),
     );
-  });
-
-  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
-  // прежние визуализации работают без изменения поведения (критерий
-  // тикета 42). BOM U+FEFF — JS-пробельный разделитель между командой
-  // и ключом/значением: возвращение Go-токенизатора склеило бы
-  // «put\uFEFF1\uFEFF10» в один токен и put отверг бы по числу аргументов.
-  it("BOM U+FEFF отделяет команду и аргументы — прежняя JS-токенизация", () => {
-    expect(parseHashTableScenario("put\uFEFF1\uFEFF10")).toEqual([
-      { kind: "put", key: 1, value: 10 },
-    ]);
-    expect(parseHashTableScenario("\uFEFFget 9")).toEqual([
-      { kind: "get", key: 9, value: 0 },
-    ]);
   });
 });
