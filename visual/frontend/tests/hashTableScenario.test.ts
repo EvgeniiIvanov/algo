@@ -110,4 +110,18 @@ describe("parseHashTableScenario — ошибки ввода до Run", () => {
       new RegExp(`слишком длинный.*максимум ${MAX_HASH_TABLE_OPS}`),
     );
   });
+
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель между командой
+  // и ключом/значением: возвращение Go-токенизатора склеило бы
+  // «put\uFEFF1\uFEFF10» в один токен и put отверг бы по числу аргументов.
+  it("BOM U+FEFF отделяет команду и аргументы — прежняя JS-токенизация", () => {
+    expect(parseHashTableScenario("put\uFEFF1\uFEFF10")).toEqual([
+      { kind: "put", key: 1, value: 10 },
+    ]);
+    expect(parseHashTableScenario("\uFEFFget 9")).toEqual([
+      { kind: "get", key: 9, value: 0 },
+    ]);
+  });
 });

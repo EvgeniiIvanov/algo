@@ -22,6 +22,20 @@ describe("parseLinkedListScenario — удачный разбор", () => {
     ]);
   });
 
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель: возвращение
+  // Go-токенизатора приклеило бы его к токену («\uFEFFprepend» —
+  // неизвестная операция) и тест бы упал.
+  it("BOM U+FEFF отделяет команду и аргумент — прежняя JS-токенизация", () => {
+    expect(parseLinkedListScenario("\uFEFFprepend 4")).toEqual([
+      { kind: "prepend", index: 0, value: 4 },
+    ]);
+    expect(parseLinkedListScenario("append\uFEFF7")).toEqual([
+      { kind: "append", index: 0, value: 7 },
+    ]);
+  });
+
   it("поиск: отсутствующее значение валидно — промах легален, не ошибка", () => {
     expect(() => parseLinkedListScenario("prepend 4\nfind 9")).not.toThrow();
   });

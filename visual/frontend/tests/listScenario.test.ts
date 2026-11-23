@@ -89,4 +89,18 @@ describe("parseListScenario", () => {
     const script = Array.from({ length: 501 }, () => "remove 0").join("\n");
     expect(() => parseListScenario(script)).toThrow(/слишком длинный/);
   });
+
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель между командой
+  // и индексом: возвращение Go-токенизатора склеило бы «insert\uFEFF0»
+  // и разбор упал бы на целом.
+  it("BOM U+FEFF отделяет команду и аргументы — прежняя JS-токенизация", () => {
+    expect(parseListScenario("insert\uFEFF0 5")).toEqual([
+      { isInsert: true, index: 0, value: 5 },
+    ]);
+    expect(parseListScenario("\uFEFFinsert 0\uFEFF7")).toEqual([
+      { isInsert: true, index: 0, value: 7 },
+    ]);
+  });
 });

@@ -165,6 +165,16 @@ describe("parseBSTScenario — лимит живых узлов", () => {
     ].join("\n");
     expect(() => parseBSTScenario(script)).not.toThrow();
   });
+
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель между командой
+  // и ключом: возвращение Go-токенизатора склеило бы «insert\uFEFF5»
+  // в один токен и разбор упал бы на целом.
+  it("BOM U+FEFF отделяет команду и ключ — прежняя JS-токенизация", () => {
+    expect(parseBSTScenario("insert\uFEFF5")).toEqual([{ kind: "insert", key: 5 }]);
+    expect(parseBSTScenario("\uFEFFsearch -4")).toEqual([{ kind: "search", key: -4 }]);
+  });
 });
 
 describe("buildBSTRunURL", () => {
