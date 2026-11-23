@@ -7,17 +7,20 @@ export const KIND_STRUCTURE = "structure" as const;
 export const KIND_HASH_TABLE = "hash-table" as const;
 export const KIND_SORT = "sort" as const;
 export const KIND_TREE = "tree" as const;
+export const KIND_TRIE = "trie" as const;
 export type ArrayKind = typeof KIND_ARRAY;
 export type StructureKind = typeof KIND_STRUCTURE;
 export type HashTableKind = typeof KIND_HASH_TABLE;
 export type SortKind = typeof KIND_SORT;
 export type TreeKind = typeof KIND_TREE;
+export type TrieKind = typeof KIND_TRIE;
 export type Kind =
   | ArrayKind
   | StructureKind
   | HashTableKind
   | SortKind
   | TreeKind
+  | TrieKind
   | (string & { readonly __brand?: unique symbol });
 
 /** Снимок массива — `Data` кадра для бинарного поиска. */
@@ -266,6 +269,69 @@ export interface TreeVisit {
   position: number;
 }
 
+/**
+ * Проверка ребра по руне в кадре посещения/проверки снимка Trie —
+ * зеркало render.TrieEdgeCheck. Rune — JSON-строка ровно из одной руны
+ * (Unicode scalar value, не числовой код); State — состояние ребра
+ * библиотечного события: "reused" / "created" / "missing".
+ */
+export interface TrieEdgeCheck {
+  rune: string;
+  state: string;
+}
+
+/**
+ * Один узел Trie в снимке: идентификатор (frame-local путь от корня
+ * по rune-меткам рёбер, например "root/U+043F/U+0440"), отметка конца
+ * слова и идентификаторы потомков в каноническом порядке снимка
+ * (по возрастанию кода руны).
+ */
+export interface TrieNodeData {
+  id: string;
+  isEnd: boolean;
+  children: string[];
+}
+
+/**
+ * Итог команды в кадре результата операции Trie: закрытое множество
+ * значений (зеркало render.TrieResult): insert / already-existed,
+ * found / not-found, prefix-found / prefix-not-found, deleted /
+ * not-deleted.
+ */
+export type TrieResultValue =
+  | "insert"
+  | "already-existed"
+  | "found"
+  | "not-found"
+  | "prefix-found"
+  | "prefix-not-found"
+  | "deleted"
+  | "not-deleted";
+
+/**
+ * Снимок Trie — `Data` кадра kind="trie" (зеркало render.TrieSnapshot).
+ * Самодостаточен (ADR-0002): полная топология с произвольным ветвлением
+ * копируется в каждый кадр. ActivePath — активный путь текущего шага от
+ * корня (только существующие узлы: при missing — до родителя отсутствующего
+ * ребра); в стартовом, pruning-кадрах и кадре результата операции — [].
+ * EdgeCheck не null только в кадре посещения/проверки руны; Result не null
+ * только в кадре результата операции.
+ */
+export interface TrieSnapshot {
+  /** Все узлы снимка, корень первым (корень-заглушка есть и в пустом Trie). */
+  nodes: TrieNodeData[];
+  /** Идентификатор корня: всегда "root". */
+  rootId: string;
+  /** Активный путь шага: идентификаторы от корня; [] — пути нет. */
+  activePath: string[];
+  /** Проверка ребра шага; null — шаг без проверки ребра. */
+  edgeCheck: TrieEdgeCheck | null;
+  /** Итог команды; null до кадра результата операции. */
+  result: TrieResultValue | null;
+  /** Имя операции шага ("insert кот"); пусто — стартовый кадр. */
+  operation: string;
+}
+
 /** Кадр визуализации. Самодостаточен (ADR-0002). */
 export interface Frame {
   /** Порядковый номер шага, начиная с 1. */
@@ -280,5 +346,6 @@ export interface Frame {
     | HashTableSnapshot
     | SortSnapshot
     | TreeSnapshot
+    | TrieSnapshot
     | { readonly [key: string]: unknown };
 }

@@ -24,6 +24,7 @@
             <option value="hash-table">Хеш-таблица</option>
             <option value="tree-traversal">Обход бинарного дерева</option>
             <option value="bst">Бинарное дерево поиска (BST)</option>
+            <option value="trie">Префиксное дерево (Trie)</option>
             <option value="bubble-sort">Сортировка пузырьком</option>
             <option value="selection-sort">Сортировка выбором</option>
             <option value="insertion-sort">Сортировка вставками</option>
@@ -135,6 +136,21 @@ insert 3
 insert 7
 search 7
 delete 5</textarea>
+          </label>
+        </div>
+        <div id="trie-inputs" class="inputs" hidden>
+          <label>
+            Сценарий операций Trie (по одной на строку)
+            <textarea id="trie-script" rows="6">insert кот
+insert код
+insert при
+search кот
+search ком
+prefix ко
+prefix пер
+delete кот
+delete ком
+insert кот</textarea>
           </label>
         </div>
         <button id="run" type="button">Запустить</button>

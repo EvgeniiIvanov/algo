@@ -16,6 +16,7 @@ import {
   buildSortRunURL,
   buildStackRunURL,
   buildTreeTraversalRunURL,
+  buildTrieRunURL,
   isSortAlgorithm,
   SORT_ALGORITHMS,
 } from "./sse";
@@ -33,6 +34,7 @@ import {
   parseStackScenario,
 } from "./scenario";
 import { parseTreeInput, parseTreeOrder } from "./tree";
+import { checkTrieNodeLimit, parseTrieScenario } from "./trie";
 import type { Frame } from "./types";
 
 const ALGORITHMS = [
@@ -44,6 +46,7 @@ const ALGORITHMS = [
   "hash-table",
   "tree-traversal",
   "bst",
+  "trie",
   // Маршруты сортировок — канонический список из sse.ts.
   ...SORT_ALGORITHMS,
 ] as const;
@@ -73,6 +76,7 @@ function init(): void {
   const treeJsonEl = getElement<HTMLTextAreaElement>("tree-json");
   const treeOrderEl = getElement<HTMLSelectElement>("tree-order");
   const bstScriptEl = getElement<HTMLTextAreaElement>("bst-script");
+  const trieScriptEl = getElement<HTMLTextAreaElement>("trie-script");
   const binarySearchInputsEl = getElement<HTMLElement>("binary-search-inputs");
   const stackInputsEl = getElement<HTMLElement>("stack-inputs");
   const queueInputsEl = getElement<HTMLElement>("queue-inputs");
@@ -82,6 +86,7 @@ function init(): void {
   const sortInputsEl = getElement<HTMLElement>("sort-inputs");
   const treeInputsEl = getElement<HTMLElement>("tree-inputs");
   const bstInputsEl = getElement<HTMLElement>("bst-inputs");
+  const trieInputsEl = getElement<HTMLElement>("trie-inputs");
   const runEl = getElement<HTMLButtonElement>("run");
   const playerEl = getElement<HTMLElement>("player");
   const stepBackEl = getElement<HTMLButtonElement>("step-back");
@@ -105,6 +110,7 @@ function init(): void {
     sortInputsEl.hidden = !isSortAlgorithm(algorithm);
     treeInputsEl.hidden = algorithm !== "tree-traversal";
     bstInputsEl.hidden = algorithm !== "bst";
+    trieInputsEl.hidden = algorithm !== "trie";
   };
   algorithmEl.addEventListener("change", syncInputs);
   syncInputs();
@@ -167,6 +173,13 @@ function init(): void {
       } else if (algorithm === "bst") {
         parseBSTScenario(bstScriptEl.value); // валидация; на сервер уедет сырой текст
         url = buildBSTRunURL(bstScriptEl.value);
+      } else if (algorithm === "trie") {
+        // Вход проверяем до Run дважды: синтаксис и лимиты сценария, затем
+        // dry-run пикового числа живых rune-узлов (та же семантика, что у
+        // сервера до SSE). На сервер уедет сырой текст.
+        const commands = parseTrieScenario(trieScriptEl.value);
+        checkTrieNodeLimit(commands);
+        url = buildTrieRunURL(trieScriptEl.value);
       } else if (isSortAlgorithm(algorithm)) {
         const values = parseSortValues(sortValuesEl.value);
         url = buildSortRunURL(algorithm, values);

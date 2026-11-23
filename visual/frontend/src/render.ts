@@ -6,10 +6,11 @@
 // (стек "stack", очередь "queue", список "list", односвязный список
 // "linked-list" — узлы со стрелками next), kind="hash-table"
 // (корзины с цепочками записей), kind="sort" (маршруты сортировок —
-// bubble sort и далее) и kind="tree" (бинарное дерево: обходы
+// bubble sort и далее), kind="tree" (бинарное дерево: обходы
 // in-/pre-/post-order и по уровням level-order, а также кадры сценария
-// BST — маркер order="bst" при пустых visited/queue). Новые kind'ы —
-// новая ветка без правок существующих.
+// BST — маркер order="bst" при пустых visited/queue) и kind="trie"
+// (префиксное дерево: произвольное ветвление, отметки конца слова,
+// активный путь). Новые kind'ы — новая ветка без правок существующих.
 
 import {
   KIND_ARRAY,
@@ -17,6 +18,7 @@ import {
   KIND_SORT,
   KIND_STRUCTURE,
   KIND_TREE,
+  KIND_TRIE,
   type ArraySnapshot,
   type Frame,
   type HashEntry,
@@ -29,6 +31,9 @@ import {
   type StructureSnapshot,
   type TreeSnapshot,
   type TreeNodeData,
+  type TrieEdgeCheck,
+  type TrieNodeData,
+  type TrieSnapshot,
 } from "./types";
 
 /** Внутренний помощник: бросает, если снимок не похож на снимок массива. */
@@ -515,6 +520,207 @@ export function isTreeFrame(frame: Frame): boolean {
 }
 
 /**
+ * Ветка kind="trie": снимок префиксного дерева сценария Trie
+ * (зеркало render.TrieSnapshot). Идентификаторы узлов — frame-local
+ * пути от корня по rune-меткам рёбер в каноническом кодировании
+ * ("root" для корня, далее по сегменту на руну — "U+" и hex-код руны
+ * в верхнем регистре минимальной ширины 4, разделитель "/", например
+ * "root/U+043F/U+0440"); межкадровая стабильность не обещается,
+ * L/R-контракт бинарного NodeID не переиспользуется. Отсутствующий
+ * потомок (missing) в топологии не живёт и идентификатора не имеет:
+ * попытка видна через edgeCheck.
+ */
+
+/** Сегмент пути по руне: "U+" и hex-код в верхнем регистре шириной ≥ 4. */
+const TRIE_ID_SEGMENT = /^U\+[0-9A-F]{4,}$/;
+
+/** Состояния ребра в edgeCheck — закрытое множество (зеркало render). */
+const TRIE_EDGE_STATES: readonly string[] = ["reused", "created", "missing"];
+
+/** Закрытое множество значений result (зеркало render.TrieResult). */
+const TRIE_RESULT_VALUES: readonly string[] = [
+  "insert",
+  "already-existed",
+  "found",
+  "not-found",
+  "prefix-found",
+  "prefix-not-found",
+  "deleted",
+  "not-deleted",
+];
+
+/** Код — валидный Unicode scalar value (не surrogate, не за U+10FFFF). */
+function isScalarValue(code: number): boolean {
+  return (
+    Number.isInteger(code) &&
+    code >= 0 &&
+    code <= 0x10ffff &&
+    !(code >= 0xd800 && code <= 0xdfff)
+  );
+}
+
+/** Идентификатор узла Trie каноничен: "root" плюс сегменты U+XXXX на руну. */
+function isTrieNodeId(id: string): boolean {
+  const parts = id.split("/");
+  if (parts[0] !== "root") return false;
+  for (const segment of parts.slice(1)) {
+    if (!TRIE_ID_SEGMENT.test(segment)) return false;
+    const code = parseInt(segment.slice(2), 16);
+    if (!isScalarValue(code)) return false; // surrogate-половины не метки рун
+  }
+  return true;
+}
+
+/** Проверка ребра: null или объект {rune, state} — rune ровно одна руна. */
+function asTrieEdgeCheck(value: unknown): TrieEdgeCheck {
+  if (value === null) return null as unknown as TrieEdgeCheck;
+  if (typeof value !== "object") {
+    throw new Error(
+      "снимок Trie: поле edgeCheck должно быть null или объектом {rune, state}",
+    );
+  }
+  const check = value as Record<string, unknown>;
+  if (typeof check.rune !== "string" || Array.from(check.rune).length !== 1) {
+    throw new Error(
+      "снимок Trie: поле edgeCheck.rune — строка ровно из одной руны (Unicode scalar value)",
+    );
+  }
+  const code = check.rune.codePointAt(0) as number;
+  if (!isScalarValue(code)) {
+    throw new Error(
+      "снимок Trie: поле edgeCheck.rune — одиночная UTF-16 surrogate не является Unicode scalar value",
+    );
+  }
+  if (typeof check.state !== "string" || !TRIE_EDGE_STATES.includes(check.state)) {
+    throw new Error(
+      "снимок Trie: поле edgeCheck.state — одно из reused, created, missing",
+    );
+  }
+  return check as unknown as TrieEdgeCheck;
+}
+
+/** Внутренний помощник: бросает, если снимок не похож на снимок Trie. */
+function asTrieSnapshot(data: unknown): TrieSnapshot {
+  if (data === null || typeof data !== "object") {
+    throw new Error("снимок не объект");
+  }
+  const obj = data as Record<string, unknown>;
+  if (!Array.isArray(obj.nodes)) {
+    throw new Error("снимок Trie: поле nodes должно быть массивом");
+  }
+  const byId = new Map<string, TrieNodeData>();
+  for (const n of obj.nodes) {
+    if (n === null || typeof n !== "object") {
+      throw new Error("снимок Trie: каждый узел — объект {id, isEnd, children}");
+    }
+    const node = n as Record<string, unknown>;
+    if (typeof node.id !== "string") {
+      throw new Error("снимок Trie: поле id узла должно быть строкой");
+    }
+    if (!isTrieNodeId(node.id)) {
+      throw new Error(
+        `снимок Trie: идентификатор узла ${node.id} не канонический путь от корня по рунам (root/U+XXXX, hex в верхнем регистре шириной ≥ 4)`,
+      );
+    }
+    if (typeof node.isEnd !== "boolean") {
+      throw new Error("снимок Trie: поле isEnd узла должно быть булевым");
+    }
+    if (!Array.isArray(node.children)) {
+      throw new Error("снимок Trie: поле children узла должно быть массивом");
+    }
+    for (const c of node.children) {
+      if (typeof c !== "string") {
+        throw new Error("снимок Trie: каждый потомок — идентификатор-строка");
+      }
+    }
+    if (byId.has(node.id)) {
+      throw new Error("снимок Trie: идентификаторы узлов должны быть уникальными");
+    }
+    byId.set(node.id, node as unknown as TrieNodeData);
+  }
+  // Согласованность топологии: каждый потомок существует, встречается у
+  // родителя один раз и продолжает путь родителя по руне.
+  for (const node of byId.values()) {
+    const seen = new Set<string>();
+    for (const childId of node.children) {
+      const child = byId.get(childId);
+      if (child === undefined) {
+        throw new Error(
+          `снимок Trie: узел ${node.id} ссылается на отсутствующего потомка ${childId}`,
+        );
+      }
+      if (!childId.startsWith(`${node.id}/U+`)) {
+        throw new Error(
+          `снимок Trie: узел ${childId} в children узла ${node.id} не продолжение его пути`,
+        );
+      }
+      if (seen.has(childId)) {
+        throw new Error(
+          `снимок Trie: потомок ${childId} перечислен в children узла ${node.id} дважды`,
+        );
+      }
+      seen.add(childId);
+    }
+  }
+  if (typeof obj.rootId !== "string") {
+    throw new Error("снимок Trie: поле rootId должно быть строкой");
+  }
+  if (!byId.has(obj.rootId)) {
+    throw new Error("снимок Trie: rootId должен быть идентификатором узла дерева");
+  }
+  if (!Array.isArray(obj.activePath)) {
+    throw new Error("снимок Trie: поле activePath должно быть массивом");
+  }
+  // Активный путь — цепочка существующих узлов от корня по рёбрам children:
+  // при missing он останавливается у родителя отсутствующего ребра.
+  let prev: string | null = null;
+  for (const id of obj.activePath) {
+    if (typeof id !== "string" || !byId.has(id)) {
+      throw new Error(
+        "снимок Trie: активный путь состоит из идентификаторов узлов дерева",
+      );
+    }
+    if (prev === null) {
+      if (id !== obj.rootId) {
+        throw new Error("снимок Trie: активный путь начинается с корня");
+      }
+    } else {
+      const parent = byId.get(prev) as TrieNodeData;
+      if (!parent.children.includes(id)) {
+        throw new Error(
+          `снимок Trie: активный путь ${id} не продолжение пути ${prev} по рёбрам`,
+        );
+      }
+    }
+    prev = id;
+  }
+  obj.edgeCheck = asTrieEdgeCheck(obj.edgeCheck);
+  if (
+    obj.result !== null &&
+    (typeof obj.result !== "string" || !TRIE_RESULT_VALUES.includes(obj.result))
+  ) {
+    throw new Error(
+      "снимок Trie: поле result должно быть null или одним из значений закрытого множества (insert, already-existed, found, not-found, prefix-found, prefix-not-found, deleted, not-deleted)",
+    );
+  }
+  if (typeof obj.operation !== "string") {
+    throw new Error("снимок Trie: поле operation должно быть строкой");
+  }
+  return obj as unknown as TrieSnapshot;
+}
+
+/** Является ли кадр снимком Trie с допустимыми полями. */
+export function isTrieFrame(frame: Frame): boolean {
+  if (frame.kind !== KIND_TRIE) return false;
+  try {
+    asTrieSnapshot(frame.data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Ветка kind="tree": рисует полное дерево одним вложенным блоком.
  * Корень сверху, ветки L и R с отступами — форма читается глазами;
  * активный узел — класс active, посещённые — visited с номером позиции
@@ -630,6 +836,92 @@ function appendTreeBranch(
 }
 
 /**
+ * Ветка kind="trie": рисует полную топологию Trie одним вложенным блоком
+ * (кадр самодостаточен — перестраивается целиком на каждом кадре).
+ * Корень-заглушка — ячейка "root", потомки — вложенные блоки по числу
+ * rune-переходов (ветвление не ограничено двумя), ячейка несёт руну-метку
+ * ребра; узлы-концы слов помечены маркером •. Активный путь шага — класс
+ * active на каждой ячейке пути (только существующие узлы: при missing —
+ * до родителя отсутствующего ребра, которого в топологии нет). Проверка
+ * ребра (edgeCheck) и итог команды (result) рисуются чипами под шапкой
+ * шага, когда они не null.
+ */
+function renderTrie(snap: TrieSnapshot, containerEl: HTMLElement): void {
+  const wrap = document.createElement("div");
+  wrap.className = "trie";
+
+  const caption = document.createElement("div");
+  caption.className = "operation";
+  caption.textContent =
+    snap.operation === "" ? "Исходное состояние" : `Шаг: ${snap.operation}`;
+  wrap.appendChild(caption);
+
+  if (snap.edgeCheck !== null) {
+    const edge = document.createElement("div");
+    edge.className = "trie-edge-check";
+    edge.textContent = `Проверка ребра: «${snap.edgeCheck.rune}» — ${TRIE_EDGE_STATE_LABELS[snap.edgeCheck.state] ?? snap.edgeCheck.state}`;
+    wrap.appendChild(edge);
+  }
+  if (snap.result !== null) {
+    const result = document.createElement("div");
+    result.className = "trie-result";
+    result.textContent = `Результат: ${snap.result}`;
+    result.dataset.result = snap.result;
+    wrap.appendChild(result);
+  }
+
+  const root = snap.nodes.find((n) => n.id === snap.rootId) as TrieNodeData;
+  const onPath = new Set(snap.activePath);
+  wrap.appendChild(trieNodeBlock(snap, root, onPath, snap.nodes));
+
+  containerEl.replaceChildren(wrap);
+}
+
+/** Человекочитаемая подпись состояния ребра edgeCheck. */
+const TRIE_EDGE_STATE_LABELS: Record<string, string> = {
+  reused: "ребро уже есть — спускаемся",
+  created: "новое ребро — узел создан",
+  missing: "ребра нет — спуск невозможен",
+};
+
+/** Блок одного узла: ячейка с руной-меткой и вложенные ветки-потомки. */
+function trieNodeBlock(
+  snap: TrieSnapshot,
+  node: TrieNodeData,
+  onPath: Set<string>,
+  nodes: TrieNodeData[],
+): HTMLElement {
+  const block = document.createElement("div");
+  block.className = "trie-node-block";
+
+  const cell = document.createElement("div");
+  cell.className = "cell tree-node trie-node";
+  cell.dataset.id = node.id;
+  cell.textContent = `${trieRuneLabel(node.id)}${node.isEnd ? " •" : ""}`;
+  if (onPath.has(node.id)) cell.classList.add("active");
+  if (node.isEnd) cell.classList.add("trie-end");
+  block.appendChild(cell);
+
+  if (node.children.length > 0) {
+    const children = document.createElement("div");
+    children.className = "trie-children";
+    for (const childId of node.children) {
+      const child = nodes.find((n) => n.id === childId) as TrieNodeData;
+      children.appendChild(trieNodeBlock(snap, child, onPath, nodes));
+    }
+    block.appendChild(children);
+  }
+  return block;
+}
+
+/** Руна-метка ребра из канонического идентификатора ("root" — у корня). */
+function trieRuneLabel(id: string): string {
+  const idx = id.lastIndexOf("/U+");
+  if (idx < 0) return "root";
+  return String.fromCodePoint(parseInt(id.slice(idx + 2), 16));
+}
+
+/**
  * Отрисовать кадр в DOM. Возвращает true, если кадр был отрисован;
  * false — если kind не поддерживается (тогда узлы остаются нетронутыми).
  */
@@ -642,6 +934,12 @@ export function renderFrame(
     const snap = asTreeSnapshot(frame.data);
     explanationEl.textContent = frame.explanation;
     renderTree(snap, arrayEl);
+    return true;
+  }
+  if (frame.kind === KIND_TRIE) {
+    const snap = asTrieSnapshot(frame.data);
+    explanationEl.textContent = frame.explanation;
+    renderTrie(snap, arrayEl);
     return true;
   }
   if (frame.kind === KIND_STRUCTURE) {
