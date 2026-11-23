@@ -3,6 +3,8 @@
 // Сценарий — по одной команде `insert W`, `search W`, `prefix W`,
 // `delete W` на строку; аргумент — один непустой Unicode-токен без
 // пробелов из валидного UTF-8 (последовательность Unicode scalar values).
+// Токенизация строки — общая со всеми парсерами сценариев
+// (scenarioFields.ts): whitespace — по unicode.IsSpace, как на сервере.
 // Подсчёт длины — по Unicode scalar values (rune), не по UTF-16 code
 // units: 😀 — одна руна, UTF-16-пара не считается за две.
 //
@@ -17,6 +19,8 @@
 // пиковое число живых rune-узлов — максимум по состоянию после каждой
 // команды, а не только финальное; корень не считается. Превышение лимита
 // и иные нарушения отвергаются до отправки Run.
+
+import { splitScenarioFields } from "./scenarioFields";
 
 /** Ограничения входа — как на сервере (visual/server/trie.go). */
 export const MAX_TRIE_COMMANDS = 500;
@@ -78,10 +82,7 @@ export function parseTrieScenario(raw: string): TrieCommand[] {
   const commands: TrieCommand[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не команда
     const lineNo = i + 1;
 
@@ -157,11 +158,14 @@ interface TrieSimNode {
  * снимает отметку конца слова и срезает снизу вверх узлы, которые больше
  * не ведут ни к одному концу слова; промахи search/prefix/delete и
  * повторные вставки топологию не меняют. Превышение лимита — Error до
- * отправки Run.
+ * отправки Run. Возвращает пиковое число живых rune-узлов (корень не
+ * считается) — публичный итог dry-run: ноль узлов, например, у поиска по
+ * пустому Trie, чьи события проверки рёбер ничего не создают.
  */
-export function checkTrieNodeLimit(commands: readonly TrieCommand[]): void {
+export function checkTrieNodeLimit(commands: readonly TrieCommand[]): number {
   const root: TrieSimNode = { children: new Map(), isEnd: false };
   let live = 0;
+  let peak = 0;
   for (let i = 0; i < commands.length; i++) {
     const cmd = commands[i];
     const runes = Array.from(cmd.word); // руны, не UTF-16 code units
@@ -204,10 +208,12 @@ export function checkTrieNodeLimit(commands: readonly TrieCommand[]): void {
       }
     }
     // search и prefix топологию не меняют — счётчик не трогают.
+    if (live > peak) peak = live;
     if (live > MAX_TRIE_NODES) {
       throw new Error(
         `сценарий превышает лимит живых rune-узлов: разрешено не более ${MAX_TRIE_NODES}, а команда №${i + 1} (${cmd.op} ${cmd.word}) даёт ${live} узлов; сократите сценарий`,
       );
     }
   }
+  return peak;
 }

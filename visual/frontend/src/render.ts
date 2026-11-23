@@ -19,6 +19,8 @@ import {
   KIND_STRUCTURE,
   KIND_TREE,
   KIND_TRIE,
+  TRIE_EDGE_STATES,
+  TRIE_RESULT_VALUES,
   type ArraySnapshot,
   type Frame,
   type HashEntry,
@@ -32,7 +34,9 @@ import {
   type TreeSnapshot,
   type TreeNodeData,
   type TrieEdgeCheck,
+  type TrieEdgeState,
   type TrieNodeData,
+  type TrieResultValue,
   type TrieSnapshot,
 } from "./types";
 
@@ -534,21 +538,6 @@ export function isTreeFrame(frame: Frame): boolean {
 /** Сегмент пути по руне: "U+" и hex-код в верхнем регистре шириной ≥ 4. */
 const TRIE_ID_SEGMENT = /^U\+[0-9A-F]{4,}$/;
 
-/** Состояния ребра в edgeCheck — закрытое множество (зеркало render). */
-const TRIE_EDGE_STATES: readonly string[] = ["reused", "created", "missing"];
-
-/** Закрытое множество значений result (зеркало render.TrieResult). */
-const TRIE_RESULT_VALUES: readonly string[] = [
-  "insert",
-  "already-existed",
-  "found",
-  "not-found",
-  "prefix-found",
-  "prefix-not-found",
-  "deleted",
-  "not-deleted",
-];
-
 /** Код — валидный Unicode scalar value (не surrogate, не за U+10FFFF). */
 function isScalarValue(code: number): boolean {
   return (
@@ -559,21 +548,31 @@ function isScalarValue(code: number): boolean {
   );
 }
 
-/** Идентификатор узла Trie каноничен: "root" плюс сегменты U+XXXX на руну. */
+/**
+ * Идентификатор узла Trie каноничен: "root" плюс сегменты U+XXXX на руну —
+ * hex в верхнем регистре минимальной ширины 4, как его печатает сервер
+ * ("/U+%04X"). Не-минимальные записи с лишними ведущими нулями (например
+ * "U+00041" вместо "U+0041") канонической меткой руны не являются.
+ */
 function isTrieNodeId(id: string): boolean {
   const parts = id.split("/");
   if (parts[0] !== "root") return false;
   for (const segment of parts.slice(1)) {
     if (!TRIE_ID_SEGMENT.test(segment)) return false;
-    const code = parseInt(segment.slice(2), 16);
+    const hex = segment.slice(2);
+    const code = parseInt(hex, 16);
     if (!isScalarValue(code)) return false; // surrogate-половины не метки рун
+    if (code.toString(16).toUpperCase().padStart(4, "0") !== hex) return false;
   }
   return true;
 }
 
-/** Проверка ребра: null или объект {rune, state} — rune ровно одна руна. */
-function asTrieEdgeCheck(value: unknown): TrieEdgeCheck {
-  if (value === null) return null as unknown as TrieEdgeCheck;
+/**
+ * Проверка ребра: null или объект {rune, state} — rune ровно одна руна.
+ * null — честный null кадра без проверки ребра, а не каст.
+ */
+function asTrieEdgeCheck(value: unknown): TrieEdgeCheck | null {
+  if (value === null) return null;
   if (typeof value !== "object") {
     throw new Error(
       "снимок Trie: поле edgeCheck должно быть null или объектом {rune, state}",
@@ -591,7 +590,7 @@ function asTrieEdgeCheck(value: unknown): TrieEdgeCheck {
       "снимок Trie: поле edgeCheck.rune — одиночная UTF-16 surrogate не является Unicode scalar value",
     );
   }
-  if (typeof check.state !== "string" || !TRIE_EDGE_STATES.includes(check.state)) {
+  if (typeof check.state !== "string" || !(TRIE_EDGE_STATES as readonly string[]).includes(check.state)) {
     throw new Error(
       "снимок Trie: поле edgeCheck.state — одно из reused, created, missing",
     );
@@ -694,10 +693,13 @@ function asTrieSnapshot(data: unknown): TrieSnapshot {
     }
     prev = id;
   }
-  obj.edgeCheck = asTrieEdgeCheck(obj.edgeCheck);
+  // edgeCheck валидируем по месту и не переписываем поле входного снимка:
+  // кадр — данные сервера, рендер их не мутирует.
+  asTrieEdgeCheck(obj.edgeCheck);
   if (
     obj.result !== null &&
-    (typeof obj.result !== "string" || !TRIE_RESULT_VALUES.includes(obj.result))
+    (typeof obj.result !== "string" ||
+      !(TRIE_RESULT_VALUES as readonly string[]).includes(obj.result))
   ) {
     throw new Error(
       "снимок Trie: поле result должно быть null или одним из значений закрытого множества (insert, already-existed, found, not-found, prefix-found, prefix-not-found, deleted, not-deleted)",
@@ -859,37 +861,55 @@ function renderTrie(snap: TrieSnapshot, containerEl: HTMLElement): void {
   if (snap.edgeCheck !== null) {
     const edge = document.createElement("div");
     edge.className = "trie-edge-check";
-    edge.textContent = `Проверка ребра: «${snap.edgeCheck.rune}» — ${TRIE_EDGE_STATE_LABELS[snap.edgeCheck.state] ?? snap.edgeCheck.state}`;
+    edge.textContent = `Проверка ребра: «${snap.edgeCheck.rune}» — ${TRIE_EDGE_STATE_LABELS[snap.edgeCheck.state]}`;
     wrap.appendChild(edge);
   }
   if (snap.result !== null) {
     const result = document.createElement("div");
     result.className = "trie-result";
-    result.textContent = `Результат: ${snap.result}`;
+    // Пользователю — русская подпись итога; сырой enum закрытого множества
+    // остаётся в data-result для тестов и программных клиентов.
+    result.textContent = `Результат: ${TRIE_RESULT_LABELS[snap.result]}`;
     result.dataset.result = snap.result;
     wrap.appendChild(result);
   }
 
   const root = snap.nodes.find((n) => n.id === snap.rootId) as TrieNodeData;
   const onPath = new Set(snap.activePath);
-  wrap.appendChild(trieNodeBlock(snap, root, onPath, snap.nodes));
+  const byId = new Map(snap.nodes.map((n) => [n.id, n]));
+  wrap.appendChild(trieNodeBlock(root, onPath, byId));
 
   containerEl.replaceChildren(wrap);
 }
 
 /** Человекочитаемая подпись состояния ребра edgeCheck. */
-const TRIE_EDGE_STATE_LABELS: Record<string, string> = {
+const TRIE_EDGE_STATE_LABELS: Record<TrieEdgeState, string> = {
   reused: "ребро уже есть — спускаемся",
   created: "новое ребро — узел создан",
   missing: "ребра нет — спуск невозможен",
 };
 
-/** Блок одного узла: ячейка с руной-меткой и вложенные ветки-потомки. */
+/** Русская подпись итога команды по значениям закрытого множества result. */
+const TRIE_RESULT_LABELS: Record<TrieResultValue, string> = {
+  insert: "слово добавлено",
+  "already-existed": "слово уже хранится",
+  found: "слово найдено",
+  "not-found": "слова нет — не найдено",
+  "prefix-found": "префикс найден",
+  "prefix-not-found": "префикса нет — не найдено",
+  deleted: "слово удалено",
+  "not-deleted": "слова нет — не удалено",
+};
+
+/**
+ * Блок одного узла: ячейка с руной-меткой и вложенные ветки-потомки.
+ * byId — карта идентификаторов снимка: спуск к потомкам без линейного
+ * поиска по массиву узлов.
+ */
 function trieNodeBlock(
-  snap: TrieSnapshot,
   node: TrieNodeData,
   onPath: Set<string>,
-  nodes: TrieNodeData[],
+  byId: Map<string, TrieNodeData>,
 ): HTMLElement {
   const block = document.createElement("div");
   block.className = "trie-node-block";
@@ -906,8 +926,8 @@ function trieNodeBlock(
     const children = document.createElement("div");
     children.className = "trie-children";
     for (const childId of node.children) {
-      const child = nodes.find((n) => n.id === childId) as TrieNodeData;
-      children.appendChild(trieNodeBlock(snap, child, onPath, nodes));
+      const child = byId.get(childId) as TrieNodeData;
+      children.appendChild(trieNodeBlock(child, onPath, byId));
     }
     block.appendChild(children);
   }
@@ -918,7 +938,9 @@ function trieNodeBlock(
 function trieRuneLabel(id: string): string {
   const idx = id.lastIndexOf("/U+");
   if (idx < 0) return "root";
-  return String.fromCodePoint(parseInt(id.slice(idx + 2), 16));
+  // Код руны начинается после "U+" (idx — позиция "/", idx + 3 — первая
+  // hex-цифра), без расчёта на побочные эффекты parseInt.
+  return String.fromCodePoint(parseInt(id.slice(idx + 3), 16));
 }
 
 /**

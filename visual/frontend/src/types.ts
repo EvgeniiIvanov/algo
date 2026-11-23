@@ -270,6 +270,35 @@ export interface TreeVisit {
 }
 
 /**
+ * Состояния ребра в edgeCheck — закрытое множество (зеркало render):
+ * единый источник и для типа, и для runtime-валидации рендера.
+ */
+export const TRIE_EDGE_STATES = ["reused", "created", "missing"] as const;
+
+/** Состояние ребра библиотечного события Trie. */
+export type TrieEdgeState = (typeof TRIE_EDGE_STATES)[number];
+
+/**
+ * Закрытое множество значений result (зеркало render.TrieResult) — единый
+ * источник для типа и runtime-валидации: insert / already-existed,
+ * found / not-found, prefix-found / prefix-not-found, deleted /
+ * not-deleted.
+ */
+export const TRIE_RESULT_VALUES = [
+  "insert",
+  "already-existed",
+  "found",
+  "not-found",
+  "prefix-found",
+  "prefix-not-found",
+  "deleted",
+  "not-deleted",
+] as const;
+
+/** Итог команды в кадре результата операции Trie. */
+export type TrieResultValue = (typeof TRIE_RESULT_VALUES)[number];
+
+/**
  * Проверка ребра по руне в кадре посещения/проверки снимка Trie —
  * зеркало render.TrieEdgeCheck. Rune — JSON-строка ровно из одной руны
  * (Unicode scalar value, не числовой код); State — состояние ребра
@@ -277,7 +306,7 @@ export interface TreeVisit {
  */
 export interface TrieEdgeCheck {
   rune: string;
-  state: string;
+  state: TrieEdgeState;
 }
 
 /**
@@ -291,22 +320,6 @@ export interface TrieNodeData {
   isEnd: boolean;
   children: string[];
 }
-
-/**
- * Итог команды в кадре результата операции Trie: закрытое множество
- * значений (зеркало render.TrieResult): insert / already-existed,
- * found / not-found, prefix-found / prefix-not-found, deleted /
- * not-deleted.
- */
-export type TrieResultValue =
-  | "insert"
-  | "already-existed"
-  | "found"
-  | "not-found"
-  | "prefix-found"
-  | "prefix-not-found"
-  | "deleted"
-  | "not-deleted";
 
 /**
  * Снимок Trie — `Data` кадра kind="trie" (зеркало render.TrieSnapshot).

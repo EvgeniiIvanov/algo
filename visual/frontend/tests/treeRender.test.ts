@@ -2,21 +2,13 @@
 // и посещёнными узлами на несимметричном дереве с повторяющимися
 // значениями. DOM ниже публичного renderer-интерфейса не проверяем.
 import { describe, expect, it } from "vitest";
-import { isTreeFrame, renderFrame } from "../src/render";
+import { isTreeFrame } from "../src/render";
+import type { Frame } from "../src/types";
+import { makeFrame, renderToDOM } from "./renderTestHelpers";
 
-function treeFrame(data: unknown) {
-  return { step: 2, kind: "tree", explanation: "пояснение шага", data } as never;
-}
-
-function renderToDOM(frame: never): {
-  ok: boolean;
-  explanationEl: HTMLElement;
-  containerEl: HTMLElement;
-} {
-  const explanationEl = document.createElement("div");
-  const containerEl = document.createElement("div");
-  const ok = renderFrame(frame, explanationEl, containerEl);
-  return { ok, explanationEl, containerEl };
+/** Кадр kind="tree" — обёртка общего makeFrame (снимок не типизирован). */
+function treeFrame(data: unknown): Frame {
+  return makeFrame("tree", data);
 }
 
 // Несимметричное дерево с повторяющимся значением (шаги 1–3 из 5):

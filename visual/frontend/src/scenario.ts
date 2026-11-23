@@ -10,6 +10,7 @@
 // клиент не пропустит формы, которые отвергнет сервер.
 
 import { parseDecimalInteger } from "./decimalInteger";
+import { splitScenarioFields } from "./scenarioFields";
 import { MAX_TREE_NODES } from "./tree";
 
 /** Одна операция сценария стека: push со значением или pop. */
@@ -117,10 +118,7 @@ export function parseStackScenario(raw: string, capacity: number): StackOp[] {
   const ops: StackOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -194,10 +192,7 @@ export function parseQueueScenario(raw: string, capacity: number): QueueOp[] {
   const ops: QueueOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -260,10 +255,7 @@ export function parseListScenario(raw: string): ListOp[] {
   const ops: ListOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -368,10 +360,7 @@ export function parseLinkedListScenario(raw: string): LinkedListOp[] {
   const ops: LinkedListOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -542,10 +531,7 @@ export function parseHashTableScenario(raw: string): HashTableOp[] {
   const ops: HashTableOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -634,10 +620,7 @@ export function parseBSTScenario(raw: string): BSTOp[] {
   const ops: BSTOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 

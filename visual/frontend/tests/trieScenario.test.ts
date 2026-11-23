@@ -52,6 +52,54 @@ describe("parseTrieScenario — удачный разбор", () => {
   });
 });
 
+// Паритет токенизации с сервером: whitespace — по unicode.IsSpace
+// (scenarioFields.ts), как в strings.Fields на сервере. BOM U+FEFF — не
+// разделитель ни на клиенте, ни на сервере; NEL U+0085 — разделитель.
+describe("parseTrieScenario — whitespace-паритет с сервером", () => {
+  it("NBSP U+00A0 и идеографический пробел U+3000 разделяют действие и аргумент", () => {
+    expect(parseTrieScenario("insert\u00A0кот")).toEqual([
+      { op: "insert", word: "кот" },
+    ]);
+    expect(parseTrieScenario("insert\u3000кот")).toEqual([
+      { op: "insert", word: "кот" },
+    ]);
+  });
+
+  it("CRLF между командами корректен: \\r не приклеивается к токенам", () => {
+    expect(parseTrieScenario("insert кот\r\ndelete кот")).toEqual([
+      { op: "insert", word: "кот" },
+      { op: "delete", word: "кот" },
+    ]);
+  });
+
+  it("строка только из Unicode whitespace игнорируется", () => {
+    expect(parseTrieScenario("\u00A0\u3000\ninsert кот\n\u3000")).toEqual([
+      { op: "insert", word: "кот" },
+    ]);
+  });
+
+  it("BOM-prefixed команда отвергается до Run: U+FEFF — не whitespace в Go", () => {
+    // Сервер видит команду «\uFEFFinsert» и отвергает сценарий; фронт
+    // повторяет это решение до Run, а не молча отбрасывает BOM.
+    expect(() => parseTrieScenario("\uFEFFinsert кот")).toThrow(
+      /строка 1: неизвестная команда «\uFEFFinsert»/,
+    );
+    // Токен с BOM внутри: verb — вся склейка «insert\uFEFFкот» — неизвестная
+    // команда (и на сервере Go строка разобрана той же семантикой).
+    expect(() => parseTrieScenario("insert\uFEFFкот")).toThrow(
+      /строка 1: неизвестная команда «insert\uFEFFкот»/,
+    );
+  });
+
+  it("NEL U+0085 — разделитель: аргумент разобран как отдельный токен", () => {
+    // В Go U+0085 пробельный (в JS \s его нет): сервер принял бы
+    // «insert U+0085 кот» как insert кот; фронт зеркалит это.
+    expect(parseTrieScenario("insert\u0085кот")).toEqual([
+      { op: "insert", word: "кот" },
+    ]);
+  });
+});
+
 describe("parseTrieScenario — ошибки ввода до Run", () => {
   it("отвергает неизвестную команду с номером строки", () => {
     expect(() => parseTrieScenario("insert кот\nupsert кот")).toThrow(
@@ -243,9 +291,17 @@ describe("checkTrieNodeLimit — dry-run пикового числа живых 
     expect(() => checkTrieNodeLimit(script)).toThrow(/команда №3.*даёт 101/);
   });
 
-  it("поиск с аргументом ровно из 100 😀 в пустом Trie принимается: события не создают узлов", () => {
+  it("поиск ровно 100 😀 в пустом Trie: dry-run даёт ровно ноль живых узлов", () => {
     const commands = parseTrieScenario(`search ${"😀".repeat(MAX_TRIE_RUNES)}`);
-    expect(() => checkTrieNodeLimit(commands)).not.toThrow();
+    // Не «просто не упали по лимиту»: события проверки ребра не создают
+    // узлов — живых узлов ноль, и результат dry-run это показывает.
+    expect(checkTrieNodeLimit(commands)).toBe(0);
+  });
+
+  it("dry-run возвращает пиковое число живых узлов: 100 вставленных рун — ровно 100", () => {
+    expect(
+      checkTrieNodeLimit([{ op: "insert", word: "к".repeat(MAX_TRIE_NODES) }]),
+    ).toBe(MAX_TRIE_NODES);
   });
 });
 

@@ -91,4 +91,14 @@ describe("parseStackScenario", () => {
     const script = Array.from({ length: 501 }, () => "pop").join("\n");
     expect(() => parseStackScenario(script, 3)).toThrow(/слишком длинный/);
   });
+
+  // Токенизация строк — общий splitScenarioFields со whitespace-семантикой
+  // Go unicode.IsSpace (tests/scenarioFields.test.ts): здесь — что парсер
+  // действительно им пользуется.
+  it("токенизация по unicode.IsSpace: NEL U+0085 разделяет, BOM U+FEFF — часть токена", () => {
+    expect(parseStackScenario("push\u00855", 3)).toEqual([{ isPush: true, value: 5 }]);
+    expect(() => parseStackScenario("\uFEFFpush 5", 3)).toThrow(
+      /строка 1: неизвестная операция «\uFEFFpush»/,
+    );
+  });
 });

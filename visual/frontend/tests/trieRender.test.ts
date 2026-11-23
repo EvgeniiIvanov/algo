@@ -9,20 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { isTrieFrame, renderFrame } from "../src/render";
 import type { Frame, TrieSnapshot } from "../src/types";
+import { makeFrame, renderToDOM } from "./renderTestHelpers";
 
+/** Кадр kind="trie" с типизированным снимком — обёртка общего makeFrame. */
 function trieFrame(data: TrieSnapshot, explanation = "пояснение шага"): Frame {
-  return { step: 1, kind: "trie", explanation, data } as Frame;
-}
-
-function renderToDOM(frame: Frame): {
-  ok: boolean;
-  explanationEl: HTMLElement;
-  containerEl: HTMLElement;
-} {
-  const explanationEl = document.createElement("div");
-  const containerEl = document.createElement("div");
-  const ok = renderFrame(frame, explanationEl, containerEl);
-  return { ok, explanationEl, containerEl };
+  return makeFrame("trie", data, explanation);
 }
 
 /** Ячейка узла Trie по идентификатору пути (id кадра, не руна). */
@@ -116,9 +107,11 @@ describe("isTrieFrame: снимки Trie", () => {
   });
 
   it("отвергает edgeCheck с неизвестным состоянием", () => {
-    expect(
-      isTrieFrame(trieFrame({ ...startSnapshot(), edgeCheck: { rune: "к", state: "nope" } })),
-    ).toBe(false);
+    const bad = {
+      ...startSnapshot(),
+      edgeCheck: { rune: "к", state: "nope" },
+    } as unknown as TrieSnapshot;
+    expect(isTrieFrame(trieFrame(bad))).toBe(false);
   });
 
   it("отвергает edgeCheck.rune не из одной руны и одиночную surrogate", () => {
@@ -156,6 +149,32 @@ describe("isTrieFrame: снимки Trie", () => {
     expect(
       isTrieFrame(trieFrame({ ...startSnapshot(), nodes: [node("root/U+43A", false, [])] })),
     ).toBe(false);
+  });
+
+  it("отвергает не-минимальные записи кода руны: U+00041 — не метка U+0041", () => {
+    const treeWith = (id: string): TrieSnapshot => ({
+      ...startSnapshot(),
+      nodes: [node("root", false, [id]), node(id, false, [])],
+    });
+    // Пять hex-цифр при четырёхзначном коде: не-минимальная запись.
+    expect(isTrieFrame(trieFrame(treeWith("root/U+00041")))).toBe(false);
+    // То же у символа вне BMP: U+01F600 — не каноническая запись 😀.
+    expect(isTrieFrame(trieFrame(treeWith("root/U+01F600")))).toBe(false);
+    // Канонические записи принимаются: ширина ровно 4 и полный код вне BMP.
+    expect(isTrieFrame(trieFrame(treeWith("root/U+0041")))).toBe(true);
+    expect(isTrieFrame(trieFrame(treeWith(ID_EMOJI)))).toBe(true);
+  });
+
+  it("принимает канонические идентификаторы и supplementary-руны", () => {
+    const treeWith = (id: string): TrieSnapshot => ({
+      ...startSnapshot(),
+      nodes: [node("root", false, [id]), node(id, false, [])],
+    });
+    // Максимальный скаляр U+10FFFF каноничен; граница не спутана с лимитом
+    // живых узлов или лимитом рун.
+    expect(isTrieFrame(trieFrame(treeWith("root/U+10FFFF")))).toBe(true);
+    // Кириллица — минимальная ширина 4.
+    expect(isTrieFrame(trieFrame(treeWith("root/U+0041/U+0042")))).toBe(true);
   });
 
   it("отвергает ссылку на отсутствующего потомка и разрыв активного пути", () => {
@@ -288,13 +307,26 @@ describe("renderFrame: кадр результата операции и result"
     "not-deleted",
   ] as const;
 
+  // Русские подписи итога: enum остаётся сырым в data-result (SRC: render.ts).
+  const resultLabels: Record<(typeof results)[number], string> = {
+    insert: "слово добавлено",
+    "already-existed": "слово уже хранится",
+    found: "слово найдено",
+    "not-found": "слова нет — не найдено",
+    "prefix-found": "префикс найден",
+    "prefix-not-found": "префикса нет — не найдено",
+    deleted: "слово удалено",
+    "not-deleted": "слова нет — не удалено",
+  };
+
   it.each(results)("рисует чип результата %s только на result-кадре", (result) => {
     const { ok, containerEl } = renderToDOM(
       trieFrame({ ...startSnapshot("search кот"), result }),
     );
     expect(ok).toBe(true);
     const chip = containerEl.querySelector(".trie-result");
-    expect(chip?.textContent).toBe(`Результат: ${result}`);
+    expect(chip?.textContent).toBe(`Результат: ${resultLabels[result]}`);
+    // Сырой enum закрытого множества — в data-result.
     expect(chip?.getAttribute("data-result")).toBe(result);
   });
 
@@ -321,8 +353,11 @@ describe("renderFrame: кадр результата операции и result"
       trieFrame({ ...startSnapshot(`search ${"😀".repeat(100)}`), result: "not-found" }),
     );
     expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
-      "Результат: not-found",
+      "Результат: слова нет — не найдено",
     );
+    expect(
+      final.containerEl.querySelector(".trie-result")?.getAttribute("data-result"),
+    ).toBe("not-found");
   });
 
   it("символ вне BMP: узел — root/U+1F600, не surrogate-половина", () => {
@@ -338,5 +373,183 @@ describe("renderFrame: кадр результата операции и result"
     expect(trieCell(containerEl, ID_EMOJI)?.textContent).toBe("😀 •");
     expect(trieCell(containerEl, ID_EMOJI)?.classList.contains("active")).toBe(true);
     expect(trieCell(containerEl, "root/U+D83D")).toBeNull();
+  });
+});
+
+describe("renderFrame: метки рун многосегментных идентификаторов", () => {
+  const ID_P = "root/U+043F"; // п
+  const ID_R = "root/U+043F/U+0440"; // р
+
+  it("многосегментный путь (root/U+043F/U+0440): метка — руна последнего сегмента", () => {
+    const { ok, containerEl } = renderToDOM(
+      trieFrame({
+        ...startSnapshot("insert при"),
+        nodes: [
+          node("root", false, [ID_P]),
+          node(ID_P, false, [ID_R]),
+          node(ID_R, true, []),
+        ],
+        activePath: ["root", ID_P, ID_R],
+        edgeCheck: { rune: "р", state: "created" },
+      }),
+    );
+    expect(ok).toBe(true);
+    expect(trieCell(containerEl, "root")?.textContent).toBe("root");
+    expect(trieCell(containerEl, ID_P)?.textContent).toBe("п");
+    expect(trieCell(containerEl, ID_R)?.textContent).toBe("р •");
+    expect(trieCell(containerEl, ID_R)?.classList.contains("trie-end")).toBe(true);
+  });
+});
+
+// No-op-сценарии спеки на рендере: промахи по отсутствующему ребру
+// (search, prefix, delete), существующий путь без отметки конца слова
+// (search, delete) и точный поиск найденного — с активным путём из
+// существующих узлов, edgeCheck по форме бэкенда и result: null до кадра
+// результата операции.
+describe("renderFrame: no-op-сценарии — промахи и точный поиск", () => {
+  /** Дерево после insert кот: путь к-о-т, «т» — конец слова. */
+  function catTreeSnapshot(operation = ""): TrieSnapshot {
+    return {
+      ...startSnapshot(operation),
+      nodes: [
+        node("root", false, [ID_K]),
+        node(ID_K, false, [ID_O]),
+        node(ID_O, false, [ID_T]),
+        node(ID_T, true, []),
+      ],
+    };
+  }
+
+  it("search по полностью существующему пути без конца слова: reused-кадры, result null, итог not-found", () => {
+    // search «ко» при сохранённом «кот»: путь к-о есть, «о» — не конец слова.
+    const visitK = renderToDOM(
+      trieFrame({
+        ...catTreeSnapshot("search ко"),
+        activePath: ["root", ID_K],
+        edgeCheck: { rune: "к", state: "reused" },
+      }),
+    );
+    expect(visitK.ok).toBe(true);
+    expect(trieCell(visitK.containerEl, ID_K)?.classList.contains("active")).toBe(true);
+    expect(trieCell(visitK.containerEl, ID_O)?.classList.contains("active")).toBe(false);
+    expect(visitK.containerEl.querySelector(".trie-edge-check")?.textContent).toBe(
+      "Проверка ребра: «к» — ребро уже есть — спускаемся",
+    );
+    // Промежуточный снимок: result null — чипа итога нет.
+    expect(visitK.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const visitO = renderToDOM(
+      trieFrame({
+        ...catTreeSnapshot("search ко"),
+        activePath: ["root", ID_K, ID_O],
+        edgeCheck: { rune: "о", state: "reused" },
+      }),
+    );
+    expect(visitO.ok).toBe(true);
+    expect(trieCell(visitO.containerEl, ID_O)?.classList.contains("active")).toBe(true);
+    expect(trieCell(visitO.containerEl, ID_T)?.classList.contains("active")).toBe(false);
+    expect(visitO.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const final = renderToDOM(trieFrame({ ...catTreeSnapshot("search ко"), result: "not-found" }));
+    expect(final.ok).toBe(true);
+    expect(final.containerEl.querySelectorAll(".trie-edge-check")).toHaveLength(0);
+    expect(final.containerEl.querySelectorAll(".trie-node.active")).toHaveLength(0);
+    expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
+      "Результат: слова нет — не найдено",
+    );
+    expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
+      "not-found",
+    );
+  });
+
+  it("delete по существующему пути без конца слова: reused-кадры, result null, итог not-deleted", () => {
+    // delete «ко» при сохранённом «кот»: путь есть, удалять нечего.
+    const visitO = renderToDOM(
+      trieFrame({
+        ...catTreeSnapshot("delete ко"),
+        activePath: ["root", ID_K, ID_O],
+        edgeCheck: { rune: "о", state: "reused" },
+      }),
+    );
+    expect(visitO.ok).toBe(true);
+    expect(trieCell(visitO.containerEl, ID_O)?.classList.contains("active")).toBe(true);
+    expect(visitO.containerEl.querySelector(".trie-edge-check")?.textContent).toBe(
+      "Проверка ребра: «о» — ребро уже есть — спускаемся",
+    );
+    expect(visitO.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const final = renderToDOM(trieFrame({ ...catTreeSnapshot("delete ко"), result: "not-deleted" }));
+    expect(final.ok).toBe(true);
+    expect(final.containerEl.querySelectorAll(".trie-edge-check")).toHaveLength(0);
+    expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
+      "Результат: слова нет — не удалено",
+    );
+    expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
+      "not-deleted",
+    );
+  });
+
+  it("delete промах по отсутствующему ребру: путь до родителя, result null, итог not-deleted", () => {
+    // delete «ком» на дереве кот/код: м отсутствует в топологии.
+    const visitMissing = renderToDOM(
+      trieFrame({
+        ...catCodeTreeSnapshot(),
+        operation: "delete ком",
+        activePath: ["root", ID_K, ID_O],
+        edgeCheck: { rune: "м", state: "missing" },
+      }),
+    );
+    expect(visitMissing.ok).toBe(true);
+    expect(trieCell(visitMissing.containerEl, ID_O)?.classList.contains("active")).toBe(true);
+    expect(trieCell(visitMissing.containerEl, ID_M)).toBeNull();
+    expect(visitMissing.containerEl.querySelectorAll(".trie-node.active")).toHaveLength(3);
+    expect(visitMissing.containerEl.querySelector(".trie-edge-check")?.textContent).toBe(
+      "Проверка ребра: «м» — ребра нет — спуск невозможен",
+    );
+    expect(visitMissing.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const final = renderToDOM(
+      trieFrame({
+        ...catCodeTreeSnapshot(),
+        operation: "delete ком",
+        result: "not-deleted",
+      }),
+    );
+    expect(final.ok).toBe(true);
+    expect(final.containerEl.querySelectorAll(".trie-edge-check")).toHaveLength(0);
+    expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
+      "Результат: слова нет — не удалено",
+    );
+    expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
+      "not-deleted",
+    );
+  });
+
+  it("точный поиск найденного: активный путь на visit-кадрах, result null, итог found", () => {
+    // search «кот» по сохранённому «кот»: три reused-кадра, затем found.
+    const visitT = renderToDOM(
+      trieFrame({
+        ...catTreeSnapshot("search кот"),
+        activePath: ["root", ID_K, ID_O, ID_T],
+        edgeCheck: { rune: "т", state: "reused" },
+      }),
+    );
+    expect(visitT.ok).toBe(true);
+    expect(visitT.containerEl.querySelectorAll(".trie-node.active")).toHaveLength(4);
+    expect(trieCell(visitT.containerEl, ID_T)?.classList.contains("active")).toBe(true);
+    expect(visitT.containerEl.querySelector(".trie-edge-check")?.textContent).toBe(
+      "Проверка ребра: «т» — ребро уже есть — спускаемся",
+    );
+    expect(visitT.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const final = renderToDOM(trieFrame({ ...catTreeSnapshot("search кот"), result: "found" }));
+    expect(final.ok).toBe(true);
+    expect(final.containerEl.querySelectorAll(".trie-edge-check")).toHaveLength(0);
+    expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
+      "Результат: слово найдено",
+    );
+    expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
+      "found",
+    );
   });
 });
