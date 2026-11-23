@@ -5,9 +5,15 @@
 // visual/server/linkedlist.go, visual/server/hashtable.go,
 // visual/server/bst.go и visual/server/sort.go): ловим ошибки
 // ввода до Run; сервер перепроверяет — он авторитетен.
-// ёмкость и значения push/enqueue — грамматика Go strconv.Atoi, реализованная
-// в общем модуле decimalInteger.ts (см. parseDecimalInteger):
-// клиент не пропустит формы, которые отвергнет сервер.
+// Токенизация строк — намеренно прежняя JS-семантика
+// (splitLegacyScenarioFields, scenarioFields.ts), а не Go-паритет Trie:
+// проверка команд и аргументов зеркалит серверное поведение, но сама
+// токенизация остаётся JS-совместимой, чтобы прежние визуализации
+// работали без изменения поведения (см. ADR-0004 и шапку
+// scenarioFields.ts). ёмкость и значения push/enqueue — грамматика
+// Go strconv.Atoi, реализованная в общем модуле decimalInteger.ts
+// (см. parseDecimalInteger): клиент не пропустит формы, которые
+// отвергнет сервер.
 
 import { parseDecimalInteger } from "./decimalInteger";
 import { splitLegacyScenarioFields } from "./scenarioFields";
