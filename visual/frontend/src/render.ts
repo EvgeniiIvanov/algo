@@ -535,7 +535,7 @@ export function isTreeFrame(frame: Frame): boolean {
  * попытка видна через edgeCheck.
  */
 
-/** Сегмент пути по руне: "U+" и hex-код в верхнем регистре шириной ≥ 4. */
+/** Сегмент пути по руне: "U+" и hex-код в верхнем регистре минимальной ширины 4. */
 const TRIE_ID_SEGMENT = /^U\+[0-9A-F]{4,}$/;
 
 /** Код — валидный Unicode scalar value (не surrogate, не за U+10FFFF). */
@@ -591,8 +591,10 @@ function asTrieEdgeCheck(value: unknown): TrieEdgeCheck | null {
     );
   }
   if (typeof check.state !== "string" || !(TRIE_EDGE_STATES as readonly string[]).includes(check.state)) {
+    // Значения допустимых состояний — из централизованного множества
+    // (types.ts), чтобы сообщение не разошлось с валидацией.
     throw new Error(
-      "снимок Trie: поле edgeCheck.state — одно из reused, created, missing",
+      `снимок Trie: поле edgeCheck.state — одно из ${TRIE_EDGE_STATES.join(", ")}`,
     );
   }
   return check as unknown as TrieEdgeCheck;
@@ -618,7 +620,7 @@ function asTrieSnapshot(data: unknown): TrieSnapshot {
     }
     if (!isTrieNodeId(node.id)) {
       throw new Error(
-        `снимок Trie: идентификатор узла ${node.id} не канонический путь от корня по рунам (root/U+XXXX, hex в верхнем регистре шириной ≥ 4)`,
+        `снимок Trie: идентификатор узла ${node.id} не канонический путь от корня по рунам (root/U+XXXX, hex в верхнем регистре минимальной ширины 4)`,
       );
     }
     if (typeof node.isEnd !== "boolean") {
@@ -701,8 +703,10 @@ function asTrieSnapshot(data: unknown): TrieSnapshot {
     (typeof obj.result !== "string" ||
       !(TRIE_RESULT_VALUES as readonly string[]).includes(obj.result))
   ) {
+    // Значения допустимых итогов — из централизованного множества
+    // (types.ts), чтобы сообщение не разошлось с валидацией.
     throw new Error(
-      "снимок Trie: поле result должно быть null или одним из значений закрытого множества (insert, already-existed, found, not-found, prefix-found, prefix-not-found, deleted, not-deleted)",
+      `снимок Trie: поле result должно быть null или одним из значений закрытого множества (${TRIE_RESULT_VALUES.join(", ")})`,
     );
   }
   if (typeof obj.operation !== "string") {

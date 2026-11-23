@@ -525,6 +525,41 @@ describe("renderFrame: no-op-сценарии — промахи и точный
     );
   });
 
+  it("prefix промах по отсутствующему ребру: visit-кадр с edgeCheck, result null, итог prefix-not-found", () => {
+    // prefix «п» на дереве кот: ребра «п» от корня нет. Активный путь —
+    // только существующие узлы (корень), отсутствующий потомок не рисуется;
+    // на visit-кадре — чип edgeCheck и result: null, затем кадр результата
+    // операции prefix-not-found (SPEC, «Шов 3»).
+    const visit = renderToDOM(
+      trieFrame({
+        ...catTreeSnapshot("prefix п"),
+        activePath: ["root"],
+        edgeCheck: { rune: "п", state: "missing" },
+      }),
+    );
+    expect(visit.ok).toBe(true);
+    expect(trieCell(visit.containerEl, "root")?.classList.contains("active")).toBe(true);
+    expect(trieCell(visit.containerEl, "root/U+043F")).toBeNull();
+    expect(visit.containerEl.querySelectorAll(".trie-node.active")).toHaveLength(1);
+    expect(visit.containerEl.querySelector(".trie-edge-check")?.textContent).toBe(
+      "Проверка ребра: «п» — ребра нет — спуск невозможен",
+    );
+    expect(visit.containerEl.querySelectorAll(".trie-result")).toHaveLength(0);
+
+    const final = renderToDOM(
+      trieFrame({ ...catTreeSnapshot("prefix п"), result: "prefix-not-found" }),
+    );
+    expect(final.ok).toBe(true);
+    expect(final.containerEl.querySelectorAll(".trie-edge-check")).toHaveLength(0);
+    expect(final.containerEl.querySelectorAll(".trie-node.active")).toHaveLength(0);
+    expect(final.containerEl.querySelector(".trie-result")?.textContent).toBe(
+      "Результат: префикса нет — не найдено",
+    );
+    expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
+      "prefix-not-found",
+    );
+  });
+
   it("точный поиск найденного: активный путь на visit-кадрах, result null, итог found", () => {
     // search «кот» по сохранённому «кот»: три reused-кадра, затем found.
     const visitT = renderToDOM(
@@ -551,5 +586,40 @@ describe("renderFrame: no-op-сценарии — промахи и точный
     expect(final.containerEl.querySelector(".trie-result")?.getAttribute("data-result")).toBe(
       "found",
     );
+  });
+});
+
+// Регрессия не-мутации: asTrieSnapshot валидирует edgeCheck по месту и
+// не переписывает поля входного снимка (SRC: render.ts) — рендер не
+// портит данные кадра сервера.
+describe("asTrieSnapshot и renderFrame не мутируют входной снимок", () => {
+  /** Глубокая заморозка: запись в любое вложенное поле бросает TypeError. */
+  function deepFreeze<T>(value: T): T {
+    if (value !== null && typeof value === "object") {
+      for (const v of Object.values(value as Record<string, unknown>)) {
+        deepFreeze(v);
+      }
+      Object.freeze(value);
+    }
+    return value;
+  }
+
+  it("isTrieFrame и renderFrame проходят на замороженном снимке без записи в поля", () => {
+    const original: TrieSnapshot = {
+      ...catCodeTreeSnapshot(),
+      operation: "insert кот",
+      activePath: ["root", ID_K],
+      edgeCheck: { rune: "к", state: "created" },
+    };
+    const copy = structuredClone(original);
+    // До фикса asTrieSnapshot переписывал obj.edgeCheck по месту — на
+    // замороженном снимке это бросило бы TypeError; честная валидация
+    // ничего не пишет, оба прохода проходят.
+    const frame = trieFrame(deepFreeze(original));
+    expect(isTrieFrame(frame)).toBe(true);
+    const { ok } = renderToDOM(frame);
+    expect(ok).toBe(true);
+    // И сама структура снимка не тронута: deep-equal с исходной копией.
+    expect(frame.data).toEqual(copy);
   });
 });

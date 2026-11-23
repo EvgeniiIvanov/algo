@@ -3,8 +3,11 @@
 // Сценарий — по одной команде `insert W`, `search W`, `prefix W`,
 // `delete W` на строку; аргумент — один непустой Unicode-токен без
 // пробелов из валидного UTF-8 (последовательность Unicode scalar values).
-// Токенизация строки — общая со всеми парсерами сценариев
-// (scenarioFields.ts): whitespace — по unicode.IsSpace, как на сервере.
+// Токенизация строки — splitScenarioFields (scenarioFields.ts):
+// whitespace — по unicode.IsSpace, как у серверного strings.Fields.
+// Исторические парсеры сценариев (scenario.ts) держат прежнюю JS-токенизацию
+// (splitLegacyScenarioFields) — расхождение зафиксировано в шапке
+// scenarioFields.ts.
 // Подсчёт длины — по Unicode scalar values (rune), не по UTF-16 code
 // units: 😀 — одна руна, UTF-16-пара не считается за две.
 //
@@ -159,8 +162,9 @@ interface TrieSimNode {
  * не ведут ни к одному концу слова; промахи search/prefix/delete и
  * повторные вставки топологию не меняют. Превышение лимита — Error до
  * отправки Run. Возвращает пиковое число живых rune-узлов (корень не
- * считается) — публичный итог dry-run: ноль узлов, например, у поиска по
- * пустому Trie, чьи события проверки рёбер ничего не создают.
+ * считается) — сухой итог dry-run, доступный вызывающим и тестам (UI его
+ * не показывает): ноль узлов, например, у поиска по пустому Trie, чьи
+ * события проверки рёбер ничего не создают.
  */
 export function checkTrieNodeLimit(commands: readonly TrieCommand[]): number {
   const root: TrieSimNode = { children: new Map(), isEnd: false };

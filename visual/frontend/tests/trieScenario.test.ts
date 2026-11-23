@@ -52,9 +52,11 @@ describe("parseTrieScenario — удачный разбор", () => {
   });
 });
 
-// Паритет токенизации с сервером: whitespace — по unicode.IsSpace
-// (scenarioFields.ts), как в strings.Fields на сервере. BOM U+FEFF — не
-// разделитель ни на клиенте, ни на сервере; NEL U+0085 — разделитель.
+// Паритет токенизации с сервером (только парсер Trie): whitespace — по
+// unicode.IsSpace (scenarioFields.ts), как в strings.Fields на сервере.
+// BOM U+FEFF — не разделитель ни на клиенте, ни на сервере; NEL U+0085 —
+// разделитель. Исторические парсеры (scenario.ts) держат прежнюю
+// JS-токенизацию — их регрессии в scenarioFields.test.ts и scenario.test.ts.
 describe("parseTrieScenario — whitespace-паритет с сервером", () => {
   it("NBSP U+00A0 и идеографический пробел U+3000 разделяют действие и аргумент", () => {
     expect(parseTrieScenario("insert\u00A0кот")).toEqual([
@@ -302,6 +304,28 @@ describe("checkTrieNodeLimit — dry-run пикового числа живых 
     expect(
       checkTrieNodeLimit([{ op: "insert", word: "к".repeat(MAX_TRIE_NODES) }]),
     ).toBe(MAX_TRIE_NODES);
+  });
+
+  it("пик против финала: вставка 60 рун и удаление — пик 60, финал 0", () => {
+    // Вставили 60 рун (пик 60), удалили: pruning срезает все 60 узлов,
+    // финальное живое число — 0. Возвращаемый пик берётся по максимуму
+    // после каждой команды и не уменьшается удалением.
+    expect(
+      checkTrieNodeLimit([
+        { op: "insert", word: "к".repeat(60) },
+        { op: "delete", word: "к".repeat(60) },
+      ]),
+    ).toBe(60);
+    // Финал действительно 0, а не 60: следующая вставка ещё 50 рун не
+    // отвергается (при неочищенных 60 было бы 110 > 100 — Error), а пик
+    // остаётся прежним максимумом 60.
+    expect(
+      checkTrieNodeLimit([
+        { op: "insert", word: "к".repeat(60) },
+        { op: "delete", word: "к".repeat(60) },
+        { op: "insert", word: "м".repeat(50) },
+      ]),
+    ).toBe(60);
   });
 });
 
