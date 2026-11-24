@@ -3,13 +3,11 @@ package quiz
 import (
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func TestEmbeddedBankValid(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
+	bank := embeddedBank(t)
 	if len(bank.Blocks) == 0 {
 		t.Fatal("во встроенном банке нет блоков")
 	}
@@ -19,10 +17,7 @@ func TestEmbeddedBankValid(t *testing.T) {
 }
 
 func TestEmbeddedBankModuleQuestionCounts(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
+	bank := embeddedBank(t)
 	// На модуль — от 5 до 8 вопросов (тикет 04); жёсткие числа не
 	// фиксируем, чтобы набор вопросов мог расти без правки теста.
 	for _, b := range bank.Blocks {
@@ -236,6 +231,125 @@ func containsAny(s string, fragments ...string) bool {
 	return false
 }
 
+// sentences разбивает текст на предложения: границей служит точка, за
+// которой идёт пробел или конец текста. Сокращений с точкой внутри
+// предложений в пояснениях банка нет.
+func sentences(text string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] != '.' {
+			continue
+		}
+		if i == len(text)-1 || text[i+1] == ' ' || text[i+1] == '\n' {
+			out = append(out, strings.TrimSpace(text[start:i+1]))
+			start = i + 1
+		}
+	}
+	if start < len(text) {
+		out = append(out, strings.TrimSpace(text[start:]))
+	}
+	return out
+}
+
+// segmentAfterCall возвращает фрагмент текста от вызова call до
+// ближайшего из других вызовов others или до конца текста: в этом
+// фрагменте записан результат вызова («Search("") = false»). Если call
+// не встречается, возвращает пустую строку.
+func segmentAfterCall(text, call string, others ...string) string {
+	start := strings.Index(text, call)
+	if start == -1 {
+		return ""
+	}
+	start += len(call)
+	end := len(text)
+	for _, other := range others {
+		if i := strings.Index(text[start:], other); i != -1 && start+i < end {
+			end = start + i
+		}
+	}
+	return text[start:end]
+}
+
+// segmentEnd возвращает длину первого фрагмента s до разделителя
+// (запятая, точка с запятой, точка) или длину s, если разделителя нет.
+func segmentEnd(s string) int {
+	if i := strings.IndexAny(s, ",;."); i != -1 {
+		return i
+	}
+	return len(s)
+}
+
+// splitWords разбивает текст на строчные слова из букв: знаки и цифры
+// служат разделителями.
+func splitWords(text string) []string {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r)
+	})
+	for i, w := range fields {
+		fields[i] = strings.ToLower(w)
+	}
+	return fields
+}
+
+// hasStem сообщает, начинается ли слово с одной из основ.
+func hasStem(word string, stems []string) bool {
+	for _, stem := range stems {
+		if strings.HasPrefix(word, stem) {
+			return true
+		}
+	}
+	return false
+}
+
+// universalCallWording сообщает, утверждает ли текст, что ошибка
+// возникает на любой/все/каждый вызов, метод, обращение или операцию —
+// «на любой вызов», «все методы», «каждый вызов», «произвольную
+// операцию». Квантор и существительное согласуются падежом, поэтому
+// они ищутся по основам среди соседних слов, а не точными фразами.
+// Не нарушением считается оговорка «(вызов/метод) с ошибкой …» — она
+// сужает утверждение до методов с результатом-ошибкой, как в SPEC.
+func universalCallWording(text string) bool {
+	quantifierStems := []string{"люб", "всех", "всем", "все", "кажд", "всяк", "произвольн"}
+	nounStems := []string{"вызов", "метод", "обращени", "операци"}
+	words := splitWords(text)
+	for i, w := range words {
+		if !hasStem(w, quantifierStems) {
+			continue
+		}
+		for _, j := range [4]int{i - 2, i - 1, i + 1, i + 2} {
+			if j < 0 || j >= len(words) || !hasStem(words[j], nounStems) {
+				continue
+			}
+			if !qualifiedByErrorWords(words, j) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// qualifiedByErrorWords сообщает, оговорено ли существительное
+// words[nounIdx] сужением «с ошибкой …» («каждый метод с ошибкой в
+// результате») или причастием «возвращающий ошибку …» среди ближайших
+// слов после него.
+func qualifiedByErrorWords(words []string, nounIdx int) bool {
+	for k := nounIdx + 1; k <= nounIdx+4 && k < len(words); k++ {
+		if !strings.HasPrefix(words[k], "ошибк") {
+			continue
+		}
+		switch prev := words[k-1]; {
+		case prev == "с" || prev == "со":
+			return true
+		case strings.HasPrefix(prev, "возвращающ"), strings.HasPrefix(prev, "дающ"):
+			return true
+		case strings.HasPrefix(prev, "результатом"): // «с результатом-ошибкой»
+			return true
+		}
+	}
+	return false
+}
+
 // assertModulesInOrder проверяет, что модули с перечисленными id идут
 // в списке модулей блока в том же порядке, что и в списке id.
 func assertModulesInOrder(t *testing.T, modules []Module, ids ...string) {
@@ -360,14 +474,16 @@ func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
 // расщеплении заполненного узла обязан быть про корень-лист, у которого
 // нет родителя: продвинутый разделитель сам становится родителем
 // (новым корнем). Проверки идут по коротким маркерам у публичного шва
-// банка, а не повторяют формулировки целиком.
+// банка, а не повторяют формулировки целиком; маркеры уникальны в
+// модуле, чтобы похожий новый вопрос не нарушал проверку.
 func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
 	questions := embeddedModule(t, "block-2", "b-trees").Questions
 
 	// Вопрос о числе потомков оговаривает внутренний узел, а не любой
 	// узел: универсальное «k ключей — k + 1 потомок» было бы ложным для
-	// листа.
-	q := questionByMarker(t, "b-trees", questions, "внутренн")
+	// листа. Маркер «5 упорядоченных ключей» уникален в модуле, в
+	// отличие от широкого «внутренн».
+	q := questionByMarker(t, "b-trees", questions, "5 упорядоченных ключей")
 	if !strings.Contains(q.Text, "потомк") {
 		t.Errorf("вопрос про k ключей не спрашивает про потомков: %q", q.Text)
 	}
@@ -400,44 +516,57 @@ func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
 func TestEmbeddedBankTrieEmptyWordQuestionSemantics(t *testing.T) {
 	questions := embeddedModule(t, "block-2", "trie").Questions
 
-	// Вопрос про пустое слово ищем по фразе из его текста;
-	// questionByMarker завершит тест, если маркер перестанет совпадать
-	// или станет неоднозначным, — другой вопрос под видом этого тест
-	// проверить не может.
-	q := questionByMarker(t, "trie", questions, "операции с пустым словом")
+	// Технический маркер NewTrie() уникален в модуле trie и устойчив к
+	// переформулировкам темы; questionByMarker завершит тест, если
+	// маркер перестанет совпадать или станет неоднозначным.
+	q := questionByMarker(t, "trie", questions, "NewTrie()")
 
-	// Контроль идентичности вопроса: правильный ответ описывает
-	// операции на пустом слове, а не что-то другое с той же фразой.
+	// Контроль правильного ответа: не просто упоминания вызовов, а их
+	// значения — Search("") на пустом Trie даёт false, а StartsWith("")
+	// — true (SPEC, «Минимум API»). Значение ищется в тексте сразу после
+	// вызова, до следующего упоминания вызова, поэтому перечисление имён
+	// без значений проверку не проходит.
 	correct := q.Options[q.Correct]
-	for _, fragment := range []string{`Search("")`, `StartsWith("")`} {
-		if !strings.Contains(correct, fragment) {
-			t.Errorf("правильный ответ не описывает %s на пустом слове: %q", fragment, correct)
+	if !containsAny(correct, `Search("")`, `StartsWith("")`) {
+		t.Errorf("правильный ответ должен описывать Search(\"\") и StartsWith(\"\"): %q", correct)
+	}
+	if part := segmentAfterCall(correct, `Search("")`,
+		`StartsWith("")`, `Insert("")`, `Delete("")`); !strings.Contains(part, "false") {
+		t.Errorf("правильный ответ должен сообщать, что Search(\"\") даёт false: %q", correct)
+	}
+	if part := segmentAfterCall(correct, `StartsWith("")`,
+		`Search("")`, `Insert("")`, `Delete("")`); !strings.Contains(part, "true") {
+		t.Errorf("правильный ответ должен сообщать, что StartsWith(\"\") даёт true: %q", correct)
+	}
+
+	// Все проверки семантики неинициализированного Trie — по
+	// предложению, называющему ErrUninitializedTrie, а не по хвосту
+	// пояснения: Insert и Delete встречаются в именах
+	// ErrInsertEmptyWord/ErrDeleteEmptyWord, Search и StartsWith — в
+	// предложениях про пустые запросы, поэтому проверки по всему тексту
+	// принимали бы случайные совпадения за клаузу.
+	var clause string
+	errSentences := 0
+	for _, s := range sentences(q.Explanation) {
+		if strings.Contains(s, "ErrUninitializedTrie") {
+			errSentences++
+			clause = s
 		}
 	}
-
-	// Все проверки ниже — по клаузе про неинициализированный Trie, а
-	// не по всему пояснению: Insert и Delete встречаются в именах
-	// ErrInsertEmptyWord/ErrDeleteEmptyWord, а Search и StartsWith —
-	// в первой части пояснения про пустые запросы, поэтому проверки по
-	// всему тексту не отличают клаузу от случайных совпадений.
-	clauseStart := strings.Index(q.Explanation, "неинициализированн")
-	if clauseStart == -1 {
-		t.Fatalf("пояснение не описывает поведение неинициализированного Trie: %q", q.Explanation)
+	if errSentences != 1 {
+		t.Fatalf("в пояснении должно быть ровно одно предложение с ErrUninitializedTrie, найдено %d: %q",
+			errSentences, q.Explanation)
 	}
-	clause := q.Explanation[clauseStart:]
 
-	errIdx := strings.Index(clause, "ErrUninitializedTrie")
-	if errIdx == -1 {
-		t.Fatalf("клауза про неинициализированный Trie не называет ErrUninitializedTrie: %q", clause)
-	}
-	// Хвост клаузы после имени ошибки: перечисление методов, оговорка о
-	// порядке проверок и Len() обязаны быть связаны с ошибкой здесь.
-	errTail := clause[errIdx:]
-
-	// Ошибка названа для каждой из четырёх операций с
-	// результатом-ошибкой: Insert, Search, StartsWith, Delete.
+	// Ошибка названа для каждого из четырёх методов с
+	// результатом-ошибкой (SPEC, «Минимум API»). Имена ошибок пустого
+	// слова содержат имена методов (ErrInsertEmptyWord → Insert), поэтому
+	// перед проверкой перечня вырезаем их: совпадение внутри имени
+	// ошибки не считается упоминанием метода.
+	methods := strings.ReplaceAll(clause, "ErrInsertEmptyWord", "")
+	methods = strings.ReplaceAll(methods, "ErrDeleteEmptyWord", "")
 	for _, op := range []string{"Insert", "Search", "StartsWith", "Delete"} {
-		if !strings.Contains(errTail, op) {
+		if !strings.Contains(methods, op) {
 			t.Errorf("клауза не связывает ErrUninitializedTrie с %s: %q", op, clause)
 		}
 	}
@@ -445,27 +574,44 @@ func TestEmbeddedBankTrieEmptyWordQuestionSemantics(t *testing.T) {
 	// Проверка инициализации предшествует проверкам ввода — в том числе
 	// вместо ошибок пустого слова (SPEC, «Минимум API»). Допускаем
 	// варианты формулировки порядка, но не его отсутствие.
-	if !containsAny(errTail,
-		"до проверки", "прежде проверки", "до валидации", "прежде валидации") {
+	if !containsAny(clause,
+		"до провер", "прежде провер", "прежде чем провер", "раньше провер",
+		"перед провер", "опережает провер", "предшествует провер",
+		"до валидац", "прежде валидац", "раньше валидац", "перед валидац") {
 		t.Errorf("клауза не оговаривает, что проверка инициализации предшествует проверкам ввода: %q", clause)
 	}
-	if !strings.Contains(errTail, "пустого слова") && !strings.Contains(errTail, "EmptyWord") {
+	if !containsAny(clause,
+		"пустого слова", "пустых слов", "пустым слов", "пустое слов", "EmptyWord") {
 		t.Errorf("клауза не оговаривает, что ErrUninitializedTrie возвращается вместо ошибок пустого слова: %q", clause)
 	}
 
-	// Len() на неинициализированном Trie возвращает 0, а не ошибку:
-	// упоминание Len() в клаузе обязано идти вместе с нулём.
-	lenIdx := strings.Index(clause, "Len()")
-	if lenIdx == -1 {
+	// Len() на неинициализированном Trie возвращает 0, а не ошибку.
+	// Каждое упоминание Len() в клаузе обязано стоять рядом с нулём:
+	// если Len() попал в перечень возвращающих ошибку методов, в его
+	// фрагменте до ближайшего разделителя нуля не будет.
+	if !strings.Contains(clause, "Len()") {
 		t.Fatalf("клауза про неинициализированный Trie не упоминает Len(): %q", clause)
 	}
-	if !strings.Contains(clause[lenIdx:], "возвращает 0") {
-		t.Errorf("клауза не говорит, что Len() на неинициализированном Trie возвращает 0: %q", clause)
+	rest := clause
+	for {
+		i := strings.Index(rest, "Len()")
+		if i == -1 {
+			break
+		}
+		segment := rest[i+len("Len()"):]
+		segment = segment[:segmentEnd(segment)]
+		if !containsAny(segment, "нол", "нул", " 0", "= 0", "=0") {
+			t.Errorf("клауза не говорит, что Len() на неинициализированном Trie возвращает 0: %q", clause)
+		}
+		rest = rest[i+len("Len()"):]
 	}
 
-	// Негативная проверка на прежнюю неточную формулировку «на любой
-	// вызов» не нужна: проверки выше идут по клаузе и требуют
-	// перечислить ровно четыре метода с ошибкой при Len() = 0, поэтому
-	// чрезмерно широкое утверждение об ошибке «на любой вызов» больше
-	// не может пройти этот тест незамеченным.
+	// Негативная проверка на прежнюю неточную формулировку: клауза не
+	// вправе утверждать, что ошибка возникает на любой/все/каждый вызов
+	// или метод. Универсальное утверждение не спасают ни перечень
+	// четырёх методов, ни отдельная оговорка «Len() возвращает 0»:
+	// «любой вызов» включал бы и Len(), который ошибки не возвращает.
+	if universalCallWording(clause) {
+		t.Errorf("клауза не вправе утверждать, что ErrUninitializedTrie возникает на любой/все/каждый вызов или метод: %q", clause)
+	}
 }
