@@ -90,4 +90,20 @@ describe("parseQueueScenario", () => {
     const script = Array.from({ length: 501 }, () => "dequeue").join("\n");
     expect(() => parseQueueScenario(script, 3)).toThrow(/слишком длинный/);
   });
+
+  // Регрессия прежней токенизации (JS \s, tests/scenarioFields.test.ts):
+  // прежние визуализации работают без изменения поведения (критерий
+  // тикета 42). BOM U+FEFF — JS-пробельный разделитель: возвращение
+  // Go-токенизатора приклеило бы его к токену («\uFEFFenqueue» —
+  // неизвестная операция) и тест бы упал. NEL U+0085 — наоборот, не
+  // пробельный в JS \s: приклеивается к команде, и клиент отвергает
+  // то, что Go-токенизатор разделил бы на «enqueue» и «5».
+  it("BOM U+FEFF отделяет команду, NEL U+0085 приклеивается — прежняя JS-токенизация", () => {
+    expect(parseQueueScenario("\uFEFFenqueue 5", 3)).toEqual([
+      { isEnqueue: true, value: 5 },
+    ]);
+    expect(() => parseQueueScenario("enqueue\u00855", 3)).toThrow(
+      /строка 1: неизвестная операция «enqueue\u00855»/,
+    );
+  });
 });

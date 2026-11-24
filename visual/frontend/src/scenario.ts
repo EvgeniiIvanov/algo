@@ -4,12 +4,26 @@
 // visual/server/queue.go, visual/server/list.go,
 // visual/server/linkedlist.go, visual/server/hashtable.go,
 // visual/server/bst.go и visual/server/sort.go): ловим ошибки
-// ввода до Run; сервер перепроверяет — он авторитетен.
-// ёмкость и значения push/enqueue — грамматика Go strconv.Atoi, реализованная
-// в общем модуле decimalInteger.ts (см. parseDecimalInteger):
-// клиент не пропустит формы, которые отвергнет сервер.
+// ввода до Run. Сервер перепроверяет всё это же на своей стороне —
+// он авторитетен, и клиентский разбор здесь не даёт полного паритета.
+// Токенизация строк — намеренно прежняя JS-семантика
+// (splitLegacyScenarioFields, scenarioFields.ts), а не Go-паритет Trie:
+// проверка команд и аргументов зеркалит серверное поведение, но сама
+// токенизация остаётся JS-совместимой (trim + \s), чтобы прежние
+// визуализации работали без изменения поведения (см. ADR-0004 и шапку
+// scenarioFields.ts). На U+FEFF/U+0085 клиент и сервер могут
+// расходиться: BOM U+FEFF пробельный только в JS, NEL U+0085 — только
+// в Go, поэтому клиент может пропустить форму, которую отвергнет
+// сервер, и наоборот. Go-семантика whitespace на клиенте — только у
+// парсера Trie (там клиент зеркалит сервер намеренно).
+// Ёмкость и значения push/enqueue — грамматика Go strconv.Atoi,
+// реализованная в общем модуле decimalInteger.ts (см.
+// parseDecimalInteger); это лучшее приближение, а не абсолют:
+// отдельные числовые формы (например с приклеенным BOM) сознательно
+// отложены (deferred), финальное решение всегда за сервером.
 
 import { parseDecimalInteger } from "./decimalInteger";
+import { splitLegacyScenarioFields } from "./scenarioFields";
 import { MAX_TREE_NODES } from "./tree";
 
 /** Одна операция сценария стека: push со значением или pop. */
@@ -117,10 +131,7 @@ export function parseStackScenario(raw: string, capacity: number): StackOp[] {
   const ops: StackOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -194,10 +205,7 @@ export function parseQueueScenario(raw: string, capacity: number): QueueOp[] {
   const ops: QueueOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -260,10 +268,7 @@ export function parseListScenario(raw: string): ListOp[] {
   const ops: ListOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -368,10 +373,7 @@ export function parseLinkedListScenario(raw: string): LinkedListOp[] {
   const ops: LinkedListOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -542,10 +544,7 @@ export function parseHashTableScenario(raw: string): HashTableOp[] {
   const ops: HashTableOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 
@@ -634,10 +633,7 @@ export function parseBSTScenario(raw: string): BSTOp[] {
   const ops: BSTOp[] = [];
   const lines = raw.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const fields = lines[i]
-      .trim()
-      .split(/\s+/)
-      .filter((f) => f.length > 0);
+    const fields = splitLegacyScenarioFields(lines[i]);
     if (fields.length === 0) continue; // пустая строка — не операция
     const lineNo = i + 1;
 

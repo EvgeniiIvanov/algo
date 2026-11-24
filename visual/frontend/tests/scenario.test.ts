@@ -91,4 +91,19 @@ describe("parseStackScenario", () => {
     const script = Array.from({ length: 501 }, () => "pop").join("\n");
     expect(() => parseStackScenario(script, 3)).toThrow(/слишком длинный/);
   });
+
+  // Токенизация строк исторических парсеров — прежняя JS-семантика
+  // splitLegacyScenarioFields (tests/scenarioFields.test.ts): регрессия,
+  // что шов держит прежнее наблюдаемое поведение — прежние визуализации
+  // работают без изменения поведения (критерий тикета 42), а не
+  // Go-паритет Trie (там BOM U+FEFF — часть токена, NEL U+0085 —
+  // разделитель).
+  it("токенизация прежняя (JS \\s): BOM U+FEFF отделяется, NEL U+0085 — часть токена", () => {
+    expect(parseStackScenario("\uFEFFpush 5", 3)).toEqual([
+      { isPush: true, value: 5 },
+    ]);
+    expect(() => parseStackScenario("push\u00855", 3)).toThrow(
+      /строка 1: неизвестная операция «push\u00855»/,
+    );
+  });
 });

@@ -181,6 +181,19 @@ export function buildBSTRunURL(script: string): string {
 }
 
 /**
+ * Построить URL запуска Run сценария Trie: сырой текст сценария (по одной
+ * команде insert W, search W, prefix W или delete W на строку). Сценарий
+ * едет как есть — парсинг и валидация авторитетны на сервере. Сценарий уже
+ * проверен на фронте до сериализации: одиночная UTF-16 surrogate отклонена
+ * явно, потому что encodeURIComponent бросает URIError на одиночную
+ * surrogate, а URLSearchParams может молча заменить её на U+FFFD.
+ */
+export function buildTrieRunURL(script: string): string {
+  const params = new URLSearchParams({ script });
+  return runURL("trie", params);
+}
+
+/**
  * Разобрать тело ошибки от бэкенда (application/json, поле "error").
  * Если тело не JSON или формат не тот — возвращает null, и вызывающий
  * решает, как показать ошибку.

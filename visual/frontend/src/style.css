@@ -637,3 +637,56 @@ code {
   border-color: #b45309;
   color: white;
 }
+
+/* Кадр kind="trie" (сценарий Trie): узел — ячейка с руной-меткой ребра;
+   потомки — вложенные ветки на любое число rune-переходов (ветвление
+   не ограничено двумя), форма дерева читается глазами. */
+.trie {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trie-node-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.trie-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 28px;
+  border-left: 2px solid var(--line);
+  padding-left: 14px;
+}
+
+/* Отметка конца слова: узел хранит конец слова — маркер • и подсветка. */
+.trie-node.trie-end {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+
+/* Активный путь шага: каждая ячейка пути подсвечена (у отсутствующего
+   ребра потомка нет — путь останавливается у родителя). */
+.trie-node.active {
+  background: var(--mid);
+  border-color: #b45309;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Проверка ребра (edgeCheck) и итог команды (result): чипы под шапкой
+   шага, пока они не null. */
+.trie-edge-check,
+.trie-result {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.trie-result {
+  color: #b45309;
+}
