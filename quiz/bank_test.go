@@ -302,13 +302,25 @@ func hasStem(word string, stems []string) bool {
 	return false
 }
 
+// tokenWords возвращает слова из токенов splitTokens: для проверок,
+// которым нужны позиции слов (отрицание рядом со словом об ошибке),
+// а не границы клауз.
+func tokenWords(toks []wordTok) []string {
+	words := make([]string, len(toks))
+	for i, tk := range toks {
+		words[i] = tk.word
+	}
+	return words
+}
+
 // wordTok — слово текста вместе с признаками сильного разделителя
 // клаузы перед словом: newClause отмечает любую сильную границу,
 // colon — что этой границей было двоеточие. Двоеточие двухранольно:
 // оно вводит перечисление, управляемое предыдущим утверждением об
 // ошибке («…возникает на вызовы: Insert…»), или отделяет завершённое
 // перечисление от заметки про Len() («…и Delete: Len() при этом…»);
-// различение по месту применения — в lenEnumeratedWithError.
+// различение по месту применения — в lenEnumeratedWithError и
+// lenFirstListedAfterColon.
 type wordTok struct {
 	word      string
 	newClause bool
@@ -320,7 +332,8 @@ type wordTok struct {
 // перечисление исключений не продолжается; запятая клаузу не
 // заканчивает — внутри клаузы она разделяет элементы перечисления.
 // Двоеточие двухранольно (вводит перечисление или отделяет его от
-// заметки про Len()); различение — в lenEnumeratedWithError.
+// заметки про Len()); различение — в lenEnumeratedWithError и
+// lenFirstListedAfterColon.
 func isClauseBreak(r rune) bool {
 	switch r {
 	case ';', '.', '—', '–', ':':
@@ -631,27 +644,28 @@ func negatedErrorClaim(words []string, errIdx int) bool {
 // отслеживается: другое имя метода, соединённое с Len() союзом «и»
 // или предлогом «с»/«со», продолжает совместное подлежащее
 // («Len() и Delete возвращают ошибку»), а после знаменательных слов
-// или противительного «а» означает смену подлежащего — ошибка
-// дальше относится уже к нему. Первое слово об ошибке решает: с
-// отрицанием («Len() не возвращает ErrUninitializedTrie», «Len()
-// ошибки не возвращает») утверждение снято, без него Len() включён
-// в утверждающие ошибку методы; исключение — слово об ошибке после
-// противительного «а»: порядок «ошибка, затем сказуемое, затем
-// метод» («…возвращает 0, а ошибку возвращает Delete») означает,
-// что ошибка назначена новому подлежащему, а не Len().
+// означает смену подлежащего — ошибка дальше относится уже к нему.
+// Противительные «а» и «но» exemption не дают сами по себе:
+// продолжение утверждения про Len() («Len() возвращает 0, а также
+// ошибку», «…а иногда ErrUninitializedTrie», «…а при пустом слове
+// возвращает ошибку») оставляет ошибку при Len(). Исключение —
+// порядок «ошибка, затем сказуемое, затем метод» («…возвращает 0,
+// а ошибку возвращает Delete», равнозначное «…но ошибку возвращает
+// Delete»): за словом об ошибке следует сказуемое и новое
+// подлежащее-метод, значит, ошибка назначена ему, а не Len().
+// Первое слово об ошибке решает: с отрицанием («Len() не возвращает
+// ErrUninitializedTrie», «Len() ошибки не возвращает») утверждение
+// снято, без него Len() включён в утверждающие ошибку методы.
 func lenClaimedErroneous(after string) bool {
 	toks, _ := splitTokens(after)
-	words := make([]string, len(toks))
-	for i, tk := range toks {
-		words[i] = tk.word
-	}
+	words := tokenWords(toks)
 	subjectChanged := false
 	for k := 0; k < len(toks); k++ {
 		if toks[k].newClause {
 			return false // ошибка из следующей клаузы упоминанию не принадлежит
 		}
 		if isErrorWord(toks[k].word) {
-			if subjectChanged {
+			if subjectChanged && methodFollowsErrorPredicate(toks, k) {
 				return false // ошибка назначена новому подлежащему, не Len()
 			}
 			return !negatedErrorClaim(words, k)
@@ -659,9 +673,27 @@ func lenClaimedErroneous(after string) bool {
 		if isMethodToken(toks[k].word) && !jointSubject(toks, k) {
 			return false // подлежащее сменилось: ошибка не про Len()
 		}
-		if toks[k].word == "а" {
+		if toks[k].word == "а" || toks[k].word == "но" {
 			subjectChanged = true
 		}
+	}
+	return false
+}
+
+// methodFollowsErrorPredicate сообщает, стоит ли за словом об ошибке
+// toks[errIdx] сказуемое и подлежащее-метод в той же клаузе: оборот
+// «а ошибку возвращает Delete» назначает ошибку новому подлежащему,
+// а не Len(). Между ошибкой и методом допускаются только
+// слова-сказуемые (predicateStems); другое знаменательное слово
+// («а также ошибку, которую возвращает Delete») означает, что оборот
+// продолжает утверждение про Len(), и exemption не засчитывается.
+func methodFollowsErrorPredicate(toks []wordTok, errIdx int) bool {
+	for k := errIdx + 1; k < len(toks) && !toks[k].newClause; k++ {
+		w := toks[k].word
+		if hasStem(w, predicateStems) {
+			continue
+		}
+		return isMethodToken(w)
 	}
 	return false
 }
@@ -699,20 +731,21 @@ func jointSubject(toks []wordTok, k int) bool {
 // этом…», «…Delete, а Len() при этом…»). Сильный разделитель прямо
 // перед упоминанием тоже заканчивает перечисление раньше него —
 // Len() за границей («…Insert, Search и Delete; Len() при этом…»)
-// к перечислению не относится. Двоеточие двухранольно: после
-// завершённого перечисления оно отделяет его от заметки про Len()
-// (tailBreak выше), а перед перечислением вводит его — перечисление
-// остаётся под управлением утверждения об ошибке, если слово об
-// ошибке стоит вплотную перед двоеточием («ErrUninitializedTrie
-// возникает на вызовы: Insert, Search, StartsWith и Len()»). Если
-// набран хотя бы один метод и обход дошёл до слова об ошибке — либо
-// ошибка названа тремя словами до остановки, не пересекая сильной
-// границы, — Len() включён в утверждающие ошибку методы, чего на
-// неинициализированном Trie не бывает (SPEC, «Минимум API»).
+// к перечислению не относится, но завершающее двоеточие
+// двухранольно: оно либо вводит перечисление под управлением
+// утверждения об ошибке, первым элементом которого стало данное
+// упоминание («ErrUninitializedTrie возникает на вызовы: Len(),
+// Search и Delete возвращают ошибку»), либо отделяет завершённое
+// перечисление от заметки про Len() — различение в
+// lenFirstListedAfterColon. Если набран хотя бы один метод и обход
+// дошёл до слова об ошибке — либо ошибка названа тремя словами до
+// остановки, не пересекая сильной границы, — Len() включён в
+// утверждающие ошибку методы, чего на неинициализированном Trie не
+// бывает (SPEC, «Минимум API»).
 func lenEnumeratedWithError(before string) bool {
 	toks, tailBreak := splitTokens(before)
 	if tailBreak {
-		return false // перечисление закончилось сильным разделителем перед Len()
+		return lenFirstListedAfterColon(before, toks)
 	}
 	methods := 0
 	for k := len(toks) - 1; k >= 0; k-- {
@@ -737,13 +770,8 @@ func lenEnumeratedWithError(before string) bool {
 		}
 		// чужое слово — ошибка может быть названа рядом, до
 		// остановки и без пересечения сильной границы.
-		for d := 1; d <= 3 && k-d >= 0; d++ {
-			if toks[k-d].newClause {
-				break
-			}
-			if isErrorWord(toks[k-d].word) {
-				return methods > 0
-			}
+		if errorWordBefore(toks, k, shortEnumWindow) {
+			return methods > 0
 		}
 		return false
 	}
@@ -755,15 +783,64 @@ func lenEnumeratedWithError(before string) bool {
 // возникает на вызовы: …» — четыре слова от двоеточия до ошибки.
 const colonEnumWindow = 4
 
+// shortEnumWindow — сколько слов перед чужим словом просматривается
+// в поисках слова об ошибке: «ErrUninitializedTrie возникает на
+// вызовы Insert, …» — три слова от чужого слова до ошибки.
+const shortEnumWindow = 3
+
+// lenFirstListedAfterColon сообщает, вводит ли завершающее before
+// двоеточие перечисление, первым элементом которого стало данное
+// упоминание Len(): «ErrUninitializedTrie возникает на вызовы:
+// Len(), Search и Delete возвращают ошибку» — перечисление под
+// управлением утверждения об ошибке, и Len() включён в получающие
+// ошибку методы. Точка, точка с запятой и тире перечисления не
+// вводят — Len() за ними к предыдущей клаузе не относится.
+// Двоеточие отделяет завершённое перечисление от заметки про Len()
+// («…Insert, Search и Delete: Len() при этом возвращает 0»), если
+// между словом об ошибке и двоеточием уже названы методы:
+// перечисление завершилось до двоеточия, и Len() за ним — заметка,
+// а не элемент. Слово об ошибке ищется в пределах colonEnumWindow
+// перед двоеточием без пересечения сильной границы и со снятием
+// отрицанием (errorWordBefore).
+func lenFirstListedAfterColon(before string, toks []wordTok) bool {
+	if trimmed := strings.TrimRight(before, " \t\n"); !strings.HasSuffix(trimmed, ":") {
+		return false // точка, точка с запятой и тире перечисление не вводят
+	}
+	errIdx := -1
+	for k := len(toks) - 1; k >= 0 && !toks[k].newClause; k-- {
+		if isErrorWord(toks[k].word) {
+			errIdx = k
+			break
+		}
+	}
+	if errIdx == -1 {
+		return false
+	}
+	if negatedErrorClaim(tokenWords(toks), errIdx) {
+		return false // отрицание снимает утверждение об ошибке
+	}
+	for k := errIdx + 1; k < len(toks); k++ {
+		if isMethodToken(toks[k].word) {
+			return false // перечисление завершилось до двоеточия
+		}
+	}
+	return true
+}
+
 // errorWordBefore сообщает, стоит ли слово об ошибке в пределах window
-// слов перед позицией idx, не пересекая другой сильной границы клаузы.
+// слов перед позицией idx, не пересекая другой сильной границы клаузы,
+// и не снято ли его утверждение отрицанием: «ошибку не возвращают:
+// Insert, Search и Len()» утверждения об ошибке не содержит. Первое
+// найденное слово об ошибке решает. Общий помощник обоих обходов
+// lenEnumeratedWithError: вводящего двоеточия (colonEnumWindow) и
+// короткого взгляда назад перед чужим словом (shortEnumWindow).
 func errorWordBefore(toks []wordTok, idx, window int) bool {
 	for d := 1; d <= window && idx-d >= 0; d++ {
 		if toks[idx-d].newClause {
 			break
 		}
 		if isErrorWord(toks[idx-d].word) {
-			return true
+			return !negatedErrorClaim(tokenWords(toks), idx-d)
 		}
 	}
 	return false
@@ -787,14 +864,19 @@ func isErrorWord(w string) bool {
 // lenMentionHandled сообщает, оговорено ли данное упоминание Len():
 // нулём рядом («Len() при этом возвращает 0», «возвращает ноль»,
 // «= 0» — отдельно стоящий «0», но не цифра внутри числа вроде «10»),
-// отрицанием ошибки («Len() ошибки не возвращает», «Len() не
-// возвращает ErrUninitializedTrie») или оговоркой-исключением,
-// называющей именно Len() («любой метод, кроме Len()», «за
-// исключением Len()», «но не Len()», «кроме Delete и Len()»).
+// отрицанием ошибки — после упоминания («Len() ошибки не возвращает»,
+// «Len() не возвращает ErrUninitializedTrie») или перед ним, когда
+// упоминание входит в отрицаемое перечисление («ошибку не возвращают:
+// Insert, Search и Len()»), — или оговоркой-исключением, называющей
+// именно Len() («любой метод, кроме Len()», «за исключением Len()»,
+// «но не Len()», «кроме Delete и Len()»).
 // Ассоциация направленная: оговорка про чужой метод («кроме Delete;
 // Len() при этом просто считает слова») упоминание не оговаривает.
 func lenMentionHandled(before, after string) bool {
 	if lenExceptHandled(before) {
+		return true
+	}
+	if negatedErrorBeforeMention(before) {
 		return true
 	}
 	words := splitWords(after)
@@ -847,6 +929,35 @@ func lenExceptHandled(before string) bool {
 		return false // чужое слово — Len() вне перечисления
 	}
 	return !tailBreak // сильный разделитель перед Len() начинает новую клаузу
+}
+
+// negatedErrorBeforeMention сообщает, снимает ли отрицание
+// утверждение об ошибке, названное перед упоминанием Len() в том же
+// перечислении: «ошибку не возвращают: Insert, Search и Len()» —
+// перечисление под управлением отрицательного утверждения, и Len()
+// ошибки не получает. Первое слово об ошибке решает. Если
+// упоминание начинает новую клаузу (сильный разделитель в конце
+// before), отрицание из предыдущей клаузы упоминание не оговаривает.
+// Двоеточие перед перечислением связи с отрицающим словом не
+// разрывает, остальные сильные разделители — разрывают.
+func negatedErrorBeforeMention(before string) bool {
+	toks, tailBreak := splitTokens(before)
+	if tailBreak {
+		return false // упоминание начинает новую клаузу
+	}
+	words := tokenWords(toks)
+	for k := len(toks) - 1; k >= 0; k-- {
+		if toks[k].newClause {
+			if !toks[k].colon {
+				return false // отрицание из предыдущей клаузы
+			}
+			continue
+		}
+		if isErrorWord(toks[k].word) {
+			return negatedErrorClaim(words, k)
+		}
+	}
+	return false
 }
 
 // mentionsZero сообщает, называет ли фрагмент нулевое значение
@@ -959,6 +1070,11 @@ func TestLenWordingSafe(t *testing.T) {
 		// «ошибка, затем сказуемое, затем метод»: ошибку возвращает
 		// Delete, а не Len().
 		"Len() при этом возвращает 0, а ошибку возвращает Delete",
+		// Равнозначный противительный оборот с «но».
+		"Len() возвращает 0, но ошибку возвращает Delete",
+		// Отрицание ошибки перед перечислением с двоеточием:
+		// Len() назван в перечислении методов, ошибки не получающих.
+		"ошибку не возвращают: Insert, Search и Len()",
 		// Ошибка в следующей клаузе после точки с запятой упоминанию
 		// Len() не принадлежит: ошибку возвращает Insert.
 		"Len() возвращает 0; Insert возвращает ошибку",
@@ -990,6 +1106,17 @@ func TestLenWordingSafe(t *testing.T) {
 		// утверждающих ошибку методах.
 		"Len() и Delete возвращают ErrUninitializedTrie",
 		"Len() и Delete возвращают ошибку",
+		// Противительные «а»/«но» exemption не дают сами по себе:
+		// продолжение утверждения («а также», «а иногда», «а при
+		// пустом слове») оставляет ошибку при Len().
+		"Len() возвращает 0, а также ошибку",
+		"Len() возвращает 0, а иногда ErrUninitializedTrie",
+		"Len() возвращает 0, а при пустом слове возвращает ошибку",
+		// Двоеточие вводит перечисление, первым элементом которого
+		// стал Len(): позднейшая верная заметка про Len() это не
+		// спасает — упоминание в перечислении не оговорено.
+		"ErrUninitializedTrie возникает на вызовы: Len(), Search и Delete возвращают ошибку",
+		"ErrUninitializedTrie возникает на вызовы: Len(), Search и Delete возвращают ошибку, но Len() при этом возвращает 0",
 		// Двоеточие вводит перечисление, управляемое предыдущим
 		// утверждением об ошибке: Len() внутри перечисления.
 		"ErrUninitializedTrie возникает на вызовы: Insert, Search, StartsWith и Len()",
