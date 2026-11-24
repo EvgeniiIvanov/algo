@@ -177,6 +177,18 @@ func embeddedBlock1WithModules(t *testing.T, ids ...string) (*Block, []int) {
 	return block1, indices
 }
 
+// embeddedBlock2 загружает встроенный банк и возвращает указатель на
+// блок block-2 или завершает тест, если банка или блока нет.
+func embeddedBlock2(t *testing.T) *Block {
+	t.Helper()
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	_, block2 := findBlock(t, bank, "block-2")
+	return block2
+}
+
 // assertModulesInOrder проверяет, что модули с перечисленными id идут
 // в списке модулей блока в том же порядке, что и в списке id.
 func assertModulesInOrder(t *testing.T, modules []Module, ids ...string) {
@@ -270,22 +282,14 @@ func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
 // Тест порядка модулей Блока 2 (тикет 37): модуль bst присутствует в
 // block-2 и идёт после tree-traversals.
 func TestEmbeddedBankBlock2BSTAfterTreeTraversals(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	_, block2 := findBlock(t, bank, "block-2")
+	block2 := embeddedBlock2(t)
 	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst")
 }
 
 // Тест порядка модулей Блока 2 (тикет 38): модуль bst-balancing
 // присутствует в block-2 и идёт после bst.
 func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	_, block2 := findBlock(t, bank, "block-2")
+	block2 := embeddedBlock2(t)
 	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst", "bst-balancing")
 }
 
@@ -293,11 +297,7 @@ func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
 // в block-2 и идёт после bst-balancing; остальная цепочка
 // tree-traversals → bst → bst-balancing покрыта тестами тикетов 37 и 38.
 func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	_, block2 := findBlock(t, bank, "block-2")
+	block2 := embeddedBlock2(t)
 	assertModulesInOrder(t, block2.Modules, "bst-balancing", "b-trees")
 }
 
@@ -305,11 +305,7 @@ func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
 // block-2 и идёт после b-trees, замыкая цепочку
 // tree-traversals → bst → bst-balancing → b-trees → trie.
 func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	_, block2 := findBlock(t, bank, "block-2")
+	block2 := embeddedBlock2(t)
 	assertModulesInOrder(t, block2.Modules,
 		"tree-traversals", "bst", "bst-balancing", "b-trees", "trie")
 }
