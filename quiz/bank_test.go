@@ -302,6 +302,57 @@ func hasStem(word string, stems []string) bool {
 	return false
 }
 
+// wordTok — слово текста вместе с признаком «перед словом стоит
+// сильный разделитель клаузы».
+type wordTok struct {
+	word      string
+	newClause bool
+}
+
+// isClauseBreak сообщает, сильный ли это разделитель клаузы: точка с
+// запятой, точка или тире. За пределами клаузы перечисление исключений
+// не продолжается; запятая клаузу не заканчивает — внутри клаузы она
+// разделяет элементы перечисления.
+func isClauseBreak(r rune) bool {
+	switch r {
+	case ';', '.', '—', '–':
+		return true
+	}
+	return false
+}
+
+// splitTokens разбивает текст на слова, как splitWords, и помечает
+// каждое слово признаком сильной границы клаузы перед ним. Второй
+// результат сообщает, стоит ли сильный разделитель после последнего
+// слова: перечисление, дойдя до него, закончилось, не назвав Len()
+// («…кроме Delete; Len() при этом…»).
+func splitTokens(text string) (toks []wordTok, tailBreak bool) {
+	var b strings.Builder
+	inWord := false
+	pendingBreak := false
+	flush := func() {
+		if inWord {
+			toks = append(toks, wordTok{word: strings.ToLower(b.String()), newClause: pendingBreak})
+			b.Reset()
+			inWord = false
+			pendingBreak = false
+		}
+	}
+	for _, r := range text {
+		if unicode.IsLetter(r) {
+			b.WriteRune(r)
+			inWord = true
+			continue
+		}
+		flush()
+		if isClauseBreak(r) {
+			pendingBreak = true
+		}
+	}
+	flush()
+	return toks, pendingBreak
+}
+
 // universalCallWording сообщает, утверждает ли текст, что ошибка
 // возникает на любой/все/каждый вызов, метод, обращение или операцию —
 // «на любой вызов», «все методы», «каждый вызов», «произвольную
@@ -322,7 +373,11 @@ func hasStem(word string, stems []string) bool {
 func universalCallWording(text string) bool {
 	quantifierStems := []string{"люб", "всех", "всем", "все", "кажд", "всяк", "произвольн"}
 	nounStems := []string{"вызов", "метод", "обращени", "операци"}
-	words := splitWords(text)
+	toks, _ := splitTokens(text)
+	words := make([]string, len(toks))
+	for i, tk := range toks {
+		words[i] = tk.word
+	}
 	for i, w := range words {
 		if !hasStem(w, quantifierStems) {
 			continue
@@ -334,7 +389,7 @@ func universalCallWording(text string) bool {
 			if !linkedByFunctionWords(words, i, j) {
 				continue
 			}
-			if qualifiedByErrorWords(words, j) || excludedByExceptClause(words, j) {
+			if qualifiedByErrorWords(words, j) || excludedByExceptClause(toks, j) {
 				continue
 			}
 			return true
@@ -405,49 +460,73 @@ func linkedByFunctionWords(words []string, qi, ni int) bool {
 	return true
 }
 
-// excludedByExceptClause сообщает, исключает ли явная оговорка «кроме
-// …», «за исключением …» или «но не …» среди ближайших слов после
-// words[nounIdx] именно Len(): «любой метод, кроме Len()» утверждает
-// ошибку не на каждый вызов, а исключение чужого метода («каждый
-// метод, кроме Delete, …») Len() не оговаривает — универсальное
-// утверждение остаётся.
-func excludedByExceptClause(words []string, nounIdx int) bool {
-	for k := nounIdx + 1; k <= nounIdx+3 && k < len(words); k++ {
+// errMethodStems — основы имён четырёх методов с результатом-ошибкой
+// (SPEC, «Минимум API»): Insert, Search, StartsWith и Delete.
+var errMethodStems = []string{"insert", "search", "startswith", "delete"}
+
+// excludedByExceptClause сообщает, сужает ли явная оговорка «кроме …»,
+// «за исключением …» или «но не …» среди ближайших слов после
+// toks[nounIdx] универсальное утверждение до точного: перечисление
+// исключений обязано назвать именно Len() и не вправе назвать ни один
+// из методов с результатом-ошибкой. «любой метод, кроме Len()»
+// утверждает ошибку не на каждый вызов; исключение чужого метода
+// («каждый метод, кроме Delete, …») Len() не оговаривает, а
+// исключение ошибочного метода («кроме Delete и Len()») делает
+// утверждение неверным — ошибка на этот метод как раз возникает.
+func excludedByExceptClause(toks []wordTok, nounIdx int) bool {
+	for k := nounIdx + 1; k <= nounIdx+3 && k < len(toks); k++ {
 		switch {
-		case words[k] == "кроме":
-			return exceptedLen(words, k+1)
-		case words[k] == "за" && k+1 < len(words) && hasStem(words[k+1], []string{"исключен"}):
-			return exceptedLen(words, k+2)
-		case words[k] == "но" && k+1 < len(words) && words[k+1] == "не":
-			return exceptedLen(words, k+2)
+		case toks[k].word == "кроме":
+			return exceptedLen(toks, k+1)
+		case toks[k].word == "за" && k+1 < len(toks) && hasStem(toks[k+1].word, []string{"исключен"}):
+			return exceptedLen(toks, k+2)
+		case toks[k].word == "но" && k+1 < len(toks) && toks[k+1].word == "не":
+			return exceptedLen(toks, k+2)
 		}
 	}
 	return false
 }
 
-// exceptedLen сообщает, называет ли перечисление исключений, начиная
-// со слова words[idx], Len() («кроме Len()», «кроме Delete и Len()»);
-// трёх слов достаточно: длинные перечисления чужих методов оговоркой
-// Len() не считаются.
-func exceptedLen(words []string, idx int) bool {
-	for k := idx; k < idx+3 && k < len(words); k++ {
-		if hasStem(words[k], []string{"len"}) {
-			return true
+// exceptedLen сообщает, сужает ли перечисление исключений, начинающееся
+// со слова toks[idx], универсальное утверждение корректно: Len() в
+// перечислении быть обязан, а ни один из четырёх методов с
+// результатом-ошибкой назван быть не вправе. Перечисление начинается
+// строго после маркера оговорки: сильный разделитель клаузы
+// («кроме Delete; Len() при этом…») или чужое слово заканчивают его,
+// и Len() за пределами перечисления оговорки не считается; запятая и
+// союз «и» внутри перечисления разделяют элементы. Длинные
+// перечисления чужих методов оговоркой Len() не считаются — чужое
+// слово останавливает обход.
+func exceptedLen(toks []wordTok, idx int) bool {
+	hasLen, hasErrMethod := false, false
+	for k := idx; k < len(toks) && !toks[k].newClause; k++ {
+		w := toks[k].word
+		if w == "и" {
+			continue
 		}
+		if hasStem(w, []string{"len"}) {
+			hasLen = true
+			continue
+		}
+		if hasStem(w, errMethodStems) {
+			hasErrMethod = true
+			continue
+		}
+		break // чужое слово — перечисление закончилось
 	}
-	return false
+	return hasLen && !hasErrMethod
 }
 
 // lenWordingSafe сообщает, корректно ли клауза про
-// ErrUninitializedTrie обходит Len(): каждое упоминание Len() обязано
-// быть оговорено — нулём («Len() при этом возвращает 0», «возвращает
-// ноль», «= 0»), отрицанием ошибки («Len() ошибки не возвращает», «Len()
-// не возвращает ErrUninitializedTrie») или оговоркой-исключением
-// («любой метод, кроме Len()») — и ни одно не вправе включать метод в
-// утверждающие ошибку («…Delete и Len() возвращают
-// ErrUninitializedTrie», «Len() возвращает ошибку», «Len() возвращает
-// ошибку не всегда» — наречие меры отрицание не снимает). Упоминаний
-// Len() в клаузе быть должно.
+// ErrUninitializedTrie обходит Len(): каждое упоминание Len() не вправе
+// включать метод в утверждающие ошибку, а хотя бы одно упоминание
+// обязано быть оговорено — нулём («Len() при этом возвращает 0»,
+// «возвращает ноль», «= 0»), отрицанием ошибки («Len() ошибки не
+// возвращает», «Len() не возвращает ErrUninitializedTrie») или
+// оговоркой-исключением, называющей Len() («любой метод, кроме
+// Len()»). Дополнительные упоминания без собственной оговорки
+// допустимы, если ошибку они не утверждают; подробности — в
+// lenNoteSafe.
 func lenWordingSafe(clause string) bool {
 	return lenNoteSafe(clause, "")
 }
@@ -456,12 +535,20 @@ func lenWordingSafe(clause string) bool {
 // ErrUninitializedTrie и следующего за ней предложения оговаривает
 // Len(): SPEC не требует делить одно предложение, поэтому оговорка про
 // Len() может стоять и отдельным предложением («…даже вместо ошибок
-// пустого слова. Len() при этом возвращает 0»). Требования к каждому
-// упоминанию те же, что в lenWordingSafe; включение Len() в перечень
-// методов, получающих ошибку, остаётся нарушением — такое упоминание
-// не оговорено. Контекст упоминания не переходит границу предложения:
-// оговорка «кроме …» из клаузы не засчитывается упоминанию Len() в
-// следующем предложении.
+// пустого слова. Len() при этом возвращает 0»). Каждое упоминание
+// Len() не вправе включать метод в утверждающие ошибку — ни словами
+// после упоминания («Len() возвращает ошибку», «Len() возвращает
+// ошибку не всегда» — наречие меры отрицание не снимает), ни
+// перечислением методов, получающих ошибку
+// («…Insert, Search, StartsWith и Len()»). Обязательна хотя бы одна
+// действующая оговорка в окне — ноль, отрицание ошибки или
+// исключение, называющее Len(); дополнительные упоминания без
+// собственной оговорки допустимы, пока ошибку не утверждают: контраст
+// «Len() на неинициализированном Trie возвращает 0, а на
+// инициализированном — число слов» или самостоятельная заметка о
+// сложности Len(). Контекст упоминания не переходит границу
+// предложения: оговорка «кроме …» из клаузы не засчитывается
+// упоминанию Len() в следующем предложении.
 func lenNoteSafe(clause, next string) bool {
 	handled := false
 	for _, part := range []string{clause, next} {
@@ -472,13 +559,12 @@ func lenNoteSafe(clause, next string) bool {
 				break
 			}
 			before, after := rest[:i], rest[i+len("Len()"):]
-			if lenClaimedErroneous(after) {
+			if lenClaimedErroneous(after) || lenEnumeratedWithError(before) {
 				return false
 			}
-			if !lenMentionHandled(before, after) {
-				return false
+			if lenMentionHandled(before, after) {
+				handled = true
 			}
-			handled = true
 			rest = after
 		}
 	}
@@ -527,7 +613,7 @@ func lenClaimedErroneous(after string) bool {
 	words := splitWords(after)
 	for k := 0; k <= 3 && k < len(words); k++ {
 		switch {
-		case words[k] == "erruninitializedtrie", hasStem(words[k], []string{"ошибк"}):
+		case isErrorWord(words[k]):
 			if !negatedErrorClaim(words, k) {
 				return true
 			}
@@ -536,24 +622,77 @@ func lenClaimedErroneous(after string) bool {
 	return false
 }
 
+// lenEnumeratedWithError сообщает, включает ли перечисление методов,
+// которым текст утверждает ErrUninitializedTrie или ошибку, данное
+// упоминание Len(): «ErrUninitializedTrie возникает на вызовы Insert,
+// Search, StartsWith и Len()». От упоминания идём назад по элементам
+// перечисления — именам методов и союзу «и»; сильный разделитель
+// клаузы или чужое слово останавливают обход: граница или другой
+// контекст разрывают связь с ошибкой («…пустого слова; Len() при
+// этом…», «…Delete, а Len() при этом…»). Если набран хотя бы один
+// метод и обход дошёл до слова об ошибке — либо ошибка названа тремя
+// словами до остановки, не пересекая сильной границы, — Len() включён
+// в утверждающие ошибку методы, чего на неинициализированном Trie не
+// бывает (SPEC, «Минимум API»).
+func lenEnumeratedWithError(before string) bool {
+	toks, _ := splitTokens(before)
+	methods := 0
+	for k := len(toks) - 1; k >= 0; k-- {
+		if toks[k].newClause {
+			return false // перечисление из предыдущей клаузы
+		}
+		w := toks[k].word
+		if w == "и" {
+			continue
+		}
+		if isMethodToken(w) {
+			methods++
+			continue
+		}
+		if isErrorWord(w) {
+			return methods > 0
+		}
+		// чужое слово — ошибка может быть названа рядом, до
+		// остановки и без пересечения сильной границы.
+		for d := 1; d <= 3 && k-d >= 0; d++ {
+			if toks[k-d].newClause {
+				break
+			}
+			if isErrorWord(toks[k-d].word) {
+				return methods > 0
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// methodStems — основы имён всех пяти методов Trie (SPEC, «Минимум
+// API»): элементами перечислений методов могут быть только они.
+var methodStems = []string{"insert", "search", "startswith", "delete", "len"}
+
+// isMethodToken сообщает, является ли слово именем метода Trie.
+func isMethodToken(w string) bool {
+	return hasStem(w, methodStems)
+}
+
+// isErrorWord сообщает, называет ли слово ошибку: ErrUninitializedTrie
+// или производное от «ошибка».
+func isErrorWord(w string) bool {
+	return w == "erruninitializedtrie" || hasStem(w, []string{"ошибк"})
+}
+
 // lenMentionHandled сообщает, оговорено ли данное упоминание Len():
 // нулём рядом («Len() при этом возвращает 0», «возвращает ноль»,
 // «= 0» — отдельно стоящий «0», но не цифра внутри числа вроде «10»),
 // отрицанием ошибки («Len() ошибки не возвращает», «Len() не
-// возвращает ErrUninitializedTrie») или оговоркой-исключением
-// («любой метод, кроме Len()», «за исключением Len()», «но не Len()»).
+// возвращает ErrUninitializedTrie») или оговоркой-исключением,
+// называющей именно Len() («любой метод, кроме Len()», «за
+// исключением Len()», «но не Len()», «кроме Delete и Len()»).
+// Ассоциация направленная: оговорка про чужой метод («кроме Delete;
+// Len() при этом просто считает слова») упоминание не оговаривает.
 func lenMentionHandled(before, after string) bool {
-	beforeWords := splitWords(before)
-	if len(beforeWords) > 3 {
-		beforeWords = beforeWords[len(beforeWords)-3:]
-	}
-	for _, w := range beforeWords {
-		if w == "кроме" || hasStem(w, []string{"исключен"}) {
-			return true
-		}
-	}
-	if len(beforeWords) >= 2 &&
-		beforeWords[len(beforeWords)-2] == "но" && beforeWords[len(beforeWords)-1] == "не" {
+	if lenExceptHandled(before) {
 		return true
 	}
 	words := splitWords(after)
@@ -561,13 +700,51 @@ func lenMentionHandled(before, after string) bool {
 		switch {
 		case hasStem(words[k], []string{"нул", "нол"}):
 			return true
-		case words[k] == "erruninitializedtrie", hasStem(words[k], []string{"ошибк"}):
+		case isErrorWord(words[k]):
 			if negatedErrorClaim(words, k) {
 				return true
 			}
 		}
 	}
 	return mentionsZero(after[:segmentEnd(after)])
+}
+
+// lenExceptHandled сообщает, называет ли оговорка-исключение в before
+// именно Len(): ищем последний маркер оговорки («кроме», «за
+// исключением», «но не») и проверяем перечисление от маркера до
+// упоминания — между ними обязаны стоять только имена методов и союз
+// «и», без сильного разделителя клаузы и без чужих слов. Тогда Len() —
+// элемент перечисления: «кроме Len()», «кроме Delete и Len()».
+// Сильный разделитель («кроме Delete; Len() при этом…») или чужое
+// слово («кроме Delete, поэтому Len()…») заканчивают перечисление
+// раньше, и оговорка чужого метода упоминание Len() не оговаривает.
+func lenExceptHandled(before string) bool {
+	toks, tailBreak := splitTokens(before)
+	start := -1
+	for i := 0; i < len(toks); i++ {
+		switch {
+		case toks[i].word == "кроме":
+			start = i + 1
+		case toks[i].word == "за" && i+1 < len(toks) && hasStem(toks[i+1].word, []string{"исключен"}):
+			start = i + 2
+		case toks[i].word == "но" && i+1 < len(toks) && toks[i+1].word == "не":
+			start = i + 2
+		}
+	}
+	if start == -1 {
+		return false
+	}
+	for k := start; k < len(toks); k++ {
+		if toks[k].newClause {
+			return false // перечисление закончилось до упоминания
+		}
+		w := toks[k].word
+		if w == "и" || isMethodToken(w) {
+			continue
+		}
+		return false // чужое слово — Len() вне перечисления
+	}
+	return !tailBreak // сильный разделитель перед Len() начинает новую клаузу
 }
 
 // mentionsZero сообщает, называет ли фрагмент нулевое значение
@@ -626,6 +803,13 @@ func TestUniversalCallWording(t *testing.T) {
 		"ErrUninitializedTrie возникает на каждый указанный вызов",
 		// Исключение чужого метода Len() не оговаривает.
 		"каждый метод, кроме Delete, завершается ErrUninitializedTrie",
+		// Исключение ошибочного метода вместе с Len() утверждение
+		// не сужает: Delete ошибку как раз возвращает.
+		"каждый метод, кроме Delete и Len(), завершается ErrUninitializedTrie",
+		// Сильный разделитель заканчивает перечисление исключений:
+		// Len() за точкой с запятой к оговорке не относится, и
+		// универсальное утверждение остаётся.
+		"ErrUninitializedTrie возникает на любой вызов, кроме Delete; Len() при этом возвращает 0",
 	}
 	for _, text := range accurate {
 		if universalCallWording(text) {
@@ -652,6 +836,13 @@ func TestLenWordingSafe(t *testing.T) {
 		"ошибку возвращает любой метод, кроме Len()",
 		// Каждое из двух упоминаний оговорено.
 		"Len() ошибки не возвращает, а Len() возвращает ноль",
+		// Контраст неинициализированный/инициализированный: одно
+		// упоминание оговорено нулём, второе — точный контекст,
+		// ошибки не утверждает.
+		"Len() на неинициализированном Trie возвращает 0, а Len() на инициализированном — число слов",
+		// Второе упоминание — точный контекст без утверждения
+		// ошибки; достаточно одной оговорки в окне.
+		"Len() ошибки не возвращает; Len() при этом просто считает слова",
 	}
 	erroneous := []string{
 		// Len() включён в утверждающие ошибку методы.
@@ -661,8 +852,9 @@ func TestLenWordingSafe(t *testing.T) {
 		// Упоминание Len() без нуля, отрицания или исключения не
 		// считается оговоркой.
 		"Len() при этом просто считает слова",
-		// Второе, неоговорённое упоминание портит всю клаузу.
-		"Len() ошибки не возвращает; Len() при этом просто считает слова",
+		// Оговорка «кроме …» называет чужой метод: точка с запятой
+		// заканчивает перечисление, и Len() к нему не относится.
+		"ErrUninitializedTrie возникает на любой вызов, кроме Delete; Len() при этом просто считает слова",
 		// Отрицание при наречии меры утверждение об ошибке не
 		// снимает: «не всегда» — значит, иногда возвращает.
 		"Len() возвращает ошибку не всегда",
@@ -684,8 +876,8 @@ func TestLenWordingSafe(t *testing.T) {
 // Таблица проверяет связанное окно из клаузы про ErrUninitializedTrie
 // и следующего за ней предложения: оговорка про Len() не обязана
 // делить с ошибкой одно предложение (SPEC, «Минимум API»), но
-// требования к каждому упоминанию Len() те же, что в lenWordingSafe
-// (тикет 43, ревью).
+// требование хотя бы одной оговорки и запрет утверждать ошибку для
+// Len() те же, что в lenWordingSafe (тикет 43, ревью).
 func TestLenNoteSafe(t *testing.T) {
 	accurate := []struct{ clause, next string }{
 		{
@@ -701,6 +893,25 @@ func TestLenNoteSafe(t *testing.T) {
 			// Отрицание ошибки по имени ошибки в отдельном предложении.
 			clause: "ErrUninitializedTrie до проверки входа возвращают Insert, Search, StartsWith и Delete",
 			next:   "Len() не возвращает ErrUninitializedTrie",
+		},
+		{
+			// Контраст неинициализированный/инициализированный:
+			// упоминание в клаузе оговорено нулём, второе — точный
+			// контекст, ошибки не утверждает.
+			clause: "неинициализированный Trie отвечает ErrUninitializedTrie до проверки входа; Len() при этом возвращает 0",
+			next:   "Len() на инициализированном Trie возвращает число слов",
+		},
+		{
+			// Самостоятельная заметка о сложности Len() следующим
+			// предложением ошибку не утверждает.
+			clause: "неинициализированный Trie отвечает ErrUninitializedTrie до проверки входа; Len() при этом возвращает 0",
+			next:   "Len() выполняется за константное время",
+		},
+		{
+			// Второе упоминание — точный контекст без утверждения
+			// ошибки; достаточно одной оговорки в окне.
+			clause: "неинициализированный Trie отвечает ErrUninitializedTrie до проверки входа",
+			next:   "Len() ошибки не возвращает; Len() при этом просто считает слова",
 		},
 	}
 	erroneous := []struct{ clause, next string }{
@@ -718,10 +929,10 @@ func TestLenNoteSafe(t *testing.T) {
 			next:   "Len() при этом просто считает слова",
 		},
 		{
-			// Неоговорённое упоминание в следующем предложении
-			// портит всё окно.
-			clause: "неинициализированный Trie отвечает ErrUninitializedTrie до проверки входа",
-			next:   "Len() ошибки не возвращает; Len() при этом просто считает слова",
+			// Оговорка «кроме …» называет чужой метод: точка с
+			// запятой заканчивает перечисление, и Len() к нему
+			// не относится.
+			clause: "ErrUninitializedTrie возникает на любой вызов, кроме Delete; Len() при этом просто считает слова",
 		},
 	}
 	for _, tc := range accurate {
