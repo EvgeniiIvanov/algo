@@ -301,6 +301,19 @@ func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
 	assertModulesInOrder(t, block2.Modules, "bst-balancing", "b-trees")
 }
 
+// Тест порядка модулей Блока 2 (тикет 43): модуль trie присутствует в
+// block-2 и идёт после b-trees, замыкая цепочку
+// tree-traversals → bst → bst-balancing → b-trees → trie.
+func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
+	bank, err := EmbeddedBank()
+	if err != nil {
+		t.Fatalf("EmbeddedBank: %v", err)
+	}
+	_, block2 := findBlock(t, bank, "block-2")
+	assertModulesInOrder(t, block2.Modules,
+		"tree-traversals", "bst", "bst-balancing", "b-trees", "trie")
+}
+
 // Регрессия тикета 39 (ревью): семантически нагруженные формулировки
 // вопросов модуля b-trees. Связь «k ключей — k + 1 потомок» обязана
 // оговаривать внутренний узел (у листа потомков нет), а вопрос о
