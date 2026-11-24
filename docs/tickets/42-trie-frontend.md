@@ -4,7 +4,7 @@
 
 **Blocked by:** 41 (нужен контракт серверного Run и снимков `kind="trie"`).
 
-**Status:** in-progress
+**Status:** done
 
 Спека: `docs/SPEC.md`, модуль «Trie: вставка, поиск, префиксы и удаление».
 
