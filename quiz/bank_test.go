@@ -165,17 +165,75 @@ func embeddedBlock1WithModules(t *testing.T, ids ...string) (*Block, []int) {
 	return block1, indices
 }
 
-// embeddedBlock загружает встроенный банк и возвращает указатель на
-// блок с данным id или завершает тест, если загрузить банк не удалось
-// или блока с таким id в нём нет.
-func embeddedBlock(t *testing.T, id string) *Block {
+// embeddedBank загружает встроенный банк или завершает тест, если
+// загрузить банк не удалось. Единая точка загрузки для всех тестов,
+// которым нужен банк целиком; отдельный блок удобнее брать через
+// embeddedBlock.
+func embeddedBank(t *testing.T) *Bank {
 	t.Helper()
 	bank, err := EmbeddedBank()
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
+	return bank
+}
+
+// embeddedBlock загружает встроенный банк и возвращает указатель на
+// блок с данным id или завершает тест, если загрузить банк не удалось
+// или блока с таким id в нём нет.
+func embeddedBlock(t *testing.T, id string) *Block {
+	t.Helper()
+	bank := embeddedBank(t)
 	_, b := findBlock(t, bank, id)
 	return b
+}
+
+// embeddedModule загружает встроенный банк и возвращает указатель на
+// модуль с данным id или завершает тест, если банка, блока или модуля
+// с такими id в нём нет.
+func embeddedModule(t *testing.T, blockID, moduleID string) *Module {
+	t.Helper()
+	block := embeddedBlock(t, blockID)
+	idx := moduleIndexByID(block.Modules, moduleID)
+	if idx == -1 {
+		t.Fatalf("в блоке %s нет модуля %s", blockID, moduleID)
+	}
+	return &block.Modules[idx]
+}
+
+// questionByMarker возвращает единственный вопрос модуля, в тексте
+// которого встречается маркер, или завершает тест, если маркер не
+// совпал ни с одним вопросом либо совпал больше чем с одним:
+// неоднозначный маркер нельзя молча сводить к первому совпадению —
+// тест мог бы незаметно проверять другой вопрос.
+func questionByMarker(t *testing.T, moduleID string, questions []Question, marker string) *Question {
+	t.Helper()
+	var found []int
+	for i := range questions {
+		if strings.Contains(questions[i].Text, marker) {
+			found = append(found, i)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return &questions[found[0]]
+	case 0:
+		t.Fatalf("в модуле %s нет вопроса с маркером %q", moduleID, marker)
+	default:
+		t.Fatalf("маркер %q совпал с несколькими вопросами модуля %s (индексы %v); уточните маркер",
+			marker, moduleID, found)
+	}
+	return nil
+}
+
+// containsAny сообщает, встречается ли в s хотя бы один из фрагментов.
+func containsAny(s string, fragments ...string) bool {
+	for _, f := range fragments {
+		if strings.Contains(s, f) {
+			return true
+		}
+	}
+	return false
 }
 
 // assertModulesInOrder проверяет, что модули с перечисленными id идут
@@ -239,10 +297,7 @@ func TestEmbeddedBankBlock1DivideAndConquerAfterSimpleSorts(t *testing.T) {
 // («Деревья») идёт после block-1, и первым модулем в нём стоит
 // tree-traversals.
 func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
+	bank := embeddedBank(t)
 
 	block1Idx, _ := findBlock(t, bank, "block-1")
 	block2Idx, block2 := findBlock(t, bank, "block-2")
@@ -307,29 +362,12 @@ func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
 // (новым корнем). Проверки идут по коротким маркерам у публичного шва
 // банка, а не повторяют формулировки целиком.
 func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
-	block2 := embeddedBlock(t, "block-2")
-	idx := moduleIndexByID(block2.Modules, "b-trees")
-	if idx == -1 {
-		t.Fatal("в block-2 нет модуля b-trees")
-	}
-	questions := block2.Modules[idx].Questions
-
-	// questionByMarker возвращает первый вопрос, в тексте которого
-	// встречается маркер, или завершает тест.
-	questionByMarker := func(marker string) *Question {
-		for i := range questions {
-			if strings.Contains(questions[i].Text, marker) {
-				return &questions[i]
-			}
-		}
-		t.Fatalf("в модуле b-trees нет вопроса с маркером %q", marker)
-		return nil
-	}
+	questions := embeddedModule(t, "block-2", "b-trees").Questions
 
 	// Вопрос о числе потомков оговаривает внутренний узел, а не любой
 	// узел: универсальное «k ключей — k + 1 потомок» было бы ложным для
 	// листа.
-	q := questionByMarker("внутренн")
+	q := questionByMarker(t, "b-trees", questions, "внутренн")
 	if !strings.Contains(q.Text, "потомк") {
 		t.Errorf("вопрос про k ключей не спрашивает про потомков: %q", q.Text)
 	}
@@ -343,7 +381,7 @@ func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
 	// Вопрос о расщеплении заполненного узла описывает корень-лист:
 	// продвинутый разделитель сам становится родителем (новым корнем),
 	// «продвинется в родителя» для корня было бы неверно.
-	q = questionByMarker("корень-лист")
+	q = questionByMarker(t, "b-trees", questions, "корень-лист")
 	correct := q.Options[q.Correct]
 	if !strings.Contains(correct, "родител") || !strings.Contains(correct, "корн") {
 		t.Errorf("правильный ответ должен назначать продвинутый ключ родителем (новым корнем), получено: %q", correct)
@@ -354,49 +392,80 @@ func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
 }
 
 // Регрессия тикета 43 (ревью): вопрос trie о пустом слове обязан точно
-// описывать поведение неинициализированного Trie. Ошибка
+// описывать поведение неинициализированного Trie (SPEC, «Минимум API»):
 // ErrUninitializedTrie возникает на вызовы Insert, Search, StartsWith
-// и Delete, а Len() при этом возвращает 0; прежняя формулировка «на
-// любой вызов» была неточной — её возвращение этот тест ловит.
+// и Delete, причём проверка инициализации предшествует проверкам ввода
+// — в том числе вместо ошибок пустого слова, — а Len() при этом
+// возвращает 0; прежняя формулировка «на любой вызов» была неточной.
 func TestEmbeddedBankTrieEmptyWordQuestionSemantics(t *testing.T) {
-	block2 := embeddedBlock(t, "block-2")
-	idx := moduleIndexByID(block2.Modules, "trie")
-	if idx == -1 {
-		t.Fatal("в block-2 нет модуля trie")
-	}
-	questions := block2.Modules[idx].Questions
+	questions := embeddedModule(t, "block-2", "trie").Questions
 
-	// questionByMarker возвращает первый вопрос, в тексте которого
-	// встречается маркер, или завершает тест.
-	questionByMarker := func(marker string) *Question {
-		for i := range questions {
-			if strings.Contains(questions[i].Text, marker) {
-				return &questions[i]
-			}
+	// Вопрос про пустое слово ищем по фразе из его текста;
+	// questionByMarker завершит тест, если маркер перестанет совпадать
+	// или станет неоднозначным, — другой вопрос под видом этого тест
+	// проверить не может.
+	q := questionByMarker(t, "trie", questions, "операции с пустым словом")
+
+	// Контроль идентичности вопроса: правильный ответ описывает
+	// операции на пустом слове, а не что-то другое с той же фразой.
+	correct := q.Options[q.Correct]
+	for _, fragment := range []string{`Search("")`, `StartsWith("")`} {
+		if !strings.Contains(correct, fragment) {
+			t.Errorf("правильный ответ не описывает %s на пустом слове: %q", fragment, correct)
 		}
-		t.Fatalf("в модуле trie нет вопроса с маркером %q", marker)
-		return nil
 	}
 
-	// Вопрос про пустое слово затрагивает неинициализированный Trie.
-	q := questionByMarker("пустым словом")
-	if !strings.Contains(q.Explanation, "ErrUninitializedTrie") {
-		t.Errorf("пояснение не называет ErrUninitializedTrie: %q", q.Explanation)
+	// Все проверки ниже — по клаузе про неинициализированный Trie, а
+	// не по всему пояснению: Insert и Delete встречаются в именах
+	// ErrInsertEmptyWord/ErrDeleteEmptyWord, а Search и StartsWith —
+	// в первой части пояснения про пустые запросы, поэтому проверки по
+	// всему тексту не отличают клаузу от случайных совпадений.
+	clauseStart := strings.Index(q.Explanation, "неинициализированн")
+	if clauseStart == -1 {
+		t.Fatalf("пояснение не описывает поведение неинициализированного Trie: %q", q.Explanation)
 	}
+	clause := q.Explanation[clauseStart:]
 
-	// Ошибка неинициализированного Trie названа для каждой из четырёх
-	// мутирующих/читающих операций, а не «на любой вызов».
+	errIdx := strings.Index(clause, "ErrUninitializedTrie")
+	if errIdx == -1 {
+		t.Fatalf("клауза про неинициализированный Trie не называет ErrUninitializedTrie: %q", clause)
+	}
+	// Хвост клаузы после имени ошибки: перечисление методов, оговорка о
+	// порядке проверок и Len() обязаны быть связаны с ошибкой здесь.
+	errTail := clause[errIdx:]
+
+	// Ошибка названа для каждой из четырёх операций с
+	// результатом-ошибкой: Insert, Search, StartsWith, Delete.
 	for _, op := range []string{"Insert", "Search", "StartsWith", "Delete"} {
-		if !strings.Contains(q.Explanation, op) {
-			t.Errorf("пояснение не связывает ErrUninitializedTrie с %s: %q", op, q.Explanation)
+		if !strings.Contains(errTail, op) {
+			t.Errorf("клауза не связывает ErrUninitializedTrie с %s: %q", op, clause)
 		}
 	}
-	if strings.Contains(q.Explanation, "на любой вызов") {
-		t.Errorf("пояснение снова утверждает, что ошибка возникает на любой вызов: %q", q.Explanation)
+
+	// Проверка инициализации предшествует проверкам ввода — в том числе
+	// вместо ошибок пустого слова (SPEC, «Минимум API»). Допускаем
+	// варианты формулировки порядка, но не его отсутствие.
+	if !containsAny(errTail,
+		"до проверки", "прежде проверки", "до валидации", "прежде валидации") {
+		t.Errorf("клауза не оговаривает, что проверка инициализации предшествует проверкам ввода: %q", clause)
+	}
+	if !strings.Contains(errTail, "пустого слова") && !strings.Contains(errTail, "EmptyWord") {
+		t.Errorf("клауза не оговаривает, что ErrUninitializedTrie возвращается вместо ошибок пустого слова: %q", clause)
 	}
 
-	// Len() на неинициализированном Trie возвращает 0, а не ошибку.
-	if !strings.Contains(q.Explanation, "Len()") || !strings.Contains(q.Explanation, "возвращает 0") {
-		t.Errorf("пояснение не говорит, что Len() на неинициализированном Trie возвращает 0: %q", q.Explanation)
+	// Len() на неинициализированном Trie возвращает 0, а не ошибку:
+	// упоминание Len() в клаузе обязано идти вместе с нулём.
+	lenIdx := strings.Index(clause, "Len()")
+	if lenIdx == -1 {
+		t.Fatalf("клауза про неинициализированный Trie не упоминает Len(): %q", clause)
 	}
+	if !strings.Contains(clause[lenIdx:], "возвращает 0") {
+		t.Errorf("клауза не говорит, что Len() на неинициализированном Trie возвращает 0: %q", clause)
+	}
+
+	// Негативная проверка на прежнюю неточную формулировку «на любой
+	// вызов» не нужна: проверки выше идут по клаузе и требуют
+	// перечислить ровно четыре метода с ошибкой при Len() = 0, поэтому
+	// чрезмерно широкое утверждение об ошибке «на любой вызов» больше
+	// не может пройти этот тест незамеченным.
 }
