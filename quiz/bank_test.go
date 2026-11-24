@@ -138,14 +138,6 @@ func findBlock(t *testing.T, bank *Bank, id string) (int, *Block) {
 	return 0, nil
 }
 
-// findBlock1 возвращает указатель на блок block-1 встроенного банка
-// или завершает тест, если такого блока нет.
-func findBlock1(t *testing.T, bank *Bank) *Block {
-	t.Helper()
-	_, b := findBlock(t, bank, "block-1")
-	return b
-}
-
 // moduleIndexByID возвращает индекс модуля с данным id или -1, если
 // модуля нет. Дубликаты id исключены валидацией банка.
 func moduleIndexByID(modules []Module, id string) int {
@@ -157,16 +149,12 @@ func moduleIndexByID(modules []Module, id string) int {
 	return -1
 }
 
-// embeddedBlock1WithModules загружает встроенный банк, находит в нём
-// block-1 и убеждается, что все перечисленные модули присутствуют.
+// embeddedBlock1WithModules находит block-1 во встроенном банке и
+// убеждается, что все перечисленные модули присутствуют.
 // Возвращает блок и индексы модулей в порядке их перечисления.
 func embeddedBlock1WithModules(t *testing.T, ids ...string) (*Block, []int) {
 	t.Helper()
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	block1 := findBlock1(t, bank)
+	block1 := embeddedBlock(t, "block-1")
 	indices := make([]int, len(ids))
 	for i, id := range ids {
 		indices[i] = moduleIndexByID(block1.Modules, id)
@@ -177,16 +165,17 @@ func embeddedBlock1WithModules(t *testing.T, ids ...string) (*Block, []int) {
 	return block1, indices
 }
 
-// embeddedBlock2 загружает встроенный банк и возвращает указатель на
-// блок block-2 или завершает тест, если банка или блока нет.
-func embeddedBlock2(t *testing.T) *Block {
+// embeddedBlock загружает встроенный банк и возвращает указатель на
+// блок с данным id или завершает тест, если загрузить банк не удалось
+// или блока с таким id в нём нет.
+func embeddedBlock(t *testing.T, id string) *Block {
 	t.Helper()
 	bank, err := EmbeddedBank()
 	if err != nil {
 		t.Fatalf("EmbeddedBank: %v", err)
 	}
-	_, block2 := findBlock(t, bank, "block-2")
-	return block2
+	_, b := findBlock(t, bank, id)
+	return b
 }
 
 // assertModulesInOrder проверяет, что модули с перечисленными id идут
@@ -282,14 +271,14 @@ func TestEmbeddedBankBlock2StartsWithTreeTraversals(t *testing.T) {
 // Тест порядка модулей Блока 2 (тикет 37): модуль bst присутствует в
 // block-2 и идёт после tree-traversals.
 func TestEmbeddedBankBlock2BSTAfterTreeTraversals(t *testing.T) {
-	block2 := embeddedBlock2(t)
+	block2 := embeddedBlock(t, "block-2")
 	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst")
 }
 
 // Тест порядка модулей Блока 2 (тикет 38): модуль bst-balancing
 // присутствует в block-2 и идёт после bst.
 func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
-	block2 := embeddedBlock2(t)
+	block2 := embeddedBlock(t, "block-2")
 	assertModulesInOrder(t, block2.Modules, "tree-traversals", "bst", "bst-balancing")
 }
 
@@ -297,7 +286,7 @@ func TestEmbeddedBankBlock2BSTBalancingAfterBST(t *testing.T) {
 // в block-2 и идёт после bst-balancing; остальная цепочка
 // tree-traversals → bst → bst-balancing покрыта тестами тикетов 37 и 38.
 func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
-	block2 := embeddedBlock2(t)
+	block2 := embeddedBlock(t, "block-2")
 	assertModulesInOrder(t, block2.Modules, "bst-balancing", "b-trees")
 }
 
@@ -305,7 +294,7 @@ func TestEmbeddedBankBlock2BTreesAfterBSTBalancing(t *testing.T) {
 // block-2 и идёт после b-trees, замыкая цепочку
 // tree-traversals → bst → bst-balancing → b-trees → trie.
 func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
-	block2 := embeddedBlock2(t)
+	block2 := embeddedBlock(t, "block-2")
 	assertModulesInOrder(t, block2.Modules,
 		"tree-traversals", "bst", "bst-balancing", "b-trees", "trie")
 }
@@ -318,11 +307,7 @@ func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
 // (новым корнем). Проверки идут по коротким маркерам у публичного шва
 // банка, а не повторяют формулировки целиком.
 func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
-	bank, err := EmbeddedBank()
-	if err != nil {
-		t.Fatalf("EmbeddedBank: %v", err)
-	}
-	_, block2 := findBlock(t, bank, "block-2")
+	block2 := embeddedBlock(t, "block-2")
 	idx := moduleIndexByID(block2.Modules, "b-trees")
 	if idx == -1 {
 		t.Fatal("в block-2 нет модуля b-trees")
@@ -365,5 +350,53 @@ func TestEmbeddedBankBTreesQuestionSemantics(t *testing.T) {
 	}
 	if !strings.Contains(q.Explanation, "новым корн") {
 		t.Errorf("пояснение не проговаривает появление нового корня: %q", q.Explanation)
+	}
+}
+
+// Регрессия тикета 43 (ревью): вопрос trie о пустом слове обязан точно
+// описывать поведение неинициализированного Trie. Ошибка
+// ErrUninitializedTrie возникает на вызовы Insert, Search, StartsWith
+// и Delete, а Len() при этом возвращает 0; прежняя формулировка «на
+// любой вызов» была неточной — её возвращение этот тест ловит.
+func TestEmbeddedBankTrieEmptyWordQuestionSemantics(t *testing.T) {
+	block2 := embeddedBlock(t, "block-2")
+	idx := moduleIndexByID(block2.Modules, "trie")
+	if idx == -1 {
+		t.Fatal("в block-2 нет модуля trie")
+	}
+	questions := block2.Modules[idx].Questions
+
+	// questionByMarker возвращает первый вопрос, в тексте которого
+	// встречается маркер, или завершает тест.
+	questionByMarker := func(marker string) *Question {
+		for i := range questions {
+			if strings.Contains(questions[i].Text, marker) {
+				return &questions[i]
+			}
+		}
+		t.Fatalf("в модуле trie нет вопроса с маркером %q", marker)
+		return nil
+	}
+
+	// Вопрос про пустое слово затрагивает неинициализированный Trie.
+	q := questionByMarker("пустым словом")
+	if !strings.Contains(q.Explanation, "ErrUninitializedTrie") {
+		t.Errorf("пояснение не называет ErrUninitializedTrie: %q", q.Explanation)
+	}
+
+	// Ошибка неинициализированного Trie названа для каждой из четырёх
+	// мутирующих/читающих операций, а не «на любой вызов».
+	for _, op := range []string{"Insert", "Search", "StartsWith", "Delete"} {
+		if !strings.Contains(q.Explanation, op) {
+			t.Errorf("пояснение не связывает ErrUninitializedTrie с %s: %q", op, q.Explanation)
+		}
+	}
+	if strings.Contains(q.Explanation, "на любой вызов") {
+		t.Errorf("пояснение снова утверждает, что ошибка возникает на любой вызов: %q", q.Explanation)
+	}
+
+	// Len() на неинициализированном Trie возвращает 0, а не ошибку.
+	if !strings.Contains(q.Explanation, "Len()") || !strings.Contains(q.Explanation, "возвращает 0") {
+		t.Errorf("пояснение не говорит, что Len() на неинициализированном Trie возвращает 0: %q", q.Explanation)
 	}
 }
