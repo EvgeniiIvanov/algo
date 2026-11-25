@@ -1689,6 +1689,15 @@ func TestEmbeddedBankBlock2TrieAfterBTrees(t *testing.T) {
 		"tree-traversals", "bst", "bst-balancing", "b-trees", "trie")
 }
 
+// Тест порядка модулей Блока 2 (тикет 44): модуль kd-dom-ast присутствует
+// в block-2 и идёт после trie, замыкая цепочку
+// tree-traversals → bst → bst-balancing → b-trees → trie → kd-dom-ast.
+func TestEmbeddedBankBlock2KdDomAstAfterTrie(t *testing.T) {
+	block2 := embeddedBlock(t, "block-2")
+	assertModulesInOrder(t, block2.Modules,
+		"tree-traversals", "bst", "bst-balancing", "b-trees", "trie", "kd-dom-ast")
+}
+
 // Регрессия тикета 39 (ревью): семантически нагруженные формулировки
 // вопросов модуля b-trees. Связь «k ключей — k + 1 потомок» обязана
 // оговаривать внутренний узел (у листа потомков нет), а вопрос о
@@ -1853,5 +1862,48 @@ func TestEmbeddedBankTrieEmptyWordQuestionSemantics(t *testing.T) {
 	// «любой вызов» включал бы и Len(), который ошибки не возвращает.
 	if universalCallWording(clause) {
 		t.Errorf("клауза не вправе утверждать, что ErrUninitializedTrie возникает на любой/все/каждый вызов или метод: %q", clause)
+	}
+}
+
+// Регрессия тикета 44: два семантически нагруженных вопроса модуля
+// kd-dom-ast. Вопрос про сложность поиска ближайшего соседа не вправе
+// обещать гарантированную O(log n): отсечение зависит от данных и формы
+// дерева, и в худшем случае осматриваются все точки. Вопрос про общее у
+// трёх структур обязан закреплять границу аналогии — общее только
+// древовидное представление, а не семантика или тип ветвления. Проверки
+// идут по коротким маркерам у публичного шва банка, а не повторяют
+// формулировки целиком; маркеры уникальны в модуле, чтобы похожий новый
+// вопрос не нарушал проверку.
+func TestEmbeddedBankKdDomAstQuestionSemantics(t *testing.T) {
+	questions := embeddedModule(t, "block-2", "kd-dom-ast").Questions
+
+	// Вопрос про отсечение: правильный ответ отрицает гарантию и
+	// называет худший случай, а пояснение проговаривает и то, что
+	// отсечение может помочь, и то, что гарантии сложности нет.
+	q := questionByMarker(t, "kd-dom-ast", questions, "Гарантирует")
+	correct := q.Options[q.Correct]
+	if !containsAny(correct, "Нет") {
+		t.Errorf("правильный ответ должен отрицать гарантию O(log n): %q", correct)
+	}
+	if !containsAny(correct, "худш") || !containsAny(correct, "n точек") {
+		t.Errorf("правильный ответ должен называть худший случай со всеми точками: %q", correct)
+	}
+	if !containsAny(q.Explanation, "может помочь") || !containsAny(q.Explanation, "не") {
+		t.Errorf("пояснение должно разделять «отсечение может помочь» и отсутствие гарантии: %q", q.Explanation)
+	}
+
+	// Вопрос про границу аналогии: правильный ответ сводит общее трёх
+	// структур к древовидной форме и отмечает различие семантики и
+	// ветвления; уравнивать структуры через BST-семантику нельзя.
+	q = questionByMarker(t, "kd-dom-ast", questions, "граница аналогии")
+	correct = q.Options[q.Correct]
+	if !containsAny(correct, "древовидн") {
+		t.Errorf("правильный ответ должен сводить общее к древовидной форме: %q", correct)
+	}
+	if !containsAny(correct, "семантик") || !containsAny(correct, "ветвлен") {
+		t.Errorf("правильный ответ должен отмечать различие семантики и типа ветвления: %q", correct)
+	}
+	if !containsAny(q.Explanation, "не переносит") {
+		t.Errorf("пояснение должно оговаривать, что аналогия не переносит свойства структур: %q", q.Explanation)
 	}
 }
