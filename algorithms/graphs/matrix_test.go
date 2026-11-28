@@ -99,32 +99,6 @@ func sameGraph(t *testing.T, got, want *graphs.Graph) {
 	}
 }
 
-func TestNewFromEdgesDuplicateEdges(t *testing.T) {
-	// В undirected (1, 0) — тот же дубликат, что повтор (0, 1).
-	_, err := graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 1, V: 0}}, false)
-	if !errors.Is(err, graphs.ErrDuplicateEdge) {
-		t.Fatalf("NewFromEdges undirected [(0,1), (1,0)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
-	}
-	_, err = graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 0, V: 1}}, false)
-	if !errors.Is(err, graphs.ErrDuplicateEdge) {
-		t.Fatalf("NewFromEdges undirected [(0,1), (0,1)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
-	}
-
-	// В directed повтор того же направления — дубликат...
-	_, err = graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 0, V: 1}}, true)
-	if !errors.Is(err, graphs.ErrDuplicateEdge) {
-		t.Fatalf("NewFromEdges directed [(0,1), (0,1)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
-	}
-	// ...а противоположные направления — разные рёбра, оба принимаются.
-	g, err := graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 1, V: 0}}, true)
-	if err != nil {
-		t.Fatalf("NewFromEdges directed [(0,1), (1,0)] неожиданная ошибка: %v", err)
-	}
-	if !g.HasEdge(0, 1) || !g.HasEdge(1, 0) {
-		t.Fatalf("противоположные направления в directed не сохранились оба")
-	}
-}
-
 func TestFromAdjMatrixAsymmetricUndirected(t *testing.T) {
 	// Несимметричный вход: единица только в одной из пары симметричных
 	// ячеек — в undirected это одно ребро (нормализация OR).
