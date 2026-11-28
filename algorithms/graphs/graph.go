@@ -61,7 +61,7 @@ func (g *Graph) Directed() bool { return g.directed }
 // номеров вершин. Несуществующая вершина — ошибка ErrVertexNotFound, без
 // паники. Изменение возвращённого слайса граф не меняет.
 func (g *Graph) Neighbors(v int) ([]int, error) {
-	if err := g.checkV(v); err != nil {
+	if err := g.checkVertex(v); err != nil {
 		return nil, err
 	}
 	nbrs := make([]int, len(g.adj[v]))
@@ -69,8 +69,8 @@ func (g *Graph) Neighbors(v int) ([]int, error) {
 	return nbrs, nil
 }
 
-// checkV проверяет, что v — существующая вершина графа.
-func (g *Graph) checkV(v int) error {
+// checkVertex проверяет, что v — существующая вершина графа.
+func (g *Graph) checkVertex(v int) error {
 	if v < 0 || v >= g.n {
 		return ErrVertexNotFound
 	}
@@ -82,10 +82,10 @@ func (g *Graph) checkV(v int) error {
 // режима), — ErrDuplicateEdge; петля разрешена. Соседи вершины u остаются
 // в возрастающем порядке.
 func (g *Graph) AddEdge(u, v int) error {
-	if err := g.checkV(u); err != nil {
+	if err := g.checkVertex(u); err != nil {
 		return err
 	}
-	if err := g.checkV(v); err != nil {
+	if err := g.checkVertex(v); err != nil {
 		return err
 	}
 	if g.hasEdge(u, v) {
@@ -98,18 +98,19 @@ func (g *Graph) AddEdge(u, v int) error {
 	return nil
 }
 
-// RemoveEdge удаляет ребро u→v (в undirected — в обе стороны). Отсутствующее
-// ребро удаляется без ошибки; вершина вне диапазона — ErrVertexNotFound.
+// RemoveEdge удаляет запись ребра u→v из списка соседей вершины u (в
+// undirected — также запись v→u из списка вершины v). Отсутствующее ребро —
+// no-op без ошибки; вершина вне диапазона — ErrVertexNotFound.
 func (g *Graph) RemoveEdge(u, v int) error {
-	if err := g.checkV(u); err != nil {
+	if err := g.checkVertex(u); err != nil {
 		return err
 	}
-	if err := g.checkV(v); err != nil {
+	if err := g.checkVertex(v); err != nil {
 		return err
 	}
-	g.adj[u] = removeFirst(g.adj[u], v)
+	g.adj[u] = removeFirstOccurrence(g.adj[u], v)
 	if !g.directed && u != v {
-		g.adj[v] = removeFirst(g.adj[v], u)
+		g.adj[v] = removeFirstOccurrence(g.adj[v], u)
 	}
 	return nil
 }
@@ -117,10 +118,10 @@ func (g *Graph) RemoveEdge(u, v int) error {
 // HasEdge сообщает, есть ли ребро u→v; для несуществующей вершины — false
 // (предикат: без ошибки и без паники).
 func (g *Graph) HasEdge(u, v int) bool {
-	if err := g.checkV(u); err != nil {
+	if err := g.checkVertex(u); err != nil {
 		return false
 	}
-	if err := g.checkV(v); err != nil {
+	if err := g.checkVertex(v); err != nil {
 		return false
 	}
 	return g.hasEdge(u, v)
@@ -129,18 +130,25 @@ func (g *Graph) HasEdge(u, v int) bool {
 // Degree возвращает длину списка соседей вершины v (петля учитывается один
 // раз — как один элемент списка); несуществующая вершина — ErrVertexNotFound.
 func (g *Graph) Degree(v int) (int, error) {
-	if err := g.checkV(v); err != nil {
+	if err := g.checkVertex(v); err != nil {
 		return 0, err
 	}
 	return len(g.adj[v]), nil
 }
 
+// hasEdge проверяет наличие ребра u→v бинарным поиском в упорядоченном
+// списке соседей вершины u.
 func (g *Graph) hasEdge(u, v int) bool {
 	s := g.adj[u]
 	i := sort.SearchInts(s, v)
 	return i < len(s) && s[i] == v
 }
 
+// insertSorted вставляет v в список соседей вершины u с сохранением
+// возрастающего порядка. Предусловие: ребра u→v ещё нет — публичные
+// дубликаты отклоняет AddEdge проверкой hasEdge до вставки; встроенная
+// проверка повтора ниже — страховка инварианта упорядоченности, а не
+// разрешённый путь для дубликатов.
 func (g *Graph) insertSorted(u, v int) {
 	s := g.adj[u]
 	i := sort.SearchInts(s, v)
@@ -153,7 +161,9 @@ func (g *Graph) insertSorted(u, v int) {
 	g.adj[u] = s
 }
 
-func removeFirst(s []int, x int) []int {
+// removeFirstOccurrence удаляет из слайса первую запись значения x и
+// возвращает укороченный слайс; отсутствующее значение — тот же слайс.
+func removeFirstOccurrence(s []int, x int) []int {
 	for i, y := range s {
 		if y == x {
 			return append(s[:i], s[i+1:]...)

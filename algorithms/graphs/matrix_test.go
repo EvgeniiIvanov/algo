@@ -99,6 +99,65 @@ func sameGraph(t *testing.T, got, want *graphs.Graph) {
 	}
 }
 
+func TestNewFromEdgesDuplicateEdges(t *testing.T) {
+	// В undirected (1, 0) — тот же дубликат, что повтор (0, 1).
+	_, err := graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 1, V: 0}}, false)
+	if !errors.Is(err, graphs.ErrDuplicateEdge) {
+		t.Fatalf("NewFromEdges undirected [(0,1), (1,0)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
+	}
+	_, err = graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 0, V: 1}}, false)
+	if !errors.Is(err, graphs.ErrDuplicateEdge) {
+		t.Fatalf("NewFromEdges undirected [(0,1), (0,1)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
+	}
+
+	// В directed повтор того же направления — дубликат...
+	_, err = graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 0, V: 1}}, true)
+	if !errors.Is(err, graphs.ErrDuplicateEdge) {
+		t.Fatalf("NewFromEdges directed [(0,1), (0,1)] = ошибка %v, ожидалась ErrDuplicateEdge", err)
+	}
+	// ...а противоположные направления — разные рёбра, оба принимаются.
+	g, err := graphs.NewFromEdges(3, []graphs.Edge{{U: 0, V: 1}, {U: 1, V: 0}}, true)
+	if err != nil {
+		t.Fatalf("NewFromEdges directed [(0,1), (1,0)] неожиданная ошибка: %v", err)
+	}
+	if !g.HasEdge(0, 1) || !g.HasEdge(1, 0) {
+		t.Fatalf("противоположные направления в directed не сохранились оба")
+	}
+}
+
+func TestFromAdjMatrixAsymmetricUndirected(t *testing.T) {
+	// Несимметричный вход: единица только в одной из пары симметричных
+	// ячеек — в undirected это одно ребро (нормализация OR).
+	m := [][]int{
+		{0, 1, 0, 0}, // m[0][1] = 1, m[1][0] = 0
+		{0, 0, 0, 0},
+		{0, 0, 0, 0},
+		{0, 0, 1, 0}, // m[3][2] = 1, m[2][3] = 0
+	}
+	g, err := graphs.FromAdjMatrix(m, false)
+	if err != nil {
+		t.Fatalf("FromAdjMatrix неожиданная ошибка: %v", err)
+	}
+	if !g.HasEdge(0, 1) || !g.HasEdge(1, 0) {
+		t.Fatalf("ячейка m[0][1] не стала ребром {0, 1} в обе стороны")
+	}
+	if !g.HasEdge(2, 3) || !g.HasEdge(3, 2) {
+		t.Fatalf("ячейка m[3][2] не стала ребром {2, 3} в обе стороны")
+	}
+	if got, want := neighborsOf(t, g, 0), []int{1}; !equalInts(got, want) {
+		t.Fatalf("Neighbors(0) = %v, ожидалось %v", got, want)
+	}
+	if got, want := neighborsOf(t, g, 1), []int{0}; !equalInts(got, want) {
+		t.Fatalf("Neighbors(1) = %v, ожидалось %v", got, want)
+	}
+	if got, want := neighborsOf(t, g, 2), []int{3}; !equalInts(got, want) {
+		t.Fatalf("Neighbors(2) = %v, ожидалось %v", got, want)
+	}
+	if got, want := neighborsOf(t, g, 3), []int{2}; !equalInts(got, want) {
+		t.Fatalf("Neighbors(3) = %v, ожидалось %v", got, want)
+	}
+}
+
 func TestFromAdjMatrixNotSquare(t *testing.T) {
 	// Рваная матрица: строка короче других — не квадрат V×V.
 	_, err := graphs.FromAdjMatrix([][]int{{0, 1}, {1}}, false)
