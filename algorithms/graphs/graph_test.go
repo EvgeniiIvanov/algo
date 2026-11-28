@@ -202,9 +202,23 @@ func TestSelfLoop(t *testing.T) {
 		if err != nil || deg != 1 {
 			t.Fatalf("directed=%v: Degree(2) = (%d, %v), ожидалось (1, nil)", directed, deg, err)
 		}
+
+		// Ребро без петли, инцидентное той же вершине, добавляет вторую
+		// запись списка: петля учитывается в Degree одной записью.
+		mustAddEdge(t, g, 2, 0)
+		deg, err = g.Degree(2)
+		if err != nil || deg != 2 {
+			t.Fatalf("directed=%v: Degree(2) с петлёй и ребром = (%d, %v), ожидалось (2, nil)", directed, deg, err)
+		}
+
 		m := g.ToAdjMatrix()
 		if m[2][2] != 1 {
 			t.Fatalf("directed=%v: m[2][2] = %d, ожидалось 1", directed, m[2][2])
+		}
+
+		// Повтор той же петли — дубликат в обоих режимах.
+		if err := g.AddEdge(2, 2); !errors.Is(err, graphs.ErrDuplicateEdge) {
+			t.Fatalf("directed=%v: повторный AddEdge(2, 2) = ошибка %v, ожидалась ErrDuplicateEdge", directed, err)
 		}
 	}
 }
